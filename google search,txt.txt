@@ -1,0 +1,57 @@
+以下是适合你填入 Google Programmable Search Engine 的域名列表（50 个上限，按优先级排列）：
+
+  编程/开发核心
+  *.stackoverflow.com/*
+  *.github.com/*
+  *.developer.mozilla.org/*
+  *.docs.python.org/*
+  *.learn.microsoft.com/*
+  *.devdocs.io/*
+  *.w3schools.com/*
+  *.geeksforgeeks.org/*
+  *.tutorialspoint.com/*
+  *.realpython.com/*
+  *.rust-lang.org/*
+  *.go.dev/*
+  *.typescriptlang.org/*
+  *.nodejs.org/*
+  *.docs.oracle.com/*
+
+  AI/机器学习
+  *.huggingface.co/*
+  *.pytorch.org/*
+  *.tensorflow.org/*
+  *.arxiv.org/*
+  *.paperswithcode.com/*
+  *.openai.com/*
+  *.docs.anthropic.com/*
+  *.platform.deepseek.com/*
+  *.scikit-learn.org/*
+  *.numpy.org/*
+  *.pandas.pydata.org/*
+  *.langchain.com/*
+
+  综合技术资讯
+  *.news.ycombinator.com/*
+  *.reddit.com/*
+  *.medium.com/*
+  *.dev.to/*
+  *.zhihu.com/*
+  *.juejin.cn/*
+  *.csdn.net/*
+  *.segmentfault.com/*
+  *.infoq.cn/*
+  *.v2ex.com/*
+
+  文档/参考
+  *.wikipedia.org/*
+  *.docs.docker.com/*
+  *.kubernetes.io/*
+  *.nginx.org/*
+  *.git-scm.com/*
+  *.cmake.org/*
+  *.cppreference.com/*
+  *.docs.rs/*
+  *.pkg.go.dev/*
+  *.pypi.org/*
+  *.npmjs.com/*

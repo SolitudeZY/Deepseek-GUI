@@ -135,7 +135,7 @@
             <option value="tavily">Tavily</option>
             <option value="duckduckgo">DuckDuckGo（免费）</option>
             <option value="bing">Bing Search</option>
-            <option value="google">Google Custom Search</option>
+            <option value="google">Google Custom Search（限定站点）</option>
             <option value="searxng">SearXNG（自建）</option>
           </select>
         </label>
@@ -148,7 +148,7 @@
         <p class="hint">注册地址：<a href="#" onclick="pywebview.api.open_url('https://portal.azure.com/#create/Microsoft.BingSearch');return false">Azure Portal → Bing Search</a> — 免费额度 1000 次/月</p>
         <label>Google API Key<input type="password" id="google-key" placeholder="AIza..."></label>
         <label>Google CX ID<input type="text" id="google-cx" placeholder="搜索引擎 ID"></label>
-        <p class="hint">API Key：<a href="#" onclick="pywebview.api.open_url('https://console.cloud.google.com/apis/credentials');return false">Google Cloud Console</a> — CX ID：<a href="#" onclick="pywebview.api.open_url('https://programmablesearchengine.google.com/controlpanel/all');return false">Programmable Search Engine</a> — 免费 100 次/天</p>
+        <p class="hint">API Key：<a href="#" onclick="pywebview.api.open_url('https://console.cloud.google.com/apis/credentials');return false">Google Cloud Console</a> — CX ID：<a href="#" onclick="pywebview.api.open_url('https://programmablesearchengine.google.com/controlpanel/all');return false">Programmable Search Engine</a> — 免费 100 次/天。注意：2026年起新建引擎只能搜索指定的最多 50 个域名，不支持全网搜索。</p>
         <label>SearXNG URL<input type="text" id="searxng-url" placeholder="http://localhost:8888"></label>
         <p class="hint">自建教程：<a href="#" onclick="pywebview.api.open_url('https://docs.searxng.org/admin/installation.html');return false">docs.searxng.org</a> — 或使用公共实例如 searx.be</p>
         <hr style="border-color:var(--border);margin:12px 0">
