@@ -177,19 +177,47 @@ def run_command(command: str, timeout: int = 30, stop_flag=None) -> str:
 
 
 def web_search(query: str, max_results: int = 5, engine: str = "tavily",
-               api_keys: dict = None, fallback: bool = True) -> str:
-    """统一搜索入口。engine 指定首选引擎，fallback=True 时失败自动降级。"""
+               api_keys: dict = None, fallback: bool = True,
+               auto_read: int = 3, read_chars: int = 8000) -> str:
+    """统一搜索入口。engine 指定首选引擎，fallback=True 时失败自动降级。
+    auto_read: 自动读取前 N 个结果的完整网页内容（0=不读取）。
+    read_chars: 每个网页最多读取的字符数。
+    """
     api_keys = api_keys or {}
     order = _build_engine_order(engine, api_keys)
     last_error = ""
     for eng in order:
         result = _search_by_engine(eng, query, max_results, api_keys)
         if not result.startswith("搜索失败") and not result.startswith("错误"):
+            # Auto-read top results to provide full page content
+            if auto_read > 0:
+                result = _enrich_with_full_content(result, eng, query, max_results, api_keys, auto_read, read_chars)
             return f"[{eng}] {result}"
         last_error = result
         if not fallback:
             return result
     return last_error or "所有搜索引擎均失败"
+
+
+def _enrich_with_full_content(search_result: str, engine: str, query: str,
+                               max_results: int, api_keys: dict,
+                               auto_read: int, read_chars: int) -> str:
+    """Fetch full page content for top search results and append to output."""
+    import re as _re
+    # Extract URLs from the formatted search result
+    urls = _re.findall(r'URL: (https?://\S+)', search_result)
+    if not urls:
+        return search_result
+
+    parts = [search_result, "\n\n--- 以下为搜索结果的完整网页内容 ---\n"]
+    for i, url in enumerate(urls[:auto_read]):
+        try:
+            content = web_read(url, max_chars=read_chars)
+            if content and not content.startswith("读取失败"):
+                parts.append(f"\n### [{i+1}] {url}\n{content}\n")
+        except Exception:
+            pass
+    return "\n".join(parts)
 
 
 # ── 引擎降级顺序 ────────────────────────────────────────────────────
