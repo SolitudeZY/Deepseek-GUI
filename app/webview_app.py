@@ -45,7 +45,13 @@ class API:
         self._tasks = TaskManager()
         self._bg = BackgroundManager()
         # Persist thinking/search state from config
-        self._thinking = bool(self._config.get("thinking", True))
+        thinking_val = self._config.get("thinking", "high")
+        # Migrate old bool values
+        if thinking_val is True:
+            thinking_val = "high"
+        elif thinking_val is False:
+            thinking_val = "off"
+        self._thinking = thinking_val  # "off" | "high" | "max"
         self._search_mode = self._config.get("search_mode", "auto")    # "auto" | "manual"
         self._search_enabled = bool(self._config.get("search_enabled", True))
         # Track command prefix approvals for wildcard suggestion
@@ -98,8 +104,11 @@ class API:
     def reorder_conversations(self, ids: list) -> None:
         update_sort_orders(ids)
 
-    def set_thinking(self, enabled: bool) -> None:
-        self._thinking = bool(enabled)
+    def set_thinking(self, level: str) -> None:
+        """level: 'off' | 'high' | 'max'"""
+        if level not in ("off", "high", "max"):
+            level = "high"
+        self._thinking = level
         self._config["thinking"] = self._thinking
         save_config(self._config)
 
@@ -331,6 +340,7 @@ class API:
                 on_todo_update=self._on_todo_update,
                 on_context_update=self._on_context_update,
                 on_thinking=self._on_thinking,
+                on_usage=self._on_usage,
             )
 
         threading.Thread(target=run, daemon=True).start()
@@ -372,6 +382,7 @@ class API:
                 on_todo_update=self._on_todo_update,
                 on_context_update=self._on_context_update,
                 on_thinking=self._on_thinking,
+                on_usage=self._on_usage,
             )
 
         threading.Thread(target=run, daemon=True).start()
@@ -392,6 +403,9 @@ class API:
 
     def _on_thinking(self, token: str):
         self._js(f'Chat.appendThinking({json.dumps(token)})')
+
+    def _on_usage(self, usage_data: dict):
+        self._js(f'Chat.updateUsage({json.dumps(usage_data)})')
 
     def _on_tool_start(self, tool_name: str, args: dict):
         self._js(f'Chat.showToolCall({json.dumps(tool_name)}, {json.dumps(args)})')

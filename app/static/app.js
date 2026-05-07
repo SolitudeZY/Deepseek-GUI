@@ -446,6 +446,21 @@ window.Chat = {
   updateContext(used, total) {
     updateContextBar(used, total);
   },
+  updateUsage(data) {
+    const r = data.round || {};
+    const s = data.session || {};
+    const roundTotal = (r.prompt || 0) + (r.completion || 0);
+    const sessionTotal = (s.prompt_tokens || 0) + (s.completion_tokens || 0);
+    const cacheHit = s.cache_hit_tokens || 0;
+    const cacheMiss = s.cache_miss_tokens || 0;
+    const cacheRate = (cacheHit + cacheMiss) > 0
+      ? Math.round(cacheHit / (cacheHit + cacheMiss) * 100) + '%'
+      : '-';
+    const fmt = n => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
+    $('cost-round').textContent = `本轮: ${fmt(roundTotal)}`;
+    $('cost-session').textContent = `会话: ${fmt(sessionTotal)}`;
+    $('cost-cache').textContent = `缓存: ${cacheRate}`;
+  },
   appendThinking(token) {
     if (!_thinkingBubble) {
       _thinkingBubble = document.createElement('div');
@@ -862,20 +877,31 @@ async function refreshWorktreePanel() {
   } catch { /* ignore if API not ready */ }
 }
 
-// ── Thinking mode toggle ──────────────────────────────────────────
+// ── Thinking mode toggle (off / high / max) ─────────────────────
 let _thinkingBubble = null;
 let _thinkingContent = '';
+const _thinkingLevels = ['off', 'high', 'max'];
+const _thinkingLabels = { off: '关', high: '高', max: '深' };
 
-function initThinkingBtn(active) {
+function initThinkingBtn(level) {
+  // Migrate old bool values
+  if (level === true) level = 'high';
+  if (level === false) level = 'off';
   const btn = $('btn-thinking');
-  btn.classList.toggle('active', !!active);
-  window.pywebview.api.set_thinking(!!active);
+  btn.dataset.level = level || 'high';
+  btn.textContent = `💭 ${_thinkingLabels[btn.dataset.level] || '高'}`;
+  btn.classList.toggle('active', btn.dataset.level !== 'off');
 }
 
 $('btn-thinking').addEventListener('click', () => {
   const btn = $('btn-thinking');
-  const active = btn.classList.toggle('active');
-  window.pywebview.api.set_thinking(active);
+  const cur = btn.dataset.level || 'off';
+  const idx = (_thinkingLevels.indexOf(cur) + 1) % _thinkingLevels.length;
+  const next = _thinkingLevels[idx];
+  btn.dataset.level = next;
+  btn.textContent = `💭 ${_thinkingLabels[next]}`;
+  btn.classList.toggle('active', next !== 'off');
+  window.pywebview.api.set_thinking(next);
 });
 
 // ── Search mode button ────────────────────────────────────────────

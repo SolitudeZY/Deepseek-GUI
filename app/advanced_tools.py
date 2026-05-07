@@ -258,6 +258,43 @@ def auto_compact(messages: list, client, model: str) -> list:
             {"role": "assistant", "content": "已了解之前的对话内容，请继续。"}]
 
 
+# ── RLM 并行子任务 ──────────────────────────────────────────────────
+def run_rlm(prompts: list[str], api_key: str, base_url: str,
+            model: str = "deepseek-v4-flash", system_prompt: str = "") -> str:
+    """Dispatch 1-16 prompts to a low-cost model in parallel, return aggregated results."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from openai import OpenAI
+
+    if not prompts:
+        return "错误：prompts 列表为空"
+    if len(prompts) > 16:
+        prompts = prompts[:16]
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    sys_msg = [{"role": "system", "content": system_prompt}] if system_prompt else []
+
+    def _call(idx: int, prompt: str) -> tuple[int, str]:
+        try:
+            msgs = sys_msg + [{"role": "user", "content": prompt}]
+            resp = client.chat.completions.create(model=model, messages=msgs)
+            return idx, resp.choices[0].message.content or "(无输出)"
+        except Exception as e:
+            return idx, f"[错误] {e}"
+
+    results = [""] * len(prompts)
+    max_workers = min(len(prompts), 8)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_call, i, p): i for i, p in enumerate(prompts)}
+        for future in as_completed(futures):
+            idx, content = future.result()
+            results[idx] = content
+
+    parts = []
+    for i, (prompt, result) in enumerate(zip(prompts, results)):
+        parts.append(f"### 子任务 {i+1}\n**输入:** {prompt[:100]}{'...' if len(prompt)>100 else ''}\n**输出:** {result}")
+    return "\n\n".join(parts)
+
+
 # ── Subagent (s04) ───────────────────────────────────────────────────
 def run_subagent(prompt: str, api_key: str, base_url: str, model: str,
                  agent_type: str = "Explore") -> str:
@@ -686,6 +723,28 @@ ADVANCED_TOOLS_SCHEMA = [
             "parameters": {
                 "type": "object",
                 "properties": {"limit": {"type": "integer", "description": "返回最近 N 条，默认 20"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "rlm_query",
+            "description": "并行派发多个子任务到低成本模型（deepseek-v4-flash），适合批量分析、翻译、代码审查等。最多 16 个子任务同时执行。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "子任务提示词列表，每个独立执行",
+                    },
+                    "system_prompt": {
+                        "type": "string",
+                        "description": "所有子任务共享的系统提示词（可选）",
+                    },
+                },
+                "required": ["prompts"],
             },
         },
     },

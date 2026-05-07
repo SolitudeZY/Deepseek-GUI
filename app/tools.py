@@ -178,7 +178,7 @@ def run_command(command: str, timeout: int = 30, stop_flag=None) -> str:
 
 def web_search(query: str, max_results: int = 5, engine: str = "tavily",
                api_keys: dict = None, fallback: bool = True,
-               auto_read: int = 3, read_chars: int = 8000) -> str:
+               auto_read: int = 5, read_chars: int = 8000) -> str:
     """统一搜索入口。engine 指定首选引擎，fallback=True 时失败自动降级。
     auto_read: 自动读取前 N 个结果的完整网页内容（0=不读取）。
     read_chars: 每个网页最多读取的字符数。
@@ -431,6 +431,91 @@ def write_file(path: str, content: str) -> str:
         return f"写入失败：{e}"
 
 
+def apply_patch(patch: str) -> str:
+    """Apply a unified diff patch to one or more files."""
+    import re as _re
+
+    results = []
+    # Split into per-file patches
+    file_patches = _re.split(r'^(?=--- )', patch, flags=_re.MULTILINE)
+
+    for fp in file_patches:
+        fp = fp.strip()
+        if not fp:
+            continue
+
+        # Parse file headers
+        lines = fp.split('\n')
+        src_path = None
+        dst_path = None
+        for line in lines:
+            if line.startswith('--- '):
+                src_path = line[4:].strip()
+                # Strip a/ prefix
+                if src_path.startswith('a/'):
+                    src_path = src_path[2:]
+            elif line.startswith('+++ '):
+                dst_path = line[4:].strip()
+                if dst_path.startswith('b/'):
+                    dst_path = dst_path[2:]
+                break
+
+        if not dst_path:
+            results.append(f"跳过：无法解析文件路径")
+            continue
+
+        target = Path(dst_path).expanduser()
+        if target.exists():
+            original = target.read_text(encoding="utf-8", errors="replace").split('\n')
+        else:
+            original = []
+
+        # Parse and apply hunks
+        hunks = _re.findall(r'@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*?)(?=\n@@ |\Z)',
+                            fp, flags=_re.DOTALL)
+        if not hunks:
+            results.append(f"{dst_path}: 无有效 hunk")
+            continue
+
+        # Apply hunks in reverse order to preserve line numbers
+        hunk_list = []
+        for h in hunks:
+            src_start = int(h[0]) - 1  # 0-indexed
+            src_count = int(h[1]) if h[1] else 1
+            hunk_body = h[4]
+            hunk_lines = hunk_body.split('\n')
+            # Skip first empty line from regex
+            if hunk_lines and hunk_lines[0] == '':
+                hunk_lines = hunk_lines[1:]
+            hunk_list.append((src_start, src_count, hunk_lines))
+
+        # Apply in reverse
+        output = list(original)
+        for src_start, src_count, hunk_lines in reversed(hunk_list):
+            new_lines = []
+            remove_count = 0
+            for hl in hunk_lines:
+                if hl.startswith('+'):
+                    new_lines.append(hl[1:])
+                elif hl.startswith('-'):
+                    remove_count += 1
+                elif hl.startswith(' ') or hl == '':
+                    new_lines.append(hl[1:] if hl.startswith(' ') else '')
+                    remove_count += 1
+                else:
+                    # Context line without prefix (tolerant parsing)
+                    new_lines.append(hl)
+                    remove_count += 1
+            output[src_start:src_start + remove_count] = new_lines
+
+        # Write result
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('\n'.join(output), encoding="utf-8")
+        results.append(f"{dst_path}: 已应用 {len(hunk_list)} 个 hunk")
+
+    return '\n'.join(results) if results else "补丁为空，未做任何修改"
+
+
 # ── 工具 Schema（供 OpenAI Function Calling 使用）────────────────────
 
 TOOLS_SCHEMA = [
@@ -521,10 +606,24 @@ TOOLS_SCHEMA = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "apply_patch",
+            "description": "用 unified diff 格式精准修改文件。比 write_file 更安全，只修改指定的行。支持多文件补丁。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "patch": {"type": "string", "description": "unified diff 格式的补丁内容（--- a/path, +++ b/path, @@ hunks）"},
+                },
+                "required": ["patch"],
+            },
+        },
+    },
 ]
 
 # 需要用户确认的工具
-CONFIRM_REQUIRED = {"run_command", "write_file"}
+CONFIRM_REQUIRED = {"run_command", "write_file", "apply_patch"}
 
 
 def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: int = 30, stop_flag=None) -> str:
@@ -547,5 +646,7 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
         return run_command(args.get("command", ""), args.get("timeout", timeout), stop_flag=stop_flag)
     elif tool_name == "write_file":
         return write_file(args.get("path", ""), args.get("content", ""))
+    elif tool_name == "apply_patch":
+        return apply_patch(args.get("patch", ""))
     else:
         return f"未知工具：{tool_name}"

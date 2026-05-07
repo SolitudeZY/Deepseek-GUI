@@ -7,7 +7,7 @@ from openai import OpenAI
 from app.tools import TOOLS_SCHEMA, CONFIRM_REQUIRED, dispatch
 from app.advanced_tools import (
     ADVANCED_TOOLS_SCHEMA, TodoManager, TaskManager, BackgroundManager,
-    microcompact, auto_compact, estimate_tokens, run_subagent,
+    microcompact, auto_compact, estimate_tokens, run_subagent, run_rlm,
 )
 from app.team import TEAM, WORKTREES, BUS
 from app.skills import skill_list_str, skill_read, memory_read, memory_write
@@ -40,7 +40,7 @@ class Agent:
         todo_manager: Optional[TodoManager] = None,
         task_manager: Optional[TaskManager] = None,
         bg_manager: Optional[BackgroundManager] = None,
-        thinking: bool = False,
+        thinking: str = "off",
         max_rounds: int = 50,
         search_enabled: bool = True,
     ):
@@ -49,7 +49,7 @@ class Agent:
         self.search_config = search_config or {}
         self.command_safety = command_safety
         self.command_timeout = command_timeout
-        self.thinking = thinking
+        self.thinking = thinking  # "off" | "high" | "max"
         self.max_rounds = max_rounds
         self.search_enabled = search_enabled
         self._model_configs: list = []
@@ -72,11 +72,11 @@ class Agent:
 
     def _is_reasoner(self) -> bool:
         """True when this call should use extended thinking / reasoning."""
-        if not self.thinking:
+        if self.thinking == "off":
             return False
         p = self._provider()
         if p == "deepseek":
-            return True  # use deepseek-reasoner model
+            return True
         if p in ("openai", "anthropic"):
             return True
         return False
@@ -87,24 +87,24 @@ class Agent:
             model=self.model,
             messages=messages,
             stream=True,
+            stream_options={"include_usage": True},
         )
         provider = self._provider()
 
         if self._is_reasoner():
+            effort = "high" if self.thinking == "high" else "high"
             if provider == "deepseek":
-                # V3.2+ / V4: thinking mode + tool calling
-                # reasoning_effort is a top-level param, thinking type goes in extra_body
-                kwargs["reasoning_effort"] = "high"
+                kwargs["reasoning_effort"] = effort
                 kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
                 kwargs["tools"] = self._all_tools()
                 kwargs["tool_choice"] = "auto"
             elif provider == "openai":
-                # o-series: reasoning_effort
-                kwargs["extra_body"] = {"reasoning_effort": "high"}
+                kwargs["extra_body"] = {"reasoning_effort": effort}
                 kwargs["tools"] = self._all_tools()
                 kwargs["tool_choice"] = "auto"
             elif provider == "anthropic":
-                kwargs["extra_body"] = {"thinking": {"type": "enabled", "budget_tokens": 8000}}
+                budget = 32000 if self.thinking == "max" else 8000
+                kwargs["extra_body"] = {"thinking": {"type": "enabled", "budget_tokens": budget}}
                 kwargs["tools"] = self._all_tools()
                 kwargs["tool_choice"] = "auto"
         else:
@@ -160,6 +160,24 @@ class Agent:
                 base_url=str(self._client.base_url),
                 model=self.model,
                 agent_type=args.get("agent_type", "Explore"),
+            )
+        elif tool_name == "rlm_query":
+            # Use flash model for RLM; find it in model_configs or default
+            flash_model = "deepseek-v4-flash"
+            rlm_api_key = self._client.api_key
+            rlm_base_url = str(self._client.base_url)
+            if self._model_configs:
+                flash_mc = next((c for c in self._model_configs if "flash" in c.get("model", "").lower()), None)
+                if flash_mc:
+                    rlm_api_key = flash_mc.get("api_key") or rlm_api_key
+                    rlm_base_url = flash_mc.get("base_url") or rlm_base_url
+                    flash_model = flash_mc.get("model") or flash_model
+            return run_rlm(
+                prompts=args.get("prompts", []),
+                api_key=rlm_api_key,
+                base_url=rlm_base_url,
+                model=flash_model,
+                system_prompt=args.get("system_prompt", ""),
             )
         # ── Team tools (s09-s12) ──────────────────────────────────────
         elif tool_name == "team_spawn":
@@ -249,11 +267,18 @@ class Agent:
         on_todo_update: Optional[Callable[[list[dict]], None]] = None,
         on_context_update: Optional[Callable[[int, int], None]] = None,
         on_thinking: Optional[Callable[[str], None]] = None,
+        on_usage: Optional[Callable[[dict], None]] = None,
     ):
         """在调用线程中同步运行（应在后台线程调用）。"""
         self._stop_flag.clear()
         self._rounds_without_todo = 0
         all_messages = [{"role": "system", "content": self.system_prompt}] + messages
+
+        # Session-level usage accumulator
+        session_usage = {
+            "prompt_tokens": 0, "completion_tokens": 0,
+            "cache_hit_tokens": 0, "cache_miss_tokens": 0,
+        }
 
         try:
             max_rounds = self.max_rounds
@@ -312,6 +337,7 @@ class Agent:
                 tool_calls_accumulated = []
                 assistant_content = ""
                 thinking_content = ""
+                round_usage = None
 
                 stream, provider = self._build_stream(full_messages)
                 current_tool_calls: dict[int, dict] = {}
@@ -319,6 +345,9 @@ class Agent:
                 for chunk in stream:
                     if self._stop_flag.is_set():
                         break
+                    # Capture usage from final chunk (stream_options include_usage)
+                    if hasattr(chunk, 'usage') and chunk.usage:
+                        round_usage = chunk.usage
                     delta = chunk.choices[0].delta if chunk.choices else None
                     if delta is None:
                         continue
@@ -346,6 +375,21 @@ class Agent:
                                     current_tool_calls[idx]["function"]["name"] += tc.function.name
                                 if tc.function.arguments:
                                     current_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+
+                # Push usage stats
+                if round_usage and on_usage:
+                    pt = getattr(round_usage, 'prompt_tokens', 0) or 0
+                    ct = getattr(round_usage, 'completion_tokens', 0) or 0
+                    ch = getattr(round_usage, 'prompt_cache_hit_tokens', 0) or 0
+                    cm = getattr(round_usage, 'prompt_cache_miss_tokens', 0) or 0
+                    session_usage["prompt_tokens"] += pt
+                    session_usage["completion_tokens"] += ct
+                    session_usage["cache_hit_tokens"] += ch
+                    session_usage["cache_miss_tokens"] += cm
+                    on_usage({
+                        "round": {"prompt": pt, "completion": ct, "cache_hit": ch, "cache_miss": cm},
+                        "session": dict(session_usage),
+                    })
 
                 tool_calls_accumulated = list(current_tool_calls.values())
                 round_count += 1

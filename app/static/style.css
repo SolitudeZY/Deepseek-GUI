@@ -670,3 +670,4 @@ body.drag-over #input-area { border-top-color: var(--accent); background: var(--
 #context-bar-fill.warn { background: #e5a000; }
 #context-bar-fill.danger { background: #e05252; }
 #context-bar-hint { margin-top: 2px; font-size: 10px; color: var(--text-muted); min-height: 12px; }
+#cost-bar { margin-top: 4px; font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
