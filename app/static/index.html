@@ -136,8 +136,9 @@
         <label>搜索引擎
           <select id="search-engine">
             <option value="tavily">Tavily</option>
+            <option value="brave">Brave Search</option>
+            <option value="firecrawl">Firecrawl</option>
             <option value="duckduckgo">DuckDuckGo（免费）</option>
-            <option value="bing">Bing Search</option>
             <option value="google">Google Custom Search（限定站点）</option>
             <option value="searxng">SearXNG（自建）</option>
           </select>
@@ -147,8 +148,10 @@
         <hr style="border-color:var(--border);margin:12px 0">
         <label>Tavily API Key<input type="password" id="tavily-key" placeholder="tvly-..."></label>
         <p class="hint">注册地址：<a href="#" onclick="pywebview.api.open_url('https://app.tavily.com');return false">app.tavily.com</a> — 免费额度 1000 次/月</p>
-        <label>Bing API Key<input type="password" id="bing-key" placeholder="Azure key..."></label>
-        <p class="hint">注册地址：<a href="#" onclick="pywebview.api.open_url('https://portal.azure.com/#create/Microsoft.BingSearch');return false">Azure Portal → Bing Search</a> — 免费额度 1000 次/月</p>
+        <label>Brave Search API Key<input type="password" id="brave-key" placeholder="BSAy_..."></label>
+        <p class="hint">注册地址：<a href="#" onclick="pywebview.api.open_url('https://brave.com/search/api/');return false">brave.com/search/api</a> — 免费 2000 次/月</p>
+        <label>Firecrawl API Key<input type="password" id="firecrawl-key" placeholder="fc-..."></label>
+        <p class="hint">注册地址：<a href="#" onclick="pywebview.api.open_url('https://www.firecrawl.dev');return false">firecrawl.dev</a> — 免费 500 次/月，返回完整网页 Markdown</p>
         <label>Google API Key<input type="password" id="google-key" placeholder="AIza..."></label>
         <label>Google CX ID<input type="text" id="google-cx" placeholder="搜索引擎 ID"></label>
         <p class="hint">API Key：<a href="#" onclick="pywebview.api.open_url('https://console.cloud.google.com/apis/credentials');return false">Google Cloud Console</a> — CX ID：<a href="#" onclick="pywebview.api.open_url('https://programmablesearchengine.google.com/controlpanel/all');return false">Programmable Search Engine</a> — 免费 100 次/天。注意：2026年起新建引擎只能搜索指定的最多 50 个域名，不支持全网搜索。</p>

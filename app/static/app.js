@@ -1014,7 +1014,8 @@ async function openSettings() {
   $('search-engine').value = cfg.search_engine || 'tavily';
   $('search-fallback').checked = cfg.search_fallback !== false;
   $('tavily-key').value = cfg.tavily_api_key || '';
-  $('bing-key').value = cfg.bing_api_key || '';
+  $('brave-key').value = cfg.brave_api_key || '';
+  $('firecrawl-key').value = cfg.firecrawl_api_key || '';
   $('google-key').value = cfg.google_api_key || '';
   $('google-cx').value = cfg.google_cx || '';
   $('searxng-url').value = cfg.searxng_url || '';
@@ -1038,7 +1039,8 @@ async function saveSettings() {
   state.config.search_engine = $('search-engine').value;
   state.config.search_fallback = $('search-fallback').checked;
   state.config.tavily_api_key = $('tavily-key').value.trim();
-  state.config.bing_api_key = $('bing-key').value.trim();
+  state.config.brave_api_key = $('brave-key').value.trim();
+  state.config.firecrawl_api_key = $('firecrawl-key').value.trim();
   state.config.google_api_key = $('google-key').value.trim();
   state.config.google_cx = $('google-cx').value.trim();
   state.config.searxng_url = $('searxng-url').value.trim();

@@ -222,7 +222,7 @@ def _enrich_with_full_content(search_result: str, engine: str, query: str,
 
 # ── 引擎降级顺序 ────────────────────────────────────────────────────
 
-_ENGINE_PRIORITY = ["tavily", "bing", "google", "searxng", "duckduckgo"]
+_ENGINE_PRIORITY = ["tavily", "brave", "firecrawl", "google", "searxng", "duckduckgo"]
 
 def _engine_available(eng: str, api_keys: dict) -> bool:
     """Check if an engine has the required credentials configured."""
@@ -230,12 +230,16 @@ def _engine_available(eng: str, api_keys: dict) -> bool:
         return True
     if eng == "tavily":
         return bool(api_keys.get("tavily_api_key"))
-    if eng == "bing":
-        return bool(api_keys.get("bing_api_key"))
+    if eng == "brave":
+        return bool(api_keys.get("brave_api_key"))
+    if eng == "firecrawl":
+        return bool(api_keys.get("firecrawl_api_key"))
     if eng == "google":
         return bool(api_keys.get("google_api_key")) and bool(api_keys.get("google_cx"))
     if eng == "searxng":
         return bool(api_keys.get("searxng_url"))
+    # if eng == "bing":  # Bing Search API 即将关闭，已停用
+    #     return bool(api_keys.get("bing_api_key"))
     return False
 
 
@@ -257,13 +261,17 @@ def _search_by_engine(engine: str, query: str, max_results: int, api_keys: dict)
         return _search_tavily(query, max_results, api_keys.get("tavily_api_key", ""))
     elif engine == "duckduckgo":
         return _search_duckduckgo(query, max_results)
-    elif engine == "bing":
-        return _search_bing(query, max_results, api_keys.get("bing_api_key", ""))
+    elif engine == "brave":
+        return _search_brave(query, max_results, api_keys.get("brave_api_key", ""))
+    elif engine == "firecrawl":
+        return _search_firecrawl(query, max_results, api_keys.get("firecrawl_api_key", ""))
     elif engine == "google":
         return _search_google(query, max_results,
                               api_keys.get("google_api_key", ""), api_keys.get("google_cx", ""))
     elif engine == "searxng":
         return _search_searxng(query, max_results, api_keys.get("searxng_url", ""))
+    # elif engine == "bing":  # Bing Search API 即将关闭，已停用
+    #     return _search_bing(query, max_results, api_keys.get("bing_api_key", ""))
     return f"错误：未知搜索引擎 {engine}"
 
 
@@ -317,25 +325,82 @@ def _search_duckduckgo(query: str, max_results: int) -> str:
         return f"搜索失败：{e}"
 
 
-# ── Bing Search API ──────────────────────────────────────────────────
+# ── Bing Search API（即将关闭，已停用）──────────────────────────────
+# def _search_bing(query: str, max_results: int, api_key: str) -> str:
+#     if not api_key:
+#         return "错误：未配置 Bing API Key"
+#     try:
+#         import urllib.request
+#         import urllib.parse
+#         url = f"https://api.bing.microsoft.com/v7.0/search?q={urllib.parse.quote(query)}&count={max_results}"
+#         req = urllib.request.Request(url, headers={
+#             "Ocp-Apim-Subscription-Key": api_key,
+#         })
+#         with urllib.request.urlopen(req, timeout=10) as resp:
+#             data = json.loads(resp.read().decode("utf-8"))
+#         pages = data.get("webPages", {}).get("value", [])
+#         return _format_results([
+#             {"title": p.get("name", ""), "url": p.get("url", ""), "content": p.get("snippet", "")}
+#             for p in pages
+#         ])
+#     except Exception as e:
+#         return f"搜索失败：{e}"
 
-def _search_bing(query: str, max_results: int, api_key: str) -> str:
+
+# ── Brave Search ────────────────────────────────────────────────────
+
+def _search_brave(query: str, max_results: int, api_key: str) -> str:
     if not api_key:
-        return "错误：未配置 Bing API Key"
+        return "错误：未配置 Brave Search API Key"
     try:
         import urllib.request
         import urllib.parse
-        url = f"https://api.bing.microsoft.com/v7.0/search?q={urllib.parse.quote(query)}&count={max_results}"
+        url = f"https://api.search.brave.com/res/v1/web/search?q={urllib.parse.quote(query)}&count={max_results}"
         req = urllib.request.Request(url, headers={
-            "Ocp-Apim-Subscription-Key": api_key,
+            "Accept": "application/json",
+            "Accept-Encoding": "gzip",
+            "X-Subscription-Token": api_key,
         })
         with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        pages = data.get("webPages", {}).get("value", [])
+            # Handle gzip
+            if resp.headers.get("Content-Encoding") == "gzip":
+                import gzip
+                raw = gzip.decompress(resp.read())
+            else:
+                raw = resp.read()
+            data = json.loads(raw.decode("utf-8"))
+        results = data.get("web", {}).get("results", [])[:max_results]
         return _format_results([
-            {"title": p.get("name", ""), "url": p.get("url", ""), "content": p.get("snippet", "")}
-            for p in pages
+            {"title": r.get("title", ""), "url": r.get("url", ""), "content": r.get("description", "")}
+            for r in results
         ])
+    except Exception as e:
+        return f"搜索失败：{e}"
+
+
+# ── Firecrawl ───────────────────────────────────────────────────────
+
+def _search_firecrawl(query: str, max_results: int, api_key: str) -> str:
+    if not api_key:
+        return "错误：未配置 Firecrawl API Key"
+    try:
+        from firecrawl import Firecrawl
+        app = Firecrawl(api_key=api_key)
+        resp = app.search(query, limit=max_results)
+        if not resp:
+            return "未找到相关结果"
+        # Firecrawl search returns list of results with markdown content
+        items = resp if isinstance(resp, list) else resp.get("data", [])
+        return _format_results([
+            {
+                "title": r.get("title", r.get("metadata", {}).get("title", "")),
+                "url": r.get("url", r.get("metadata", {}).get("sourceURL", "")),
+                "content": r.get("markdown", r.get("content", r.get("description", "")))[:1500],
+            }
+            for r in items[:max_results]
+        ])
+    except ImportError:
+        return "搜索失败：firecrawl-py 未安装，请运行 pip install firecrawl-py"
     except Exception as e:
         return f"搜索失败：{e}"
 
