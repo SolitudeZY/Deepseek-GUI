@@ -881,7 +881,7 @@ async function refreshWorktreePanel() {
 let _thinkingBubble = null;
 let _thinkingContent = '';
 const _thinkingLevels = ['off', 'high', 'max'];
-const _thinkingLabels = { off: '关', high: '高', max: '深' };
+const _thinkingLabels = { off: '关', high: 'high', max: 'max' };
 
 function initThinkingBtn(level) {
   // Migrate old bool values
@@ -889,7 +889,7 @@ function initThinkingBtn(level) {
   if (level === false) level = 'off';
   const btn = $('btn-thinking');
   btn.dataset.level = level || 'high';
-  btn.textContent = `💭 ${_thinkingLabels[btn.dataset.level] || '高'}`;
+  btn.textContent = `💭 ${_thinkingLabels[btn.dataset.level] || 'high'}`;
   btn.classList.toggle('active', btn.dataset.level !== 'off');
 }
 
