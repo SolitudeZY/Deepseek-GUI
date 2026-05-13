@@ -657,14 +657,18 @@ def apply_patch(patch: str) -> str:
 
         # Apply in reverse
         output = list(original)
+        added_lines = 0
+        removed_lines = 0
         for src_start, src_count, hunk_lines in reversed(hunk_list):
             new_lines = []
             remove_count = 0
             for hl in hunk_lines:
                 if hl.startswith('+'):
                     new_lines.append(hl[1:])
+                    added_lines += 1
                 elif hl.startswith('-'):
                     remove_count += 1
+                    removed_lines += 1
                 elif hl.startswith(' ') or hl == '':
                     new_lines.append(hl[1:] if hl.startswith(' ') else '')
                     remove_count += 1
@@ -675,9 +679,14 @@ def apply_patch(patch: str) -> str:
             output[src_start:src_start + remove_count] = new_lines
 
         # Write result
+        target_resolved = target.resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text('\n'.join(output), encoding="utf-8")
-        results.append(f"{dst_path}: 已应用 {len(hunk_list)} 个 hunk")
+        results.append(
+            f"✅ {target_resolved}\n"
+            f"   📁 目录：{target_resolved.parent}\n"
+            f"   📝 {len(hunk_list)} 个 hunk | +{added_lines} 行 / -{removed_lines} 行"
+        )
 
     return '\n'.join(results) if results else "补丁为空，未做任何修改"
 
