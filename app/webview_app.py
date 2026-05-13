@@ -296,6 +296,14 @@ class API:
             else:
                 if content:
                     parts.append(f"[附件: {name}]\n{content}")
+                elif path:
+                    # Fallback: read file content if JS didn't finish loading
+                    try:
+                        fallback_content = _read_file(path)
+                        if fallback_content:
+                            parts.append(f"[附件: {name}]\n{fallback_content}")
+                    except Exception:
+                        parts.append(f"[附件: {name}]（读取失败）")
 
         full_text = '\n\n'.join(parts)
 

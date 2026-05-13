@@ -531,6 +531,27 @@ $('btn-confirm-wildcard').addEventListener('click', () => {
   $('confirm-overlay').classList.add('hidden');
   window.pywebview.api.confirm_tool_always(_confirmWildcard);
 });
+// Keyboard shortcuts: Enter = allow, Shift+Enter = always allow (wildcard if available, else exact)
+document.addEventListener('keydown', e => {
+  if ($('confirm-overlay').classList.contains('hidden')) return;
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    $('confirm-overlay').classList.add('hidden');
+    window.pywebview.api.confirm_tool(true);
+  } else if (e.key === 'Enter' && e.shiftKey) {
+    e.preventDefault();
+    $('confirm-overlay').classList.add('hidden');
+    if (_confirmWildcard && !$('btn-confirm-wildcard').classList.contains('hidden')) {
+      window.pywebview.api.confirm_tool_always(_confirmWildcard);
+    } else {
+      window.pywebview.api.confirm_tool_always(_confirmCommand);
+    }
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    $('confirm-overlay').classList.add('hidden');
+    window.pywebview.api.confirm_tool(false);
+  }
+});
 
 // ── Send message ──────────────────────────────────────────────────
 function setRunning(running) {
@@ -548,6 +569,17 @@ msgInput.addEventListener('paste', async e => {
       e.preventDefault();
       const file = item.getAsFile();
       if (file) await addFileChip(file);
+    } else if (item.kind === 'file') {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file) await addFileChip(file);
+    }
+  }
+  // Handle files from clipboard (e.g. copied file in Explorer)
+  if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+    e.preventDefault();
+    for (const file of Array.from(e.clipboardData.files)) {
+      await addFileChip(file);
     }
   }
 });
@@ -828,6 +860,7 @@ async function addFileChip(file) {
   } else {
     const content = await window.pywebview.api.read_file_content(localPath);
     entry.content = content;
+    chip.querySelector('.chip-status').textContent = content ? ' ✓' : ' ⚠';
   }
 }
 
