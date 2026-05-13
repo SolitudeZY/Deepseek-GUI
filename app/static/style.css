@@ -671,3 +671,8 @@ body.drag-over #input-area { border-top-color: var(--accent); background: var(--
 #context-bar-fill.danger { background: #e05252; }
 #context-bar-hint { margin-top: 2px; font-size: 10px; color: var(--text-muted); min-height: 12px; }
 #cost-bar { margin-top: 4px; font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#ask-overlay .modal { max-width: 500px; }
+#ask-question { font-size: 14px; margin: 12px 0; white-space: pre-wrap; }
+#ask-options { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+#ask-input { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 13px; }
+#plan-overlay .modal { max-width: 600px; }

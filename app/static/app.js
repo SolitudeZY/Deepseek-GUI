@@ -553,6 +553,54 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ── Ask user question dialog ─────────────────────────────────────
+let _askResolve = null;
+function showAskDialog(question, options) {
+  $('ask-question').textContent = question;
+  const optDiv = $('ask-options');
+  optDiv.innerHTML = '';
+  if (options && options.length > 0) {
+    options.forEach(opt => {
+      const btn = document.createElement('button');
+      btn.className = 'btn-secondary';
+      btn.style.cssText = 'margin:4px;';
+      btn.textContent = opt;
+      btn.addEventListener('click', () => {
+        $('ask-input').value = opt;
+      });
+      optDiv.appendChild(btn);
+    });
+  }
+  $('ask-input').value = '';
+  $('ask-overlay').classList.remove('hidden');
+  $('ask-input').focus();
+}
+$('btn-ask-submit').addEventListener('click', () => {
+  const answer = $('ask-input').value.trim() || '(无回答)';
+  $('ask-overlay').classList.add('hidden');
+  window.pywebview.api.answer_question(answer);
+});
+$('ask-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    $('btn-ask-submit').click();
+  }
+});
+
+// ── Plan approval dialog ─────────────────────────────────────────
+function showPlanApproval(summary) {
+  $('plan-summary').textContent = summary || '(模型已在上方输出计划内容，请查看后决定是否批准执行)';
+  $('plan-overlay').classList.remove('hidden');
+}
+$('btn-plan-approve').addEventListener('click', () => {
+  $('plan-overlay').classList.add('hidden');
+  window.pywebview.api.approve_plan(true);
+});
+$('btn-plan-reject').addEventListener('click', () => {
+  $('plan-overlay').classList.add('hidden');
+  window.pywebview.api.approve_plan(false);
+});
+
 // ── Send message ──────────────────────────────────────────────────
 function setRunning(running) {
   state.running = running;

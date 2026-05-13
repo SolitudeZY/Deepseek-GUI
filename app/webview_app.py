@@ -40,6 +40,10 @@ class API:
         self._running = False
         self._confirm_event = threading.Event()
         self._confirm_result = False
+        self._ask_event = threading.Event()
+        self._ask_answer = ""
+        self._plan_event = threading.Event()
+        self._plan_approved = False
         # Shared managers — persist across conversations
         self._todo = TodoManager()
         self._tasks = TaskManager()
@@ -350,6 +354,8 @@ class API:
                 on_context_update=self._on_context_update,
                 on_thinking=self._on_thinking,
                 on_usage=self._on_usage,
+                on_ask_user=self._on_ask_user,
+                on_plan_approve=self._on_plan_approve,
             )
 
         threading.Thread(target=run, daemon=True).start()
@@ -392,6 +398,8 @@ class API:
                 on_context_update=self._on_context_update,
                 on_thinking=self._on_thinking,
                 on_usage=self._on_usage,
+                on_ask_user=self._on_ask_user,
+                on_plan_approve=self._on_plan_approve,
             )
 
         threading.Thread(target=run, daemon=True).start()
@@ -453,6 +461,32 @@ class API:
         self._cmd_prefix_counts.pop(prefix, None)
         self._confirm_result = True
         self._confirm_event.set()
+
+    def _on_ask_user(self, args: dict) -> str:
+        """Callback: agent wants to ask user a question. Block until user answers."""
+        question = args.get("question", "")
+        options = args.get("options", [])
+        self._ask_event.clear()
+        self._js(f'showAskDialog({json.dumps(question)}, {json.dumps(options)})')
+        self._ask_event.wait()
+        return self._ask_answer
+
+    def answer_question(self, answer: str) -> None:
+        """JS calls this when user submits answer."""
+        self._ask_answer = answer
+        self._ask_event.set()
+
+    def _on_plan_approve(self, plan_summary: str) -> bool:
+        """Callback: agent exits plan mode, asks user to approve."""
+        self._plan_event.clear()
+        self._js(f'showPlanApproval({json.dumps(plan_summary)})')
+        self._plan_event.wait()
+        return self._plan_approved
+
+    def approve_plan(self, approved: bool) -> None:
+        """JS calls this when user approves/rejects plan."""
+        self._plan_approved = approved
+        self._plan_event.set()
 
     def get_allowed_commands(self) -> list:
         return load_allowed_commands()

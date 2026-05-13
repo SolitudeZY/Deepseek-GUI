@@ -107,6 +107,90 @@ def list_directory(path: str) -> str:
         return f"错误：无权限访问 — {path}"
 
 
+def glob_files(pattern: str, path: str = ".") -> str:
+    """Match files by glob pattern, sorted by modification time (newest first)."""
+    import glob as _glob
+    base = Path(path).expanduser().resolve()
+    if not base.exists():
+        return f"错误：路径不存在 — {path}"
+    matches = list(base.glob(pattern))
+    if not matches:
+        # Try recursive if pattern doesn't start with **
+        if not pattern.startswith("**"):
+            matches = list(base.glob("**/" + pattern))
+    if not matches:
+        return f"未找到匹配 '{pattern}' 的文件"
+    # Sort by modification time, newest first
+    matches.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+    # Limit output
+    total = len(matches)
+    shown = matches[:100]
+    lines = [str(m.relative_to(base)) for m in shown]
+    result = "\n".join(lines)
+    if total > 100:
+        result += f"\n\n[共 {total} 个匹配，仅显示前 100 个]"
+    return result
+
+
+def grep_files(pattern: str, path: str = ".", file_type: str = "",
+               multiline: bool = False, max_results: int = 50) -> str:
+    """Search file contents by regex pattern."""
+    import re as _re
+    base = Path(path).expanduser().resolve()
+    if not base.exists():
+        return f"错误：路径不存在 — {path}"
+
+    flags = _re.MULTILINE
+    if multiline:
+        flags |= _re.DOTALL
+    try:
+        regex = _re.compile(pattern, flags)
+    except _re.error as e:
+        return f"正则表达式错误：{e}"
+
+    # Determine file extensions to search
+    ext_filter = set()
+    if file_type:
+        for t in file_type.split(","):
+            t = t.strip().lstrip(".")
+            ext_filter.add(f".{t}")
+
+    results = []
+    # Walk directory
+    for fp in base.rglob("*"):
+        if not fp.is_file():
+            continue
+        if ext_filter and fp.suffix.lower() not in ext_filter:
+            continue
+        # Skip binary/large files
+        if fp.stat().st_size > 1_000_000:
+            continue
+        # Skip hidden/vendor dirs
+        parts = fp.relative_to(base).parts
+        if any(p.startswith('.') or p in ('node_modules', '__pycache__', 'venv', '.git') for p in parts):
+            continue
+        try:
+            text = fp.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        for m in regex.finditer(text):
+            line_num = text[:m.start()].count('\n') + 1
+            line = text.splitlines()[line_num - 1] if line_num <= len(text.splitlines()) else ""
+            rel = str(fp.relative_to(base))
+            results.append(f"{rel}:{line_num}: {line.strip()[:200]}")
+            if len(results) >= max_results:
+                break
+        if len(results) >= max_results:
+            break
+
+    if not results:
+        return f"未找到匹配 '{pattern}' 的内容"
+    output = "\n".join(results)
+    if len(results) >= max_results:
+        output += f"\n\n[结果已截断，仅显示前 {max_results} 条]"
+    return output
+
+
 def run_command(command: str, timeout: int = 30, stop_flag=None) -> str:
     import time, threading
 
@@ -488,10 +572,27 @@ def web_read(url: str, max_chars: int = 20000) -> str:
 
 def write_file(path: str, content: str) -> str:
     try:
-        p = Path(path).expanduser()
+        p = Path(path).expanduser().resolve()
+        is_new = not p.exists()
+        old_lines = 0
+        if not is_new:
+            try:
+                old_lines = len(p.read_text(encoding="utf-8", errors="replace").splitlines())
+            except Exception:
+                pass
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
-        return f"文件已写入：{path}（{len(content)} 字符）"
+        new_lines = len(content.splitlines())
+        if is_new:
+            return (f"✅ 文件已创建：{p}\n"
+                    f"   📁 目录：{p.parent}\n"
+                    f"   📄 大小：{len(content)} 字符，{new_lines} 行")
+        else:
+            diff = new_lines - old_lines
+            diff_str = f"+{diff}" if diff > 0 else str(diff) if diff < 0 else "±0"
+            return (f"✅ 文件已覆盖：{p}\n"
+                    f"   📁 目录：{p.parent}\n"
+                    f"   📄 {old_lines} 行 → {new_lines} 行（{diff_str} 行），{len(content)} 字符")
     except Exception as e:
         return f"写入失败：{e}"
 
@@ -615,6 +716,39 @@ TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "glob_files",
+            "description": "按文件名模式匹配搜索文件（如 **/*.py、src/**/*.ts）。结果按修改时间排序（最新在前）。用于快速定位文件。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "glob 模式，如 **/*.py、*.md、src/**/*.ts"},
+                    "path": {"type": "string", "description": "搜索起始目录，默认当前目录", "default": "."},
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "grep_files",
+            "description": "在文件内容中搜索正则表达式。支持文件类型过滤和多行模式。返回匹配的文件路径、行号和内容。用于在代码库中查找特定函数、变量、字符串等。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {"type": "string", "description": "正则表达式搜索模式"},
+                    "path": {"type": "string", "description": "搜索起始目录，默认当前目录", "default": "."},
+                    "file_type": {"type": "string", "description": "限定文件类型，如 py,ts,js（逗号分隔，可选）"},
+                    "multiline": {"type": "boolean", "description": "是否启用多行模式（. 匹配换行符）", "default": False},
+                    "max_results": {"type": "integer", "description": "最大返回结果数，默认 50", "default": 50},
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "web_search",
             "description": "使用 Tavily 搜索互联网获取实时信息。每次搜索消耗 API 配额，请高效使用：先用一个精准的关键词搜索，根据结果判断是否需要补充搜索。通常 1-5 次搜索即可满足需求，避免对同一主题反复搜索。如果搜索结果的摘要不够详细，请使用 web_read 工具读取具体网页的完整内容，而不是继续搜索。",
             "parameters": {
@@ -697,6 +831,15 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
         return read_file(args.get("path", ""))
     elif tool_name == "list_directory":
         return list_directory(args.get("path", ""))
+    elif tool_name == "glob_files":
+        return glob_files(args.get("pattern", ""), args.get("path", "."))
+    elif tool_name == "grep_files":
+        return grep_files(
+            args.get("pattern", ""), args.get("path", "."),
+            file_type=args.get("file_type", ""),
+            multiline=args.get("multiline", False),
+            max_results=args.get("max_results", 50),
+        )
     elif tool_name == "web_search":
         sc = search_config or {}
         return web_search(

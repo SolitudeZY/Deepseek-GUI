@@ -268,6 +268,8 @@ class Agent:
         on_context_update: Optional[Callable[[int, int], None]] = None,
         on_thinking: Optional[Callable[[str], None]] = None,
         on_usage: Optional[Callable[[dict], None]] = None,
+        on_ask_user: Optional[Callable[[dict], str]] = None,
+        on_plan_approve: Optional[Callable[[str], bool]] = None,
     ):
         """在调用线程中同步运行（应在后台线程调用）。"""
         self._stop_flag.clear()
@@ -437,6 +439,42 @@ class Agent:
                         })
                         all_messages = auto_compact(all_messages, self._client, self.model)
                         on_tool_result(tool_name, "上下文已压缩")
+                        continue
+
+                    # ask_user_question: pause and ask user
+                    if tool_name == "ask_user_question" and on_ask_user:
+                        answer = on_ask_user(args)
+                        result = answer or "用户未回答"
+                        on_tool_result(tool_name, result)
+                        all_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": result,
+                        })
+                        continue
+
+                    # enter_plan_mode: signal plan mode entry
+                    if tool_name == "enter_plan_mode":
+                        result = "已进入计划模式。请输出你的实现计划，完成后调用 exit_plan_mode 提交给用户审批。"
+                        on_tool_result(tool_name, result)
+                        all_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": result,
+                        })
+                        continue
+
+                    # exit_plan_mode: ask user to approve plan
+                    if tool_name == "exit_plan_mode" and on_plan_approve:
+                        plan_summary = args.get("plan_summary", assistant_content or "")
+                        approved = on_plan_approve(plan_summary)
+                        result = "用户已批准计划，请开始执行。" if approved else "用户未批准计划，请根据反馈修改。"
+                        on_tool_result(tool_name, result)
+                        all_messages.append({
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": result,
+                        })
                         continue
 
                     # Try advanced tools first

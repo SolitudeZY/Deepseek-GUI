@@ -748,6 +748,49 @@ ADVANCED_TOOLS_SCHEMA = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_user_question",
+            "description": "暂停执行并向用户提问。用于需要用户确认方向、选择方案、或补充信息时。返回用户的回答。不要用于问'计划可以吗'这类问题（用 exit_plan_mode 代替）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "要问用户的问题"},
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "可选的选项列表，用户可以从中选择（也可以自由输入）",
+                    },
+                },
+                "required": ["question"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "enter_plan_mode",
+            "description": "进入计划模式。在开始非简单任务前主动调用，用于：新功能实现、多种方案选择、代码修改影响现有行为、架构决策、多文件变更、不确定用户意图、复杂重构。进入后输出详细计划，完成后调用 exit_plan_mode。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "exit_plan_mode",
+            "description": "退出计划模式并提交计划给用户审批。用户批准后开始执行，未批准则根据反馈修改。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "plan_summary": {"type": "string", "description": "计划摘要（可选，主要内容应已在对话中输出）"},
+                },
+            },
+        },
+    },
 ]
 
 # Append skill + memory tool schemas

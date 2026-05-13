@@ -265,6 +265,35 @@
   </div>
 </div>
 
+<!-- ── AI 提问弹窗 ── -->
+<div id="ask-overlay" class="overlay hidden">
+  <div id="ask-modal" class="modal">
+    <div class="modal-header">
+      <h2 id="ask-title">AI 提问</h2>
+    </div>
+    <p id="ask-question"></p>
+    <div id="ask-options"></div>
+    <input type="text" id="ask-input" placeholder="输入回答（或从上方选择）">
+    <div class="modal-footer">
+      <button id="btn-ask-submit" class="btn-primary">提交</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 计划审批弹窗 ── -->
+<div id="plan-overlay" class="overlay hidden">
+  <div id="plan-modal" class="modal">
+    <div class="modal-header">
+      <h2>计划审批</h2>
+    </div>
+    <p id="plan-summary" style="white-space:pre-wrap;max-height:400px;overflow-y:auto;font-size:13px"></p>
+    <div class="modal-footer">
+      <button id="btn-plan-reject" class="btn-ghost">拒绝 / 修改</button>
+      <button id="btn-plan-approve" class="btn-primary">批准执行</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── 图片灯箱 ── -->
 <div id="lightbox-overlay" class="hidden" onclick="closeLightbox()">
   <img id="lightbox-img" src="" alt="">
