@@ -109,7 +109,7 @@ Download `QuickModel.exe` from [Releases](https://github.com/your-username/quick
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name QuickModel --add-data "app/static;app/static" main.py
+pyinstaller --onefile --windowed --name QuickModel --icon=icon.ico --add-data "app/static;app/static" --add-data "icon.ico;." main.py
 ```
 
 Output: `dist/QuickModel.exe`

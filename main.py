@@ -14,8 +14,11 @@ from app.webview_app import API, get_html_path
 
 if __name__ == "__main__":
     api = API()
+    icon_path = os.path.join(base_dir, 'icon.ico')
+    if not os.path.exists(icon_path):
+        icon_path = os.path.join(base_dir, 'icon.png')
     window = webview.create_window(
-        'AI Desktop Assistant',
+        'QuickModel',
         get_html_path(),
         js_api=api,
         width=1100,
@@ -23,4 +26,4 @@ if __name__ == "__main__":
         min_size=(800, 500),
     )
     api.set_window(window)
-    webview.start(debug=False)
+    webview.start(debug=False, icon=icon_path)

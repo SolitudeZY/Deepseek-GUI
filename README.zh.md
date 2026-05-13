@@ -109,7 +109,7 @@ python main.py
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name QuickModel --add-data "app/static;app/static" main.py
+pyinstaller --onefile --windowed --name QuickModel --icon=icon.ico --add-data "app/static;app/static" --add-data "icon.ico;." main.py
 ```
 
 输出文件：`dist/QuickModel.exe`
