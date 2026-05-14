@@ -685,4 +685,13 @@ body.drag-over #input-area { border-top-color: var(--accent); background: var(--
 .tool-file-links { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
 .file-link { font-size: 12px; color: var(--accent); text-decoration: none; padding: 2px 8px; border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; transition: background 0.15s; }
 .file-link:hover { background: var(--accent); color: #fff; }
+#fileops-panel { border-left: 1px solid var(--border); padding: 8px; min-width: 180px; max-width: 220px; overflow-y: auto; }
+#fileops-panel.hidden { display: none; }
+#fileops-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+#fileops-header button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px; }
+#fileops-list { list-style: none; padding: 0; margin: 0; }
+.fileops-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: background 0.1s; }
+.fileops-item:hover { background: var(--hover); }
+.fileops-icon { flex-shrink: 0; }
+.fileops-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #plan-overlay .modal { max-width: 600px; }

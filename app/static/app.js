@@ -189,6 +189,7 @@ async function openConversation(convId) {
   convTitle.textContent = conv.title;
   renderConvList(searchInput.value);
   loadHistory(conv.messages || []);
+  Chat.updateFileOps(conv.file_ops || []);
 }
 
 async function newConversation() {
@@ -463,6 +464,29 @@ window.Chat = {
     _thinkingContent = '';
     setRunning(false);
     renderConvList(searchInput.value);
+  },
+  updateFileOps(ops) {
+    const panel = $('fileops-panel');
+    const list = $('fileops-list');
+    if (!ops || ops.length === 0) {
+      panel.classList.add('hidden');
+      return;
+    }
+    panel.classList.remove('hidden');
+    list.innerHTML = '';
+    // Show newest first
+    const sorted = [...ops].reverse();
+    sorted.forEach(op => {
+      const li = document.createElement('li');
+      li.className = 'fileops-item';
+      const fname = op.path.split(/[/\\]/).pop();
+      const icon = op.tool === 'apply_patch' ? '🩹' : '✏️';
+      li.innerHTML = `<span class="fileops-icon">${icon}</span><span class="fileops-name" title="${escapeHtml(op.path)}">${escapeHtml(fname)}</span>`;
+      li.addEventListener('click', () => {
+        window.pywebview.api.open_file_location(op.path);
+      });
+      list.appendChild(li);
+    });
   },
   updateConvTitle(convId, title) {
     const conv = state.conversations.find(c => c.id === convId);
@@ -1036,6 +1060,7 @@ $('btn-todo-close').addEventListener('click', () => $('todo-panel').classList.ad
 
 // ── Worktree panel ──────────────────────────────────────────────────
 $('btn-wt-close').addEventListener('click', () => $('wt-panel').classList.add('hidden'));
+$('btn-fileops-close').addEventListener('click', () => $('fileops-panel').classList.add('hidden'));
 
 async function refreshWorktreePanel() {
   try {
