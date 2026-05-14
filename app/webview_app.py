@@ -97,6 +97,7 @@ class API:
             'id': conv['id'],
             'title': conv.get('title', '对话'),
             'messages': conv.get('messages', []),
+            'file_ops': conv.get('file_ops', []),
         }
 
     def delete_conversation(self, conv_id: str) -> None:
@@ -278,6 +279,7 @@ class API:
     def send_message(self, conv_id: str, text: str, files: list) -> None:
         if self._running:
             return
+        self._current_conv_id = conv_id
         conv = load_conversation(conv_id)
         if not conv:
             return
@@ -443,6 +445,33 @@ class API:
 
     def _on_tool_result(self, tool_name: str, result: str):
         self._js(f'Chat.showToolResult({json.dumps(tool_name)}, {json.dumps(result)})')
+        # Track file operations for persistence
+        if tool_name in ('write_file', 'apply_patch') and '✅' in result:
+            self._track_file_op(tool_name, result)
+
+    def _track_file_op(self, tool_name: str, result: str):
+        """Extract file paths from tool result and store in current conversation."""
+        import re
+        paths = []
+        for line in result.split('\n'):
+            if '✅' in line:
+                matches = re.findall(r'[A-Z]:\\[^\n]+|/[^\n\s]+', line)
+                paths.extend(matches)
+        if not paths:
+            return
+        conv = load_conversation(self._current_conv_id) if hasattr(self, '_current_conv_id') and self._current_conv_id else None
+        if not conv:
+            return
+        if 'file_ops' not in conv:
+            conv['file_ops'] = []
+        from datetime import datetime
+        for fp in paths:
+            entry = {'path': fp, 'tool': tool_name, 'time': datetime.now().isoformat()}
+            conv['file_ops'].append(entry)
+        # Keep last 50 entries
+        conv['file_ops'] = conv['file_ops'][-50:]
+        save_conversation(conv)
+        self._js(f'Chat.updateFileOps({json.dumps(conv["file_ops"])})')
 
     def _on_confirm(self, tool_name: str, args: dict) -> bool:
         # Check allowlist for run_command

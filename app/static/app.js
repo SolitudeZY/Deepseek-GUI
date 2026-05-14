@@ -367,7 +367,6 @@ function _appendFileLinks(bubble, result) {
       const matches = line.match(pathRegex);
       if (matches) {
         for (const m of matches) {
-          // Filter to actual file paths (not directory descriptions)
           if (line.includes('✅') && !paths.includes(m)) paths.push(m);
         }
       }
@@ -377,13 +376,13 @@ function _appendFileLinks(bubble, result) {
   const linkDiv = document.createElement('div');
   linkDiv.className = 'tool-file-links';
   paths.forEach(fp => {
-    const a = document.createElement('a');
-    a.href = '#';
+    const a = document.createElement('span');
     a.className = 'file-link';
     a.textContent = `📂 ${fp.split(/[/\\]/).pop()}`;
     a.title = fp;
     a.addEventListener('click', e => {
       e.preventDefault();
+      e.stopPropagation();
       window.pywebview.api.open_file_location(fp);
     });
     linkDiv.appendChild(a);
