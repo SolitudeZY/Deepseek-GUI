@@ -272,10 +272,13 @@
       <h2 id="ask-title">AI 提问</h2>
     </div>
     <p id="ask-question"></p>
-    <div id="ask-options"></div>
-    <input type="text" id="ask-input" placeholder="输入回答（或从上方选择）">
+    <div id="ask-options-wrap">
+      <ul id="ask-options" tabindex="0"></ul>
+      <p class="hint" id="ask-hint">↑↓ 选择 · Enter 确认 · 也可直接输入</p>
+    </div>
+    <input type="text" id="ask-input" placeholder="自由输入回答...">
     <div class="modal-footer">
-      <button id="btn-ask-submit" class="btn-primary">提交</button>
+      <button id="btn-ask-submit" class="btn-primary">提交 (Enter)</button>
     </div>
   </div>
 </div>

@@ -554,36 +554,105 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Ask user question dialog ─────────────────────────────────────
-let _askResolve = null;
-function showAskDialog(question, options) {
+let _askSelectedIdx = -1;
+let _askOptions = [];
+let _askMultiSelect = false;
+let _askSelected = new Set();
+
+function showAskDialog(question, options, multiSelect) {
+  _askOptions = options || [];
+  _askMultiSelect = !!multiSelect;
+  _askSelectedIdx = _askOptions.length > 0 ? 0 : -1;
+  _askSelected = new Set();
   $('ask-question').textContent = question;
-  const optDiv = $('ask-options');
-  optDiv.innerHTML = '';
-  if (options && options.length > 0) {
-    options.forEach(opt => {
-      const btn = document.createElement('button');
-      btn.className = 'btn-secondary';
-      btn.style.cssText = 'margin:4px;';
-      btn.textContent = opt;
-      btn.addEventListener('click', () => {
-        $('ask-input').value = opt;
-      });
-      optDiv.appendChild(btn);
-    });
-  }
+  $('ask-hint').textContent = _askOptions.length > 0
+    ? `↑↓ 选择 · Enter ${_askMultiSelect ? '切换选中' : '确认'} · ${_askMultiSelect ? 'Tab 提交' : '也可直接输入'}`
+    : '';
+  _renderAskOptions();
   $('ask-input').value = '';
+  $('ask-input').style.display = _askOptions.length > 0 ? 'none' : '';
   $('ask-overlay').classList.remove('hidden');
-  $('ask-input').focus();
+  if (_askOptions.length > 0) {
+    $('ask-options').focus();
+  } else {
+    $('ask-input').focus();
+  }
 }
-$('btn-ask-submit').addEventListener('click', () => {
-  const answer = $('ask-input').value.trim() || '(无回答)';
+
+function _renderAskOptions() {
+  const ul = $('ask-options');
+  ul.innerHTML = '';
+  if (_askOptions.length === 0) { ul.style.display = 'none'; return; }
+  ul.style.display = '';
+  _askOptions.forEach((opt, i) => {
+    const li = document.createElement('li');
+    li.textContent = (_askMultiSelect ? (_askSelected.has(i) ? '☑ ' : '☐ ') : '') + opt;
+    if (i === _askSelectedIdx) li.classList.add('ask-active');
+    if (_askSelected.has(i)) li.classList.add('ask-checked');
+    li.addEventListener('click', () => {
+      _askSelectedIdx = i;
+      if (_askMultiSelect) {
+        _askSelected.has(i) ? _askSelected.delete(i) : _askSelected.add(i);
+      }
+      _renderAskOptions();
+      if (!_askMultiSelect) _submitAskAnswer();
+    });
+    ul.appendChild(li);
+  });
+}
+
+function _submitAskAnswer() {
+  let answer = '';
+  if (_askOptions.length > 0) {
+    if (_askMultiSelect) {
+      answer = [..._askSelected].map(i => _askOptions[i]).join(', ');
+    } else {
+      answer = _askSelectedIdx >= 0 ? _askOptions[_askSelectedIdx] : '';
+    }
+  }
+  if (!answer) answer = $('ask-input').value.trim();
+  if (!answer) answer = '(无回答)';
   $('ask-overlay').classList.add('hidden');
   window.pywebview.api.answer_question(answer);
-});
-$('ask-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') {
+}
+
+$('btn-ask-submit').addEventListener('click', _submitAskAnswer);
+
+document.addEventListener('keydown', e => {
+  if ($('ask-overlay').classList.contains('hidden')) return;
+  if (_askOptions.length === 0) {
+    // Free input mode: Enter submits
+    if (e.key === 'Enter' && e.target === $('ask-input')) {
+      e.preventDefault();
+      _submitAskAnswer();
+    }
+    return;
+  }
+  if (e.key === 'ArrowDown') {
     e.preventDefault();
-    $('btn-ask-submit').click();
+    _askSelectedIdx = Math.min(_askSelectedIdx + 1, _askOptions.length - 1);
+    _renderAskOptions();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _askSelectedIdx = Math.max(_askSelectedIdx - 1, 0);
+    _renderAskOptions();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (_askMultiSelect) {
+      if (_askSelectedIdx >= 0) {
+        _askSelected.has(_askSelectedIdx) ? _askSelected.delete(_askSelectedIdx) : _askSelected.add(_askSelectedIdx);
+        _renderAskOptions();
+      }
+    } else {
+      _submitAskAnswer();
+    }
+  } else if (e.key === 'Tab' && _askMultiSelect) {
+    e.preventDefault();
+    _submitAskAnswer();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    $('ask-overlay').classList.add('hidden');
+    window.pywebview.api.answer_question('(用户取消)');
   }
 });
 

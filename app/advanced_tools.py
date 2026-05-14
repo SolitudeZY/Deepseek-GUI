@@ -760,8 +760,9 @@ ADVANCED_TOOLS_SCHEMA = [
                     "options": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "可选的选项列表，用户可以从中选择（也可以自由输入）",
+                        "description": "可选的选项列表，用户可以用方向键选择（也可以自由输入）",
                     },
+                    "multi_select": {"type": "boolean", "description": "是否允许多选（默认单选）", "default": False},
                 },
                 "required": ["question"],
             },

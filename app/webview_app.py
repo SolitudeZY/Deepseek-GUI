@@ -466,8 +466,9 @@ class API:
         """Callback: agent wants to ask user a question. Block until user answers."""
         question = args.get("question", "")
         options = args.get("options", [])
+        multi_select = args.get("multi_select", False)
         self._ask_event.clear()
-        self._js(f'showAskDialog({json.dumps(question)}, {json.dumps(options)})')
+        self._js(f'showAskDialog({json.dumps(question)}, {json.dumps(options)}, {json.dumps(multi_select)})')
         self._ask_event.wait()
         return self._ask_answer
 

@@ -673,6 +673,13 @@ body.drag-over #input-area { border-top-color: var(--accent); background: var(--
 #cost-bar { margin-top: 4px; font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #ask-overlay .modal { max-width: 500px; }
 #ask-question { font-size: 14px; margin: 12px 0; white-space: pre-wrap; }
-#ask-options { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-#ask-input { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 13px; }
+#ask-options-wrap { margin-bottom: 8px; }
+#ask-options { list-style: none; padding: 0; margin: 0; max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; outline: none; }
+#ask-options li { padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--border); transition: background 0.1s; }
+#ask-options li:last-child { border-bottom: none; }
+#ask-options li:hover { background: var(--hover); }
+#ask-options li.ask-active { background: var(--accent); color: #fff; }
+#ask-options li.ask-checked { font-weight: 600; }
+#ask-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+#ask-input { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 13px; margin-top: 8px; }
 #plan-overlay .modal { max-width: 600px; }
