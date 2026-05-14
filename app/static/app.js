@@ -25,28 +25,119 @@ renderer.code = function(token) {
 marked.use({ renderer });
 
 // ── KaTeX render helper ────────────────────────────────────────────
-function renderLatex(html) {
-  // Replace $$...$$ (display) then $...$ (inline)
-  html = html.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
-    try { return katex.renderToString(tex, { displayMode: true, throwOnError: false }); }
-    catch { return `<code>${tex}</code>`; }
+// Walks the rendered DOM and replaces $$...$$ / $...$ in text nodes only,
+// skipping <pre>, <code>, and existing KaTeX output. This avoids mangling
+// shell snippets like $(...), "$1", $w, etc. inside code blocks.
+function renderLatexInDom(root) {
+  const SKIP = new Set(['PRE', 'CODE', 'SCRIPT', 'STYLE']);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      let p = node.parentNode;
+      while (p && p !== root) {
+        if (p.nodeType === 1) {
+          if (SKIP.has(p.tagName)) return NodeFilter.FILTER_REJECT;
+          if (p.classList && (p.classList.contains('katex') || p.classList.contains('katex-display'))) {
+            return NodeFilter.FILTER_REJECT;
+          }
+        }
+        p = p.parentNode;
+      }
+      return (node.nodeValue && node.nodeValue.indexOf('$') !== -1)
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT;
+    }
   });
-  html = html.replace(/\$([^\$\n]+?)\$/g, (_, tex) => {
-    if (/[\u4e00-\u9fff]/.test(tex)) return `$${tex}$`;
-    try { return katex.renderToString(tex, { displayMode: false, throwOnError: false }); }
-    catch { return `<code>${tex}</code>`; }
-  });
-  return html;
+  const targets = [];
+  let n;
+  while ((n = walker.nextNode())) targets.push(n);
+
+  for (const textNode of targets) {
+    const src = textNode.nodeValue;
+    // Build a fragment of mixed text + rendered math.
+    const frag = document.createDocumentFragment();
+    let i = 0;
+    let changed = false;
+    while (i < src.length) {
+      // Display math $$...$$
+      if (src[i] === '$' && src[i + 1] === '$') {
+        const end = src.indexOf('$$', i + 2);
+        if (end !== -1) {
+          const tex = src.slice(i + 2, end);
+          let html;
+          try { html = katex.renderToString(tex, { displayMode: true, throwOnError: false }); }
+          catch { html = null; }
+          if (html) {
+            const span = document.createElement('span');
+            span.innerHTML = html;
+            frag.appendChild(span);
+            i = end + 2;
+            changed = true;
+            continue;
+          }
+        }
+      }
+      // Inline math $...$ — single line, no nested $
+      if (src[i] === '$') {
+        let j = i + 1;
+        while (j < src.length && src[j] !== '$' && src[j] !== '\n') j++;
+        if (j < src.length && src[j] === '$' && j > i + 1) {
+          const tex = src.slice(i + 1, j);
+          // Skip if it looks like CJK prose, or if the inner text contains
+          // characters that strongly suggest shell/code rather than math.
+          const looksLikeMath = !/[\u4e00-\u9fff]/.test(tex) && !/[\s]{2,}/.test(tex);
+          if (looksLikeMath) {
+            let html;
+            try { html = katex.renderToString(tex, { displayMode: false, throwOnError: false }); }
+            catch { html = null; }
+            if (html) {
+              const span = document.createElement('span');
+              span.innerHTML = html;
+              frag.appendChild(span);
+              i = j + 1;
+              changed = true;
+              continue;
+            }
+          }
+        }
+      }
+      // Default: copy one character as plain text. Coalesce runs for speed.
+      let k = i + 1;
+      while (k < src.length && src[k] !== '$') k++;
+      frag.appendChild(document.createTextNode(src.slice(i, k)));
+      i = k;
+    }
+    if (changed) textNode.parentNode.replaceChild(frag, textNode);
+  }
 }
 
 function renderMarkdown(text) {
-  // Pre-process LaTeX delimiters: \[...\] → $$...$$, \(...\) → $...$
+  // Pre-process LaTeX delimiters: \[...\] → $$...$$, \(...\) → $...$.
+  // Must NOT touch fenced code blocks or inline code spans, otherwise shell
+  // snippets containing literal \( ... \) get rewritten before marked sees them.
+  const placeholders = [];
+  const stash = (m) => {
+    placeholders.push(m);
+    return `\u0000QM_CODE_${placeholders.length - 1}\u0000`;
+  };
+  // Order matters: fenced ``` first, then ~~~ fenced, then inline `...`.
+  text = text.replace(/```[\s\S]*?```/g, stash);
+  text = text.replace(/~~~[\s\S]*?~~~/g, stash);
+  text = text.replace(/`[^`\n]*`/g, stash);
+
   text = text.replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (m, inner) =>
     /[\u4e00-\u9fff]/.test(inner) ? m : `$$${inner}$$`);
   text = text.replace(/\\\(\s*([\s\S]*?)\s*\\\)/g, (m, inner) =>
     /[\u4e00-\u9fff]/.test(inner) ? m : `$${inner}$`);
+
+  // Restore code spans/blocks.
+  text = text.replace(/\u0000QM_CODE_(\d+)\u0000/g, (_, idx) => placeholders[+idx]);
+
   const html = marked.parse(text);
-  return renderLatex(html);
+  // Render math against a detached container so we can walk the DOM safely.
+  const container = document.createElement('div');
+  container.innerHTML = html;
+  renderLatexInDom(container);
+  return container.innerHTML;
 }
 
 function copyCode(btn) {
