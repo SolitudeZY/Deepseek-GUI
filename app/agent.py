@@ -269,7 +269,6 @@ class Agent:
         on_thinking: Optional[Callable[[str], None]] = None,
         on_usage: Optional[Callable[[dict], None]] = None,
         on_ask_user: Optional[Callable[[dict], str]] = None,
-        on_plan_approve: Optional[Callable[[str], bool]] = None,
     ):
         """在调用线程中同步运行（应在后台线程调用）。"""
         self._stop_flag.clear()
@@ -455,7 +454,7 @@ class Agent:
 
                     # enter_plan_mode: signal plan mode entry
                     if tool_name == "enter_plan_mode":
-                        result = "已进入计划模式。请输出你的实现计划，完成后调用 exit_plan_mode 提交给用户审批。"
+                        result = "已进入计划模式。请逐步输出你的实现计划，每个关键决策点使用 ask_user_question 工具询问用户意见，确认后再继续下一步。所有步骤确认完毕后调用 exit_plan_mode 表示计划完成。"
                         on_tool_result(tool_name, result)
                         all_messages.append({
                             "role": "tool",
@@ -464,11 +463,9 @@ class Agent:
                         })
                         continue
 
-                    # exit_plan_mode: ask user to approve plan
-                    if tool_name == "exit_plan_mode" and on_plan_approve:
-                        plan_summary = args.get("plan_summary", assistant_content or "")
-                        approved = on_plan_approve(plan_summary)
-                        result = "用户已批准计划，请开始执行。" if approved else "用户未批准计划，请根据反馈修改。"
+                    # exit_plan_mode: plan is done, proceed to execution
+                    if tool_name == "exit_plan_mode":
+                        result = "计划已完成，所有步骤已经用户确认。开始执行。"
                         on_tool_result(tool_name, result)
                         all_messages.append({
                             "role": "tool",

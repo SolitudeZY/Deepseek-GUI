@@ -340,6 +340,10 @@ function addToolResultBubble(toolName, result) {
       if (resultEl && resultEl.textContent === '等待中…') {
         const preview = result.replace(/\n/g,' ').trim().slice(0, 200) + (result.length > 200 ? '…' : '');
         resultEl.textContent = preview;
+        // Add file link for write/patch tools
+        if (['write_file', 'apply_patch'].includes(toolName)) {
+          _appendFileLinks(bubbles[i], result);
+        }
         return;
       }
     }
@@ -347,11 +351,44 @@ function addToolResultBubble(toolName, result) {
   // fallback: orphaned result bubble
   const div = document.createElement('div');
   div.className = 'bubble bubble-tool-call';
-  const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', write_file:'✏️', list_directory:'📁' };
+  const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', write_file:'✏️', apply_patch:'🩹', list_directory:'📁', glob_files:'🔎', grep_files:'🔎' };
   const icon = icons[toolName] || '🔧';
   div.innerHTML = `<div class="tool-header"><span class="tool-icon">${icon}</span><span class="tool-name">${escapeHtml(toolName)}</span></div>`;
   chatMessages.appendChild(div);
   scrollToBottom();
+}
+
+function _appendFileLinks(bubble, result) {
+  // Extract file paths from write_file/apply_patch results (lines starting with ✅)
+  const pathRegex = /[A-Z]:\\[^\n]+|\/[^\n\s]+/g;
+  const paths = [];
+  for (const line of result.split('\n')) {
+    if (line.includes('✅') || line.includes('📁')) {
+      const matches = line.match(pathRegex);
+      if (matches) {
+        for (const m of matches) {
+          // Filter to actual file paths (not directory descriptions)
+          if (line.includes('✅') && !paths.includes(m)) paths.push(m);
+        }
+      }
+    }
+  }
+  if (paths.length === 0) return;
+  const linkDiv = document.createElement('div');
+  linkDiv.className = 'tool-file-links';
+  paths.forEach(fp => {
+    const a = document.createElement('a');
+    a.href = '#';
+    a.className = 'file-link';
+    a.textContent = `📂 ${fp.split(/[/\\]/).pop()}`;
+    a.title = fp;
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      window.pywebview.api.open_file_location(fp);
+    });
+    linkDiv.appendChild(a);
+  });
+  bubble.appendChild(linkDiv);
 }
 
 function addErrorBubble(msg) {

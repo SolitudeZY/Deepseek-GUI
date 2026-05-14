@@ -783,12 +783,10 @@ ADVANCED_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "exit_plan_mode",
-            "description": "退出计划模式并提交计划给用户审批。用户批准后开始执行，未批准则根据反馈修改。",
+            "description": "退出计划模式，表示所有计划步骤已通过 ask_user_question 逐步确认完毕，开始执行。",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "plan_summary": {"type": "string", "description": "计划摘要（可选，主要内容应已在对话中输出）"},
-                },
+                "properties": {},
             },
         },
     },

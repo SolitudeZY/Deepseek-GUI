@@ -139,6 +139,22 @@ class API:
     def open_url(self, url: str) -> None:
         webbrowser.open(url)
 
+    def open_file_location(self, path: str) -> None:
+        """Open file in system default app, or reveal in Explorer if it's a directory."""
+        import subprocess as _sp
+        p = Path(path)
+        if p.exists():
+            if p.is_dir():
+                _sp.Popen(['explorer', str(p)])
+            else:
+                # Open file with default app and select it in Explorer
+                _sp.Popen(['explorer', '/select,', str(p)])
+        else:
+            # Try opening parent directory
+            parent = p.parent
+            if parent.exists():
+                _sp.Popen(['explorer', str(parent)])
+
     def _build_search_config(self) -> dict:
         """Assemble search config dict from self._config for Agent."""
         return {
@@ -355,7 +371,6 @@ class API:
                 on_thinking=self._on_thinking,
                 on_usage=self._on_usage,
                 on_ask_user=self._on_ask_user,
-                on_plan_approve=self._on_plan_approve,
             )
 
         threading.Thread(target=run, daemon=True).start()
@@ -399,7 +414,6 @@ class API:
                 on_thinking=self._on_thinking,
                 on_usage=self._on_usage,
                 on_ask_user=self._on_ask_user,
-                on_plan_approve=self._on_plan_approve,
             )
 
         threading.Thread(target=run, daemon=True).start()
