@@ -10,7 +10,7 @@ from app.advanced_tools import (
     microcompact, auto_compact, estimate_tokens, run_subagent, run_rlm,
 )
 from app.team import TEAM, WORKTREES, BUS
-from app.skills import skill_list_str, skill_read, memory_read, memory_write
+from app.skills import skill_list, skill_list_str, skill_read, memory_read, memory_write
 
 # Token threshold for auto-compact (approx)
 AUTO_COMPACT_THRESHOLD = 80_000
@@ -45,7 +45,6 @@ class Agent:
         search_enabled: bool = True,
     ):
         self.model = model
-        self.system_prompt = system_prompt
         self.search_config = search_config or {}
         self.command_safety = command_safety
         self.command_timeout = command_timeout
@@ -60,6 +59,31 @@ class Agent:
         self._tasks = task_manager or TaskManager()
         self._bg = bg_manager or BackgroundManager()
         self._rounds_without_todo = 0
+
+        # Build stable system prompt with skill index (appended once, never changes
+        # per-round, so the prefix stays cache-friendly).
+        self.system_prompt = self._build_system_prompt(system_prompt)
+
+    @staticmethod
+    def _build_system_prompt(base_prompt: str) -> str:
+        """Append skill index to system prompt so the model knows what skills exist.
+
+        The index is built once at agent creation. Because it's part of the system
+        message (always the first message), it forms a stable prefix that DeepSeek
+        can cache across rounds.
+        """
+        skills = skill_list()
+        if not skills:
+            return base_prompt
+        lines = [f"- {s['name']}: {s['description']}" for s in skills]
+        skill_block = (
+            "\n\n<available_skills>\n"
+            "你有以下技能可用。当用户的请求明确匹配某个技能的描述时，"
+            "请先调用 skill_read 获取该技能的完整指令，然后严格按照指令执行。\n"
+            + "\n".join(lines)
+            + "\n</available_skills>"
+        )
+        return base_prompt + skill_block
 
     def _provider(self) -> str:
         """Detect provider from base_url."""
