@@ -250,6 +250,8 @@ pre, code,
 .bubble-tool-call.tool-expanded .tool-chevron { transform: rotate(90deg); }
 .tool-body { display: none; padding: 6px 10px 8px; border-top: 1px solid var(--border); }
 .bubble-tool-call.tool-expanded .tool-body { display: block; }
+/* Hide tool call bubbles when toggled off */
+#chat-messages.hide-tools .bubble-tool-call { display: none; }
 .tool-section-label { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px; }
 .tool-result-label { margin-top: 8px; }
 .tool-pre { font-size: 11px; white-space: pre-wrap; margin: 0; color: var(--text-dim); }

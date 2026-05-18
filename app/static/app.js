@@ -1206,6 +1206,15 @@ $('btn-thinking').addEventListener('click', () => {
   window.pywebview.api.set_thinking(next);
 });
 
+// ── Toggle tool calls visibility ─────────────────────────────────
+$('btn-toggle-tools').addEventListener('click', () => {
+  const btn = $('btn-toggle-tools');
+  const msgs = $('chat-messages');
+  const hidden = msgs.classList.toggle('hide-tools');
+  btn.classList.toggle('active', !hidden);
+  btn.textContent = hidden ? '🔧 工具(隐)' : '🔧 工具';
+});
+
 // ── Search mode button ────────────────────────────────────────────
 // state: search_mode = 'auto' | 'manual', search_enabled = bool
 let _searchMode = 'auto';
