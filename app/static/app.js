@@ -717,11 +717,11 @@ function showAskDialog(question, options, multiSelect) {
   _askSelected = new Set();
   $('ask-question').textContent = question;
   $('ask-hint').textContent = _askOptions.length > 0
-    ? `↑↓ 选择 · Enter ${_askMultiSelect ? '切换选中' : '确认'} · ${_askMultiSelect ? 'Tab 提交' : '也可直接输入'}`
+    ? `↑↓ 选择 · Enter ${_askMultiSelect ? '切换选中' : '确认'} · ${_askMultiSelect ? 'Tab 提交 · ' : ''}下方可自由输入`
     : '';
   _renderAskOptions();
   $('ask-input').value = '';
-  $('ask-input').style.display = _askOptions.length > 0 ? 'none' : '';
+  $('ask-input').style.display = '';
   $('ask-overlay').classList.remove('hidden');
   if (_askOptions.length > 0) {
     $('ask-options').focus();
@@ -753,15 +753,18 @@ function _renderAskOptions() {
 }
 
 function _submitAskAnswer() {
+  // Free-text input takes priority — if user typed something, use that
+  const freeText = $('ask-input').value.trim();
   let answer = '';
-  if (_askOptions.length > 0) {
+  if (freeText) {
+    answer = freeText;
+  } else if (_askOptions.length > 0) {
     if (_askMultiSelect) {
       answer = [..._askSelected].map(i => _askOptions[i]).join(', ');
     } else {
       answer = _askSelectedIdx >= 0 ? _askOptions[_askSelectedIdx] : '';
     }
   }
-  if (!answer) answer = $('ask-input').value.trim();
   if (!answer) answer = '(无回答)';
   $('ask-overlay').classList.add('hidden');
   window.pywebview.api.answer_question(answer);
@@ -771,14 +774,13 @@ $('btn-ask-submit').addEventListener('click', _submitAskAnswer);
 
 document.addEventListener('keydown', e => {
   if ($('ask-overlay').classList.contains('hidden')) return;
-  if (_askOptions.length === 0) {
-    // Free input mode: Enter submits
-    if (e.key === 'Enter' && e.target === $('ask-input')) {
-      e.preventDefault();
-      _submitAskAnswer();
-    }
+  // Enter in the free-input box always submits (regardless of whether options exist)
+  if (e.key === 'Enter' && e.target === $('ask-input')) {
+    e.preventDefault();
+    _submitAskAnswer();
     return;
   }
+  if (_askOptions.length === 0) return;
   if (e.key === 'ArrowDown') {
     e.preventDefault();
     _askSelectedIdx = Math.min(_askSelectedIdx + 1, _askOptions.length - 1);
