@@ -109,6 +109,40 @@ class API:
     def reorder_conversations(self, ids: list) -> None:
         update_sort_orders(ids)
 
+    def search_conversations(self, keyword: str) -> list:
+        """Search conversations by title and message content. Returns matching conv summaries."""
+        from app.conversation import get_conversations_dir
+        kw = keyword.lower().strip()
+        if not kw:
+            return []
+        results = []
+        for p in get_conversations_dir().glob("conv_*.json"):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                title = data.get("title", "")
+                if kw in title.lower():
+                    results.append({"id": data["id"], "title": title, "match": "title"})
+                    continue
+                # Search in message content
+                for msg in data.get("messages", []):
+                    content = msg.get("content", "") or ""
+                    if kw in content.lower():
+                        # Extract a snippet around the match
+                        idx = content.lower().index(kw)
+                        start = max(0, idx - 20)
+                        end = min(len(content), idx + len(kw) + 40)
+                        snippet = content[start:end].replace("\n", " ")
+                        if start > 0:
+                            snippet = "…" + snippet
+                        if end < len(content):
+                            snippet = snippet + "…"
+                        results.append({"id": data["id"], "title": title, "match": "content", "snippet": snippet})
+                        break
+            except Exception:
+                continue
+        return results
+
     def set_thinking(self, level: str) -> None:
         """level: 'off' | 'high' | 'max'"""
         if level not in ("off", "high", "max"):
@@ -543,7 +577,10 @@ class API:
         save_conversation(conv)
         self._running = False
         self._js('Chat.finishMessage()')
-        threading.Thread(target=self._auto_title, args=(conv,), daemon=True).start()
+        # Only auto-title if still a placeholder
+        title = conv.get('title', '新对话')
+        if title == '新对话' or len(title) <= 30:
+            threading.Thread(target=self._auto_title, args=(conv,), daemon=True).start()
 
     def _auto_title(self, conv: dict):
         """用 LLM 根据对话内容生成标题，完成后推送到前端。"""

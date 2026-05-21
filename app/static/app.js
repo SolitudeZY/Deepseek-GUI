@@ -271,7 +271,64 @@ function renderConvList(filter = '') {
   });
 }
 
-searchInput.addEventListener('input', () => renderConvList(searchInput.value));
+searchInput.addEventListener('input', () => {
+  const kw = searchInput.value.trim();
+  // Instant title filter for responsiveness
+  renderConvList(kw);
+  // Debounced content search for deeper matches
+  clearTimeout(searchInput._debounce);
+  if (!kw) { _clearSearchHighlights(); return; }
+  searchInput._debounce = setTimeout(async () => {
+    const results = await window.pywebview.api.search_conversations(kw);
+    _applyContentSearchResults(results, kw);
+  }, 300);
+});
+
+function _clearSearchHighlights() {
+  convList.querySelectorAll('.conv-snippet').forEach(el => el.remove());
+  convList.querySelectorAll('li.search-content-match').forEach(li => li.classList.remove('search-content-match'));
+}
+
+function _applyContentSearchResults(results, kw) {
+  _clearSearchHighlights();
+  if (!results || results.length === 0) return;
+  // Show conversations that matched by content but aren't already visible (title didn't match)
+  const visibleIds = new Set([...convList.querySelectorAll('li[data-id]')].map(li => li.dataset.id));
+  const contentMatches = results.filter(r => r.match === 'content');
+
+  // For already-visible items, add snippet
+  for (const r of contentMatches) {
+    const li = convList.querySelector(`li[data-id="${r.id}"]`);
+    if (li) {
+      li.classList.add('search-content-match');
+      const snippet = document.createElement('div');
+      snippet.className = 'conv-snippet';
+      snippet.textContent = r.snippet || '';
+      li.appendChild(snippet);
+    }
+  }
+
+  // For items not visible (title didn't match but content did), append them
+  for (const r of contentMatches) {
+    if (visibleIds.has(r.id)) continue;
+    const li = document.createElement('li');
+    li.dataset.id = r.id;
+    li.classList.add('search-content-match');
+
+    const titleSpan = document.createElement('span');
+    titleSpan.textContent = r.title || '新对话';
+    titleSpan.style.flex = '1';
+    li.appendChild(titleSpan);
+
+    const snippet = document.createElement('div');
+    snippet.className = 'conv-snippet';
+    snippet.textContent = r.snippet || '';
+    li.appendChild(snippet);
+
+    li.addEventListener('click', () => openConversation(r.id));
+    convList.appendChild(li);
+  }
+}
 
 async function openConversation(convId) {
   const conv = await window.pywebview.api.open_conversation(convId);

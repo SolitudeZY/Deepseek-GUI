@@ -107,6 +107,8 @@ pre, code,
   border-radius: 4px;
 }
 #conv-list li .conv-actions button:hover { background: var(--border); color: var(--text); }
+#conv-list li .conv-snippet { font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; opacity: 0.8; }
+#conv-list li.search-content-match { border-left: 2px solid var(--accent); }
 #sidebar-bottom { padding: 6px 8px 10px; }
 #search-input {
   width: 100%; padding: 6px 10px; border-radius: var(--radius);
