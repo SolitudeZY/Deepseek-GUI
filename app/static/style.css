@@ -452,7 +452,7 @@ pre, code,
   display: flex; align-items: center; justify-content: center;
   z-index: 1000;
 }
-.overlay.hidden { display: none; }
+.overlay.hidden { visibility: hidden; pointer-events: none; }
 .modal {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -624,7 +624,7 @@ body.drag-over #input-area { border-top-color: var(--accent); background: var(--
   overflow-y: auto;
   box-shadow: 0 4px 20px rgba(0,0,0,.5);
 }
-#slash-menu.hidden { display: none; }
+#slash-menu.hidden { visibility: hidden; pointer-events: none; }
 #slash-menu li {
   padding: 7px 14px;
   cursor: pointer;
