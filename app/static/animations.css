@@ -1,53 +1,81 @@
-/* animations.css — UI motion & micro-interactions
-   Separated from style.css so it can be disabled without affecting layout. */
+/* animations.css — Refined motion & micro-interactions
+   Aesthetic: Calm precision. Movements are quick, purposeful, never bouncy.
+   Easing: cubic-bezier(0.22, 1, 0.36, 1) — fast start, gentle settle.
+   Separated from style.css — remove this link to disable all motion. */
+
+:root {
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --duration-fast: 0.15s;
+  --duration-normal: 0.25s;
+  --duration-slow: 0.4s;
+  --glow-accent: rgba(122, 162, 247, 0.12);
+}
+
+[data-theme="light"] {
+  --glow-accent: rgba(26, 110, 216, 0.08);
+}
 
 /* ── Sidebar conversation list ── */
 #conv-list li {
-  transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease, opacity 0.2s ease;
+  transition:
+    background var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    transform var(--duration-fast) var(--ease-out),
+    border-color var(--duration-normal) ease;
 }
 #conv-list li:hover {
-  transform: translateX(3px);
+  transform: translateX(2px);
 }
 #conv-list li:active {
-  transform: scale(0.97);
+  transform: scale(0.98) translateX(2px);
+  transition-duration: 0.05s;
 }
 #conv-list li.active {
   border-left: 3px solid var(--accent);
   padding-left: 7px;
+  background: var(--glow-accent);
 }
 
-/* Conversation appearing animation */
+/* Staggered slide-in for conversation items */
 @keyframes conv-slide-in {
-  from { opacity: 0; transform: translateY(-8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateX(-6px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 #conv-list li {
-  animation: conv-slide-in 0.2s ease both;
+  animation: conv-slide-in var(--duration-normal) var(--ease-out) both;
 }
 
-/* ── Buttons ── */
+/* ── Buttons — tactile press feedback ── */
 .btn-primary, .btn-secondary, .btn-ghost, .btn-danger {
-  transition: background 0.2s ease, color 0.2s ease, transform 0.1s ease,
-              box-shadow 0.2s ease, border-color 0.2s ease;
+  transition:
+    background var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    transform 0.08s ease,
+    box-shadow var(--duration-normal) ease,
+    border-color var(--duration-fast) ease;
 }
-.btn-primary:hover, .btn-secondary:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+.btn-primary:hover {
+  box-shadow: 0 4px 12px rgba(122, 162, 247, 0.25);
 }
 .btn-primary:active, .btn-secondary:active, .btn-ghost:active, .btn-danger:active {
-  transform: scale(0.95);
+  transform: scale(0.96);
+  transition-duration: 0.04s;
 }
 .btn-ghost:hover {
   background: var(--hover);
 }
+.btn-danger:hover {
+  box-shadow: 0 4px 12px rgba(243, 139, 168, 0.2);
+}
 
 /* ── Chat bubbles ── */
 @keyframes bubble-in {
-  from { opacity: 0; transform: translateY(12px) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .bubble {
-  animation: bubble-in 0.25s ease both;
+  animation: bubble-in var(--duration-normal) var(--ease-out) both;
 }
 /* Skip animation during history load */
 #chat-messages.no-animate .bubble,
@@ -58,56 +86,59 @@
   animation-name: bubble-in-right;
 }
 @keyframes bubble-in-right {
-  from { opacity: 0; transform: translateX(16px) scale(0.97); }
-  to   { opacity: 1; transform: translateX(0) scale(1); }
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 .bubble-assistant {
   animation-name: bubble-in-left;
 }
 @keyframes bubble-in-left {
-  from { opacity: 0; transform: translateX(-16px) scale(0.97); }
-  to   { opacity: 1; transform: translateX(0) scale(1); }
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 /* Tool call bubbles — subtle fade */
 .bubble-tool-call {
-  animation: tool-fade-in 0.2s ease both;
+  animation: tool-fade-in 0.2s var(--ease-out) both;
 }
 @keyframes tool-fade-in {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Tool header hover ── */
 .tool-header {
-  transition: background 0.15s ease;
+  transition: background var(--duration-fast) ease;
 }
 .tool-header:hover {
   background: var(--hover);
 }
 
-/* ── Modal overlays ── */
+/* ── Modal overlays — fade + scale ── */
 .overlay {
-  transition: opacity 0.2s ease, visibility 0s linear 0s;
+  transition: opacity var(--duration-normal) ease, visibility 0s linear 0s;
   opacity: 1;
 }
 .overlay.hidden {
   opacity: 0;
-  transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+  transition: opacity var(--duration-normal) ease, visibility 0s linear var(--duration-normal);
 }
 .modal {
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.2s ease;
-  transform: scale(1);
+  transition: transform var(--duration-normal) var(--ease-spring), opacity var(--duration-fast) ease;
+  transform: scale(1) translateY(0);
   opacity: 1;
 }
 .overlay.hidden .modal {
-  transform: scale(0.92);
+  transform: scale(0.95) translateY(8px);
   opacity: 0;
 }
 
 /* ── Toolbar buttons ── */
 #toolbar-right button {
-  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+  transition:
+    background var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    transform 0.08s ease;
   border-radius: var(--radius);
 }
 #toolbar-right button:hover {
@@ -115,98 +146,115 @@
 }
 #toolbar-right button:active {
   transform: scale(0.92);
+  transition-duration: 0.04s;
 }
 
-/* ── Input area ── */
+/* ── Input area — focus glow ── */
 #msg-input {
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--duration-normal) ease, box-shadow var(--duration-normal) ease;
 }
 #msg-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 0 0 3px var(--glow-accent);
 }
 
 /* ── Sidebar search input ── */
 #search-input {
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color var(--duration-normal) ease, box-shadow var(--duration-normal) ease;
 }
 #search-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+  box-shadow: 0 0 0 3px var(--glow-accent);
 }
 
 /* ── Context bar fill ── */
 #context-bar-fill {
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1), background 0.4s ease;
+  transition: width 0.6s var(--ease-out), background var(--duration-slow) ease;
 }
 
 /* ── Slash menu ── */
 #slash-menu {
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0s;
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out), visibility 0s linear 0s;
   transform-origin: bottom left;
-  transform: scaleY(1);
+  transform: translateY(0) scaleY(1);
   opacity: 1;
 }
 #slash-menu.hidden {
-  transform: scaleY(0.9);
+  transform: translateY(4px) scaleY(0.95);
   opacity: 0;
-  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0s linear 0.15s;
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) ease, visibility 0s linear var(--duration-fast);
 }
 #slash-menu li {
-  transition: background 0.1s ease;
+  transition: background var(--duration-fast) ease;
 }
 
 /* ── File chips ── */
 .file-chip {
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) ease;
 }
 .file-chip:hover {
   transform: translateY(-1px);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-}
-
-/* ── Scrollbar subtle animation ── */
-#chat-area::-webkit-scrollbar-thumb {
-  transition: background 0.2s ease;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
 }
 
 /* ── Side panels (todo, fileops, worktree) ── */
 #todo-panel, #fileops-panel, #wt-panel {
-  animation: panel-slide-in 0.25s ease both;
+  animation: panel-slide-in var(--duration-normal) var(--ease-out) both;
 }
 @keyframes panel-slide-in {
-  from { opacity: 0; transform: translateX(20px); }
+  from { opacity: 0; transform: translateX(12px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 
 /* ── Ask dialog options ── */
 #ask-options li {
-  transition: background 0.12s ease, transform 0.1s ease;
+  transition: background var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out);
 }
 #ask-options li:hover {
-  transform: translateX(4px);
+  transform: translateX(3px);
 }
 #ask-options li.ask-active {
-  transform: translateX(4px);
+  transform: translateX(3px);
 }
 
 /* ── Nav buttons ── */
 .btn-nav {
-  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
+  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out), background var(--duration-fast) ease;
 }
 .btn-nav:hover {
-  transform: scale(1.1);
+  transform: scale(1.08);
 }
 .btn-nav:active {
   transform: scale(0.9);
+  transition-duration: 0.04s;
 }
 
 /* ── Model select ── */
 #model-select {
-  transition: border-color 0.2s ease;
+  transition: border-color var(--duration-normal) ease, box-shadow var(--duration-normal) ease;
 }
 #model-select:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--glow-accent);
+}
+
+/* ── Search highlight pulse ── */
+@keyframes highlight-pulse {
+  0%   { background: rgba(250, 204, 21, 0.5); }
+  100% { background: rgba(250, 204, 21, 0.25); }
+}
+mark.search-highlight {
+  animation: highlight-pulse 0.8s ease both;
+}
+
+/* ── Code block copy button ── */
+.btn-copy {
+  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar-thumb {
+  transition: background var(--duration-fast) ease;
 }
 
 /* ── Reduce motion for accessibility ── */

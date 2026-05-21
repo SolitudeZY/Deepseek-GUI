@@ -278,11 +278,14 @@ searchInput.addEventListener('input', () => {
   // Debounced content search for deeper matches
   clearTimeout(searchInput._debounce);
   if (!kw) { _clearSearchHighlights(); return; }
-  searchInput._debounce = setTimeout(async () => {
-    const results = await window.pywebview.api.search_conversations(kw);
-    _applyContentSearchResults(results, kw);
-  }, 300);
+  searchInput._debounce = setTimeout(() => _runContentSearch(kw), 300);
 });
+
+async function _runContentSearch(kw) {
+  if (!kw) return;
+  const results = await window.pywebview.api.search_conversations(kw);
+  _applyContentSearchResults(results, kw);
+}
 
 function _clearSearchHighlights() {
   convList.querySelectorAll('.conv-snippet').forEach(el => el.remove());
@@ -292,7 +295,6 @@ function _clearSearchHighlights() {
 function _applyContentSearchResults(results, kw) {
   _clearSearchHighlights();
   if (!results || results.length === 0) return;
-  // Show conversations that matched by content but aren't already visible (title didn't match)
   const visibleIds = new Set([...convList.querySelectorAll('li[data-id]')].map(li => li.dataset.id));
   const contentMatches = results.filter(r => r.match === 'content');
 
@@ -335,9 +337,67 @@ async function openConversation(convId) {
   if (!conv) return;
   state.currentConvId = convId;
   convTitle.textContent = conv.title;
-  renderConvList(searchInput.value);
+  const kw = searchInput.value.trim();
+  renderConvList(kw);
+  // Re-apply content search results so the list doesn't disappear
+  if (kw) _runContentSearch(kw);
   loadHistory(conv.messages || []);
   Chat.updateFileOps(conv.file_ops || []);
+  // Highlight and scroll to keyword match in chat
+  if (kw) {
+    requestAnimationFrame(() => _highlightAndScrollTo(kw));
+  }
+}
+
+function _highlightAndScrollTo(keyword) {
+  // Remove previous highlights
+  chatMessages.querySelectorAll('mark.search-highlight').forEach(m => {
+    const parent = m.parentNode;
+    parent.replaceChild(document.createTextNode(m.textContent), m);
+    parent.normalize();
+  });
+  if (!keyword) return;
+
+  const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  const walker = document.createTreeWalker(chatMessages, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const p = node.parentNode;
+      if (!p) return NodeFilter.FILTER_REJECT;
+      const tag = p.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'MARK') return NodeFilter.FILTER_REJECT;
+      if (regex.test(node.nodeValue)) { regex.lastIndex = 0; return NodeFilter.FILTER_ACCEPT; }
+      return NodeFilter.FILTER_REJECT;
+    }
+  });
+
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+
+  let firstMark = null;
+  for (const textNode of nodes) {
+    const parts = textNode.nodeValue.split(regex);
+    if (parts.length <= 1) continue;
+    const frag = document.createDocumentFragment();
+    for (const part of parts) {
+      if (regex.test(part)) {
+        regex.lastIndex = 0;
+        const mark = document.createElement('mark');
+        mark.className = 'search-highlight';
+        mark.textContent = part;
+        frag.appendChild(mark);
+        if (!firstMark) firstMark = mark;
+      } else {
+        frag.appendChild(document.createTextNode(part));
+      }
+    }
+    textNode.parentNode.replaceChild(frag, textNode);
+  }
+
+  // Scroll to first match
+  if (firstMark) {
+    firstMark.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 
 async function newConversation() {
