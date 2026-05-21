@@ -390,6 +390,7 @@ async function doRename() {
 
 // ── History rendering ─────────────────────────────────────────────
 function loadHistory(messages) {
+  chatMessages.classList.add('no-animate');
   chatMessages.innerHTML = '';
   messages.forEach(msg => {
     const role = msg.role;
@@ -399,6 +400,8 @@ function loadHistory(messages) {
     else if (role === 'tool') addToolResultBubble('tool', content);
   });
   scrollToBottom();
+  // Re-enable animations after history is rendered
+  requestAnimationFrame(() => chatMessages.classList.remove('no-animate'));
 }
 
 function addUserBubble(text) {

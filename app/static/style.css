@@ -18,6 +18,7 @@
   --code-fg: #cdd6f4;
   --danger: #f38ba8;
   --danger-hover: #eba0ac;
+  --hover: rgba(255, 255, 255, 0.06);
   --sidebar-w: 220px;
   --font-size: 14px;
   --radius: 8px;
@@ -42,6 +43,7 @@
   --code-fg: #1a1a2e;
   --danger: #c0392b;
   --danger-hover: #e74c3c;
+  --hover: rgba(0, 0, 0, 0.06);
 }
 
 /* ── Reset ── */

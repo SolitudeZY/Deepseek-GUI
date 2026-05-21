@@ -49,6 +49,11 @@
 .bubble {
   animation: bubble-in 0.25s ease both;
 }
+/* Skip animation during history load */
+#chat-messages.no-animate .bubble,
+#chat-messages.no-animate .bubble-tool-call {
+  animation: none;
+}
 .bubble-user {
   animation-name: bubble-in-right;
 }
@@ -110,10 +115,6 @@
 }
 #toolbar-right button:active {
   transform: scale(0.92);
-}
-#toolbar-right button.active {
-  background: var(--accent);
-  color: #fff;
 }
 
 /* ── Input area ── */
