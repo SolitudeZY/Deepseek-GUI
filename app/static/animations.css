@@ -27,8 +27,8 @@
     background 0.3s ease,
     color 0.2s ease,
     transform 0.2s var(--ease-out),
-    border-color 0.3s ease,
-    box-shadow 0.3s ease;
+    border-color 0.4s ease,
+    box-shadow 0.4s ease;
   border-left: 3px solid transparent;
 }
 #conv-list li:hover {
@@ -41,10 +41,10 @@
   transition-duration: 0.06s;
 }
 #conv-list li.active {
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid;
   padding-left: 7px;
   background: var(--glow-accent);
-  box-shadow: inset 4px 0 0 var(--accent), 0 0 12px var(--glow-accent);
+  /* border-left-color and box-shadow set by JS with random color */
 }
 
 /* Slide-in animation */
@@ -424,6 +424,105 @@ mark.search-highlight {
 /* ══════════════════════════════════════════════════════════════════
    ACCESSIBILITY
    ══════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════════
+   SETTINGS MODAL — tab switching & input feedback
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Tab buttons — active indicator slide */
+.tab-btn {
+  transition:
+    color 0.25s ease,
+    border-color 0.3s ease,
+    background 0.2s ease,
+    transform 0.15s var(--ease-out);
+  position: relative;
+}
+.tab-btn:hover {
+  background: var(--glow-accent);
+  color: var(--text);
+}
+.tab-btn:active {
+  transform: scale(0.93);
+  transition-duration: 0.06s;
+}
+
+/* Tab panel — fade + slide transition */
+.tab-panel {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.3s ease, transform 0.3s var(--ease-out);
+}
+.tab-panel.active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Settings inputs — focus glow & click feedback */
+.tab-panel input,
+.tab-panel select,
+.tab-panel textarea {
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    background 0.2s ease,
+    transform 0.1s var(--ease-out);
+}
+.tab-panel input:focus,
+.tab-panel select:focus,
+.tab-panel textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--glow-accent), 0 0 12px var(--glow-accent);
+  background: color-mix(in srgb, var(--bg3) 92%, var(--accent) 8%);
+}
+.tab-panel input:active,
+.tab-panel select:active {
+  transform: scale(0.98);
+}
+
+/* Settings buttons — enhanced press feedback */
+.modal-footer .btn-primary,
+.modal-footer .btn-ghost,
+.modal-footer .btn-danger {
+  transition:
+    background 0.25s ease,
+    color 0.2s ease,
+    transform 0.12s var(--ease-out),
+    box-shadow 0.3s ease;
+}
+.modal-footer .btn-primary:active,
+.modal-footer .btn-ghost:active,
+.modal-footer .btn-danger:active {
+  transform: scale(0.9);
+  transition-duration: 0.06s;
+}
+
+/* Model config list items */
+#model-config-list li {
+  transition: background 0.2s ease, transform 0.15s var(--ease-out), padding-left 0.15s ease;
+}
+#model-config-list li:hover {
+  transform: translateX(3px);
+  padding-left: 11px;
+}
+#model-config-list li:active {
+  transform: scale(0.96);
+  transition-duration: 0.06s;
+}
+
+/* Close button spin on hover */
+.btn-close {
+  transition: transform 0.3s var(--ease-out), color 0.2s ease, background 0.2s ease;
+}
+.btn-close:hover {
+  transform: rotate(90deg) scale(1.1);
+  color: var(--accent);
+}
+.btn-close:active {
+  transform: rotate(90deg) scale(0.85);
+  transition-duration: 0.06s;
+}
+
 
 /* 忽略系统"减少动画"设置，保证应用内动画始终生效 */
 /* @media (prefers-reduced-motion: reduce) — 已禁用 */

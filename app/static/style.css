@@ -100,7 +100,7 @@ pre, code,
 }
 #conv-list li:hover { background: var(--glow-accent); color: var(--text); transform: translateX(4px); box-shadow: inset 3px 0 0 var(--accent); }
 #conv-list li:active { transform: scale(0.97) translateX(4px); transition-duration: 0.06s; }
-#conv-list li.active { background: var(--glow-accent); color: var(--text); font-weight: 500; border-left-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent), 0 0 12px var(--glow-accent); }
+#conv-list li.active { background: var(--glow-accent); color: var(--text); font-weight: 500; }
 #conv-list li .conv-actions {
   display: none;
   position: absolute;
@@ -515,9 +515,9 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   padding: 8px 14px; border-bottom: 2px solid transparent;
 }
 .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-.modal-body { flex: 1; overflow-y: auto; padding: 14px 18px; }
-.tab-panel { display: none; flex-direction: column; gap: 10px; }
-.tab-panel.active { display: flex; }
+.modal-body { flex: 1; overflow-y: auto; padding: 14px 18px; position: relative; }
+.tab-panel { display: flex; flex-direction: column; gap: 10px; position: absolute; top: 0; left: 0; right: 0; visibility: hidden; pointer-events: none; }
+.tab-panel.active { position: relative; visibility: visible; pointer-events: auto; }
 .tab-panel label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-dim); }
 .tab-panel input, .tab-panel select, .tab-panel textarea {
   background: var(--bg3); color: var(--text);

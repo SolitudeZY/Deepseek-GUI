@@ -171,6 +171,16 @@ const convTitle     = $('conv-title');
 const fileChips     = $('file-chips');
 const searchInput   = $('search-input');
 
+// ── Random accent colors for conversation border ─────────────────
+const _convColors = [
+  '#7aa2f7', '#bb9af7', '#7dcfff', '#9ece6a', '#e0af68',
+  '#f7768e', '#ff9e64', '#73daca', '#b4f9f8', '#c0caf5',
+  '#2ac3de', '#a9b1d6', '#ff007c', '#d18616', '#41a6b5',
+];
+function _randomConvColor() {
+  return _convColors[Math.floor(Math.random() * _convColors.length)];
+}
+
 // ── Init ──────────────────────────────────────────────────────────
 // ── Scroll speed boost ────────────────────────────────────────────
 $('chat-area').addEventListener('wheel', e => {
@@ -230,7 +240,11 @@ function renderConvList(filter = '') {
     const li = document.createElement('li');
     li.dataset.id = conv.id;
     li.dataset.idx = idx;
-    if (conv.id === state.currentConvId) li.classList.add('active');
+    if (conv.id === state.currentConvId) {
+      li.classList.add('active');
+      li.style.borderLeftColor = _randomConvColor();
+      li.style.boxShadow = `inset 4px 0 0 ${li.style.borderLeftColor}, 0 0 12px ${li.style.borderLeftColor}33`;
+    }
 
     const titleSpan = document.createElement('span');
     titleSpan.textContent = conv.title;

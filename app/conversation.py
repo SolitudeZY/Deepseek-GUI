@@ -98,7 +98,7 @@ def auto_title_from_message(conv: dict, first_user_message: str) -> None:
 
 
 def export_conversation_md(conv: dict) -> str:
-    """将对话导出为 Markdown 字符串。"""
+    """将对话导出为 Markdown 字符串（仅用户和助手内容，不含工具调用）。"""
     lines = [f"# {conv.get('title', '对话')}\n"]
     lines.append(f"> 创建时间：{conv.get('created_at', '')}\n")
     lines.append(f"> 模型配置：{conv.get('model_config', '')}\n\n---\n")
@@ -107,8 +107,6 @@ def export_conversation_md(conv: dict) -> str:
         content = msg.get("content") or ""
         if role == "user":
             lines.append(f"**User:**\n\n{content}\n\n")
-        elif role == "assistant":
+        elif role == "assistant" and content:
             lines.append(f"**Assistant:**\n\n{content}\n\n")
-        elif role == "tool":
-            lines.append(f"**Tool Result** (`{msg.get('tool_call_id', '')}`):\n\n```\n{content}\n```\n\n")
     return "".join(lines)

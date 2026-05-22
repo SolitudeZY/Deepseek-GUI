@@ -30,7 +30,8 @@
       "Bash(cp:*)",
       "Bash(grep -rn \"transition\\\\|animation\" app/static/*.js)",
       "Bash(grep -v \"//.*transition\")",
-      "Bash(grep -n \"no-animate\" app/static/*.css app/static/*.js)"
+      "Bash(grep -n \"no-animate\" app/static/*.css app/static/*.js)",
+      "Bash(grep -rn \"export_conversation\" app/*.py)"
     ]
   }
 }
