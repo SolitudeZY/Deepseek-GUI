@@ -135,6 +135,27 @@
             <label>API Key<input type="password" id="mc-key" placeholder="sk-..."></label>
             <label>Base URL<input type="text" id="mc-url" placeholder="https://api.xxx.com/v1"></label>
             <label>模型名<input type="text" id="mc-model" placeholder="model-name"></label>
+            <div class="form-row">
+              <label style="flex:1">上下文长度
+                <div class="form-row">
+                  <input type="number" id="mc-context-length" placeholder="1000" min="1" style="flex:1">
+                  <select id="mc-context-unit" style="width:60px">
+                    <option value="K">K</option>
+                    <option value="M">M</option>
+                  </select>
+                </div>
+              </label>
+              <label style="flex:1">压缩阈值
+                <div class="form-row">
+                  <input type="number" id="mc-compact-threshold" placeholder="600" min="1" style="flex:1">
+                  <select id="mc-compact-unit" style="width:60px">
+                    <option value="K">K</option>
+                    <option value="M">M</option>
+                  </select>
+                </div>
+              </label>
+            </div>
+            <p class="hint">参考值：Claude 4.6/4.7 = 1M, DeepSeek V4 = 1M, Qwen 3.6 = 1M, GPT-5.5 = 1M, Gemini 3.5 = 1M, DeepSeek V3 = 128K。压缩阈值建议设为上下文长度的 60%。</p>
             <label>系统提示词<textarea id="mc-system" rows="4"></textarea></label>
             <div class="form-row">
               <button id="btn-save-mc" class="btn-primary">保存此配置</button>

@@ -13,8 +13,8 @@ from app.team import TEAM, WORKTREES, BUS
 from app.skills import skill_list, skill_list_str, skill_read, memory_read, memory_write
 
 # Token threshold for auto-compact (approx)
-AUTO_COMPACT_THRESHOLD = 80_000
-# V4 models have 1M context — compact at 800k to leave headroom
+AUTO_COMPACT_THRESHOLD = 600_000
+# Legacy V4 threshold (kept for reference, now overridden by per-model config)
 AUTO_COMPACT_THRESHOLD_V4 = 800_000
 
 V4_MODELS = {"deepseek-v4-pro", "deepseek-v4-flash"}
@@ -43,6 +43,8 @@ class Agent:
         thinking: str = "off",
         max_rounds: int = 50,
         search_enabled: bool = True,
+        compact_threshold: int = 0,
+        context_length: int = 0,
     ):
         self.model = model
         self.search_config = search_config or {}
@@ -50,6 +52,10 @@ class Agent:
         self.command_timeout = command_timeout
         self.thinking = thinking  # "off" | "high" | "max"
         self.max_rounds = max_rounds
+        self.search_enabled = search_enabled
+        # Per-model context config (0 = use defaults)
+        self.context_length = context_length or (1_000_000 if model in V4_MODELS else 1_000_000)
+        self.compact_threshold = compact_threshold or AUTO_COMPACT_THRESHOLD
         self.search_enabled = search_enabled
         self._model_configs: list = []
         self._client = OpenAI(api_key=api_key, base_url=base_url)
@@ -310,7 +316,7 @@ class Agent:
             round_count = 0
             search_count = 0
             SEARCH_SOFT_LIMIT = 5
-            threshold = AUTO_COMPACT_THRESHOLD_V4 if self.model in V4_MODELS else AUTO_COMPACT_THRESHOLD
+            threshold = self.compact_threshold
             while not self._stop_flag.is_set() and round_count < max_rounds:
                 # 注入后台任务完成通知
                 notes = self._bg.drain_notifications()

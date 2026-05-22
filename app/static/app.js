@@ -1630,6 +1630,23 @@ function selectMc(idx) {
   $('mc-url').value = mc.base_url || '';
   $('mc-model').value = mc.model || '';
   $('mc-system').value = mc.system_prompt || '';
+  // 上下文长度和压缩阈值（自动选择 K/M 单位）
+  const ctxLen = mc.context_length || 600000;
+  if (ctxLen >= 1000000 && ctxLen % 1000000 === 0) {
+    $('mc-context-length').value = ctxLen / 1000000;
+    $('mc-context-unit').value = 'M';
+  } else {
+    $('mc-context-length').value = Math.round(ctxLen / 1000);
+    $('mc-context-unit').value = 'K';
+  }
+  const threshold = mc.compact_threshold || 600000;
+  if (threshold >= 1000000 && threshold % 1000000 === 0) {
+    $('mc-compact-threshold').value = threshold / 1000000;
+    $('mc-compact-unit').value = 'M';
+  } else {
+    $('mc-compact-threshold').value = Math.round(threshold / 1000);
+    $('mc-compact-unit').value = 'K';
+  }
   renderModelConfigList();
 }
 
@@ -1641,13 +1658,20 @@ function saveCurrentMc() {
   mc.base_url = $('mc-url').value.trim();
   mc.model = $('mc-model').value.trim();
   mc.system_prompt = $('mc-system').value.trim();
+  // 上下文长度和压缩阈值
+  const ctxVal = parseFloat($('mc-context-length').value) || 600;
+  const ctxUnit = $('mc-context-unit').value;
+  mc.context_length = Math.round(ctxVal * (ctxUnit === 'M' ? 1000000 : 1000));
+  const compVal = parseFloat($('mc-compact-threshold').value) || 600;
+  const compUnit = $('mc-compact-unit').value;
+  mc.compact_threshold = Math.round(compVal * (compUnit === 'M' ? 1000000 : 1000));
   renderModelConfigList();
 }
 
 $('btn-save-mc').addEventListener('click', saveCurrentMc);
 $('btn-add-model').addEventListener('click', () => {
   const configs = state.config.model_configs || [];
-  configs.push({ name: `新配置 ${configs.length + 1}`, api_key: '', base_url: '', model: '', system_prompt: 'You are a helpful assistant.' });
+  configs.push({ name: `新配置 ${configs.length + 1}`, api_key: '', base_url: '', model: '', system_prompt: 'You are a helpful assistant.', context_length: 1000000, compact_threshold: 600000 });
   state.config.model_configs = configs;
   selectMc(configs.length - 1);
 });

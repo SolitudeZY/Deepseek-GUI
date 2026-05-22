@@ -291,13 +291,14 @@ class API:
         """计算指定对话的上下文 token 使用量。"""
         conv = load_conversation(conv_id)
         if not conv:
-            return {"used": 0, "total": 80000}
+            return {"used": 0, "total": 600000}
         messages = conv.get("messages", [])
         used = estimate_tokens(messages)
-        # 根据当前活跃模型决定阈值
+        # 根据当前活跃模型的配置决定阈值
         active_mc = get_active_model_config(self._config)
-        model = active_mc.get("model", "") if active_mc else ""
-        total = AUTO_COMPACT_THRESHOLD_V4 if model in V4_MODELS else AUTO_COMPACT_THRESHOLD
+        total = 600000
+        if active_mc:
+            total = active_mc.get("compact_threshold", 0) or AUTO_COMPACT_THRESHOLD
         return {"used": used, "total": total}
 
     # ── File helpers ──────────────────────────────────────────────
@@ -421,6 +422,8 @@ class API:
             bg_manager=self._bg,
             thinking=self._thinking,
             search_enabled=self._search_mode == "auto" or self._search_enabled,
+            compact_threshold=mc.get('compact_threshold', 0),
+            context_length=mc.get('context_length', 0),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
@@ -463,6 +466,8 @@ class API:
             bg_manager=self._bg,
             thinking=self._thinking,
             search_enabled=self._search_mode == "auto" or self._search_enabled,
+            compact_threshold=mc.get('compact_threshold', 0),
+            context_length=mc.get('context_length', 0),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True

@@ -28,6 +28,8 @@ DEFAULT_MODEL_CONFIGS = [
         "base_url": "https://api.deepseek.com/v1",
         "model": "deepseek-v4-pro",
         "system_prompt": "You are a helpful assistant.",
+        "context_length": 1000000,
+        "compact_threshold": 600000,
     },
     {
         "name": "DeepSeek V4 Flash",
@@ -35,6 +37,8 @@ DEFAULT_MODEL_CONFIGS = [
         "base_url": "https://api.deepseek.com/v1",
         "model": "deepseek-v4-flash",
         "system_prompt": "You are a helpful assistant.",
+        "context_length": 1000000,
+        "compact_threshold": 600000,
     },
     {
         "name": "DeepSeek V3.2",
@@ -42,6 +46,8 @@ DEFAULT_MODEL_CONFIGS = [
         "base_url": "https://api.deepseek.com/v1",
         "model": "deepseek-chat",
         "system_prompt": "You are a helpful assistant.",
+        "context_length": 128000,
+        "compact_threshold": 80000,
     },
     {
         "name": "OpenAI",
@@ -49,6 +55,8 @@ DEFAULT_MODEL_CONFIGS = [
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4o",
         "system_prompt": "You are a helpful assistant.",
+        "context_length": 128000,
+        "compact_threshold": 80000,
     },
     {
         "name": "本地 Ollama",
@@ -56,6 +64,8 @@ DEFAULT_MODEL_CONFIGS = [
         "base_url": "http://localhost:11434/v1",
         "model": "llama3",
         "system_prompt": "You are a helpful assistant.",
+        "context_length": 128000,
+        "compact_threshold": 80000,
     },
 ]
 
