@@ -24,7 +24,13 @@
       "WebFetch(domain:www.morphllm.com)",
       "Bash(where python:*)",
       "Bash(conda info:*)",
-      "Bash(D:/miniconda/envs/ai_api/python.exe:*)"
+      "Bash(D:/miniconda/envs/ai_api/python.exe:*)",
+      "Bash(grep -rn \"animation\\\\|transition\" app/static/*.js)",
+      "Bash(grep -rn \"reduced-motion\\\\|transition-duration.*0\\\\|transition.*none\" app/static/*.css)",
+      "Bash(cp:*)",
+      "Bash(grep -rn \"transition\\\\|animation\" app/static/*.js)",
+      "Bash(grep -v \"//.*transition\")",
+      "Bash(grep -n \"no-animate\" app/static/*.css app/static/*.js)"
     ]
   }
 }

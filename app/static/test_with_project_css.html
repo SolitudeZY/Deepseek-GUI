@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<title>CSS Transition Test - With Project CSS</title>
+<!-- 加载和主程序完全一样的 CSS -->
+<link rel="stylesheet" href="vendor/katex.min.css">
+<link rel="stylesheet" href="vendor/github-dark.min.css">
+<link rel="stylesheet" href="style.css?v=test">
+<link rel="stylesheet" href="animations.css?v=test">
+</head>
+<body>
+<div style="padding: 30px;">
+<h2 style="color: var(--text); margin-bottom: 20px;">在项目 CSS 环境下测试 Transition</h2>
+
+<!-- 用项目中实际的按钮 class -->
+<button class="btn-primary" style="margin:10px;">btn-primary hover 测试</button>
+<button class="btn-secondary" style="margin:10px;">btn-secondary hover 测试</button>
+<button class="btn-ghost" style="margin:10px;">btn-ghost hover 测试</button>
+
+<hr style="margin: 20px 0; border-color: #444;">
+
+<!-- 用自定义 inline transition 测试是否被全局规则覆盖 -->
+<div id="custom-test" style="
+    width: 200px; height: 50px; background: #3b82f6; color: white;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 8px; margin: 10px; cursor: pointer;
+    transition: background-color 0.5s ease, transform 0.3s ease;
+" onmouseover="this.style.background='#ef4444'; this.style.transform='scale(1.05)'"
+   onmouseout="this.style.background='#3b82f6'; this.style.transform='scale(1)'">
+    Inline style transition
+</div>
+
+<hr style="margin: 20px 0; border-color: #444;">
+<h3 style="color: var(--text);">诊断信息</h3>
+<pre id="diag" style="background:#313244; padding:10px; border-radius:6px; color:#cdd6f4; font-size:12px;"></pre>
+</div>
+
+<script>
+// 检测 prefers-reduced-motion 的实际值
+const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+const info = [];
+info.push('prefers-reduced-motion: ' + (mq.matches ? 'reduce (系统动画已关闭!)' : 'no-preference'));
+info.push('UserAgent: ' + navigator.userAgent);
+info.push('URL: ' + location.href);
+
+// 检查 computed style 中 transition 是否被覆盖
+const btn = document.querySelector('.btn-primary');
+if (btn) {
+    const cs = getComputedStyle(btn);
+    info.push('btn-primary transition: ' + cs.transition);
+    info.push('btn-primary transition-duration: ' + cs.transitionDuration);
+}
+
+const custom = document.getElementById('custom-test');
+if (custom) {
+    const cs2 = getComputedStyle(custom);
+    info.push('custom-test transition: ' + cs2.transition);
+    info.push('custom-test transition-duration: ' + cs2.transitionDuration);
+}
+
+document.getElementById('diag').textContent = info.join('\n');
+</script>
+</body>
+</html>
