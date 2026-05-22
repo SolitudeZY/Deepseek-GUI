@@ -21,7 +21,10 @@
       "Bash(python3 -c ':*)",
       "Bash(python:*)",
       "Bash(python3:*)",
-      "WebFetch(domain:www.morphllm.com)"
+      "WebFetch(domain:www.morphllm.com)",
+      "Bash(where python:*)",
+      "Bash(conda info:*)",
+      "Bash(D:/miniconda/envs/ai_api/python.exe:*)"
     ]
   }
 }

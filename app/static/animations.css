@@ -1,263 +1,430 @@
-/* animations.css — Refined motion & micro-interactions
-   Aesthetic: Calm precision. Movements are quick, purposeful, never bouncy.
-   Easing: cubic-bezier(0.22, 1, 0.36, 1) — fast start, gentle settle.
+/* animations.css — Rich motion & visual feedback
+   Aesthetic: Fluid, expressive, noticeable. Every interaction has clear visual response.
    Separated from style.css — remove this link to disable all motion. */
 
 :root {
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
-  --duration-fast: 0.15s;
-  --duration-normal: 0.25s;
-  --duration-slow: 0.4s;
-  --glow-accent: rgba(122, 162, 247, 0.12);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+  --duration-fast: 0.2s;
+  --duration-normal: 0.35s;
+  --duration-slow: 0.5s;
+  --glow-accent: rgba(122, 162, 247, 0.2);
+  --glow-accent-strong: rgba(122, 162, 247, 0.4);
 }
 
 [data-theme="light"] {
-  --glow-accent: rgba(26, 110, 216, 0.08);
+  --glow-accent: rgba(26, 110, 216, 0.12);
+  --glow-accent-strong: rgba(26, 110, 216, 0.25);
 }
 
-/* ── Sidebar conversation list ── */
+/* ══════════════════════════════════════════════════════════════════
+   SIDEBAR
+   ══════════════════════════════════════════════════════════════════ */
+
 #conv-list li {
   transition:
-    background var(--duration-fast) ease,
-    color var(--duration-fast) ease,
-    transform var(--duration-fast) var(--ease-out),
-    border-color var(--duration-normal) ease;
+    background 0.3s ease,
+    color 0.2s ease,
+    transform 0.2s var(--ease-out),
+    border-color 0.3s ease,
+    box-shadow 0.3s ease;
+  border-left: 3px solid transparent;
 }
 #conv-list li:hover {
-  transform: translateX(2px);
+  transform: translateX(4px);
+  background: var(--glow-accent);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 #conv-list li:active {
-  transform: scale(0.98) translateX(2px);
-  transition-duration: 0.05s;
+  transform: scale(0.97) translateX(4px);
+  transition-duration: 0.06s;
 }
 #conv-list li.active {
   border-left: 3px solid var(--accent);
   padding-left: 7px;
   background: var(--glow-accent);
+  box-shadow: inset 4px 0 0 var(--accent), 0 0 12px var(--glow-accent);
 }
 
-/* Staggered slide-in for conversation items */
+/* Slide-in animation */
 @keyframes conv-slide-in {
-  from { opacity: 0; transform: translateX(-6px); }
+  from { opacity: 0; transform: translateX(-12px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 #conv-list li {
-  animation: conv-slide-in var(--duration-normal) var(--ease-out) both;
+  animation: conv-slide-in 0.3s var(--ease-out) both;
 }
 
-/* ── Buttons — tactile press feedback ── */
+/* ══════════════════════════════════════════════════════════════════
+   BUTTONS — expressive press & glow
+   ══════════════════════════════════════════════════════════════════ */
+
 .btn-primary, .btn-secondary, .btn-ghost, .btn-danger {
   transition:
-    background var(--duration-fast) ease,
-    color var(--duration-fast) ease,
-    transform 0.08s ease,
-    box-shadow var(--duration-normal) ease,
-    border-color var(--duration-fast) ease;
+    background 0.3s ease,
+    color 0.2s ease,
+    transform 0.12s var(--ease-out),
+    box-shadow 0.3s ease,
+    border-color 0.3s ease;
+  position: relative;
+  overflow: hidden;
 }
 .btn-primary:hover {
-  box-shadow: 0 4px 12px rgba(122, 162, 247, 0.25);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(122, 162, 247, 0.4), 0 0 40px rgba(122, 162, 247, 0.1);
 }
-.btn-primary:active, .btn-secondary:active, .btn-ghost:active, .btn-danger:active {
-  transform: scale(0.96);
-  transition-duration: 0.04s;
+.btn-primary:active {
+  transform: translateY(0) scale(0.95);
+  box-shadow: 0 2px 8px rgba(122, 162, 247, 0.3);
+  transition-duration: 0.06s;
+}
+.btn-secondary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+.btn-secondary:active, .btn-ghost:active, .btn-danger:active {
+  transform: scale(0.94);
+  transition-duration: 0.06s;
 }
 .btn-ghost:hover {
-  background: var(--hover);
+  background: var(--glow-accent);
+  box-shadow: 0 0 16px var(--glow-accent);
 }
 .btn-danger:hover {
-  box-shadow: 0 4px 12px rgba(243, 139, 168, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(247, 118, 142, 0.35);
+}
+.btn-danger:active {
+  transform: translateY(0) scale(0.95);
 }
 
-/* ── Chat bubbles ── */
+/* ══════════════════════════════════════════════════════════════════
+   CHAT BUBBLES — slide in with presence
+   ══════════════════════════════════════════════════════════════════ */
+
 @keyframes bubble-in {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+  0%   { opacity: 0; transform: translateY(20px) scale(0.95); }
+  60%  { opacity: 1; transform: translateY(-3px) scale(1.01); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 .bubble {
-  animation: bubble-in var(--duration-normal) var(--ease-out) both;
+  animation: bubble-in 0.4s var(--ease-out) both;
 }
 /* Skip animation during history load */
 #chat-messages.no-animate .bubble,
 #chat-messages.no-animate .bubble-tool-call {
   animation: none;
 }
+
+@keyframes bubble-in-right {
+  0%   { opacity: 0; transform: translateX(30px) scale(0.95); }
+  60%  { opacity: 1; transform: translateX(-4px) scale(1.01); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
+}
 .bubble-user {
   animation-name: bubble-in-right;
 }
-@keyframes bubble-in-right {
-  from { opacity: 0; transform: translateX(12px); }
-  to   { opacity: 1; transform: translateX(0); }
+
+@keyframes bubble-in-left {
+  0%   { opacity: 0; transform: translateX(-30px) scale(0.95); }
+  60%  { opacity: 1; transform: translateX(4px) scale(1.01); }
+  100% { opacity: 1; transform: translateX(0) scale(1); }
 }
 .bubble-assistant {
   animation-name: bubble-in-left;
 }
-@keyframes bubble-in-left {
-  from { opacity: 0; transform: translateX(-8px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
 
-/* Tool call bubbles — subtle fade */
-.bubble-tool-call {
-  animation: tool-fade-in 0.2s var(--ease-out) both;
-}
+/* Tool call bubbles */
 @keyframes tool-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.bubble-tool-call {
+  animation: tool-fade-in 0.3s var(--ease-out) both;
 }
 
-/* ── Tool header hover ── */
+/* ══════════════════════════════════════════════════════════════════
+   TOOL HEADER
+   ══════════════════════════════════════════════════════════════════ */
+
 .tool-header {
-  transition: background var(--duration-fast) ease;
+  transition: background 0.25s ease, padding-left 0.2s ease;
 }
 .tool-header:hover {
-  background: var(--hover);
+  background: var(--glow-accent);
+  padding-left: 14px;
 }
 
-/* ── Modal overlays — fade + scale ── */
+/* ══════════════════════════════════════════════════════════════════
+   MODAL OVERLAYS — dramatic entrance
+   ══════════════════════════════════════════════════════════════════ */
+
 .overlay {
-  transition: opacity var(--duration-normal) ease, visibility 0s linear 0s;
+  transition:
+    opacity 0.35s ease,
+    visibility 0s linear 0s,
+    backdrop-filter 0.35s ease;
   opacity: 1;
+  backdrop-filter: blur(4px);
 }
 .overlay.hidden {
   opacity: 0;
-  transition: opacity var(--duration-normal) ease, visibility 0s linear var(--duration-normal);
-}
-.modal {
-  transition: transform var(--duration-normal) var(--ease-spring), opacity var(--duration-fast) ease;
-  transform: scale(1) translateY(0);
-  opacity: 1;
-}
-.overlay.hidden .modal {
-  transform: scale(0.95) translateY(8px);
-  opacity: 0;
+  backdrop-filter: blur(0px);
+  transition:
+    opacity 0.3s ease,
+    visibility 0s linear 0.3s,
+    backdrop-filter 0.3s ease;
 }
 
-/* ── Toolbar buttons ── */
+.modal {
+  transition:
+    transform 0.4s var(--ease-spring),
+    opacity 0.3s ease,
+    box-shadow 0.4s ease;
+  transform: scale(1) translateY(0);
+  opacity: 1;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px var(--glow-accent);
+}
+.overlay.hidden .modal {
+  transform: scale(0.88) translateY(30px);
+  opacity: 0;
+  box-shadow: 0 0 0 rgba(0, 0, 0, 0);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   TOOLBAR BUTTONS
+   ══════════════════════════════════════════════════════════════════ */
+
 #toolbar-right button {
   transition:
-    background var(--duration-fast) ease,
-    color var(--duration-fast) ease,
-    transform 0.08s ease;
+    background 0.25s ease,
+    color 0.2s ease,
+    transform 0.12s var(--ease-out),
+    box-shadow 0.3s ease;
   border-radius: var(--radius);
 }
 #toolbar-right button:hover {
-  background: var(--hover);
+  background: var(--glow-accent);
+  box-shadow: 0 0 12px var(--glow-accent);
+  transform: translateY(-1px);
 }
 #toolbar-right button:active {
-  transform: scale(0.92);
-  transition-duration: 0.04s;
+  transform: scale(0.9) translateY(0);
+  transition-duration: 0.06s;
+  box-shadow: none;
 }
 
-/* ── Input area — focus glow ── */
+/* ══════════════════════════════════════════════════════════════════
+   INPUT AREA — animated glow on focus
+   ══════════════════════════════════════════════════════════════════ */
+
+@keyframes input-glow-pulse {
+  0%   { box-shadow: 0 0 0 3px var(--glow-accent), 0 0 0px var(--glow-accent); }
+  50%  { box-shadow: 0 0 0 3px var(--glow-accent), 0 0 20px var(--glow-accent); }
+  100% { box-shadow: 0 0 0 3px var(--glow-accent), 0 0 0px var(--glow-accent); }
+}
+
 #msg-input {
-  transition: border-color var(--duration-normal) ease, box-shadow var(--duration-normal) ease;
+  transition:
+    border-color 0.4s ease,
+    box-shadow 0.4s ease,
+    background 0.3s ease;
 }
 #msg-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--glow-accent);
+  box-shadow: 0 0 0 3px var(--glow-accent), 0 0 20px var(--glow-accent);
+  background: color-mix(in srgb, var(--bg3) 90%, var(--accent) 10%);
+  animation: input-glow-pulse 2s ease infinite;
+  animation-delay: 0.4s;
 }
 
-/* ── Sidebar search input ── */
+/* ══════════════════════════════════════════════════════════════════
+   SIDEBAR SEARCH INPUT
+   ══════════════════════════════════════════════════════════════════ */
+
 #search-input {
-  transition: border-color var(--duration-normal) ease, box-shadow var(--duration-normal) ease;
+  transition:
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    background 0.3s ease,
+    width 0.3s var(--ease-out);
 }
 #search-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--glow-accent);
+  box-shadow: 0 0 0 3px var(--glow-accent), 0 0 16px var(--glow-accent);
+  background: color-mix(in srgb, var(--bg3) 92%, var(--accent) 8%);
 }
 
-/* ── Context bar fill ── */
+/* ══════════════════════════════════════════════════════════════════
+   CONTEXT BAR
+   ══════════════════════════════════════════════════════════════════ */
+
 #context-bar-fill {
-  transition: width 0.6s var(--ease-out), background var(--duration-slow) ease;
+  transition: width 0.8s var(--ease-out), background 0.5s ease;
+  position: relative;
+}
+#context-bar-fill::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; bottom: 0;
+  width: 40px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3));
+  animation: bar-shimmer 2s ease infinite;
+}
+@keyframes bar-shimmer {
+  0%   { opacity: 0; transform: translateX(-40px); }
+  50%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(10px); }
 }
 
-/* ── Slash menu ── */
+/* ══════════════════════════════════════════════════════════════════
+   SLASH MENU
+   ══════════════════════════════════════════════════════════════════ */
+
 #slash-menu {
-  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out), visibility 0s linear 0s;
-  transform-origin: bottom left;
-  transform: translateY(0) scaleY(1);
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s var(--ease-spring),
+    visibility 0s linear 0s;
+  transform-origin: bottom center;
+  transform: translateY(0) scale(1);
   opacity: 1;
 }
 #slash-menu.hidden {
-  transform: translateY(4px) scaleY(0.95);
+  transform: translateY(10px) scale(0.92);
   opacity: 0;
-  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) ease, visibility 0s linear var(--duration-fast);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    visibility 0s linear 0.2s;
 }
 #slash-menu li {
-  transition: background var(--duration-fast) ease;
+  transition: background 0.2s ease, transform 0.15s ease, padding-left 0.15s ease;
+}
+#slash-menu li:hover, #slash-menu li.active {
+  transform: translateX(4px);
+  padding-left: 18px;
 }
 
-/* ── File chips ── */
+/* ══════════════════════════════════════════════════════════════════
+   FILE CHIPS
+   ══════════════════════════════════════════════════════════════════ */
+
 .file-chip {
-  transition: transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) ease;
+  transition: transform 0.2s var(--ease-out), box-shadow 0.2s ease, background 0.2s ease;
 }
 .file-chip:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
-/* ── Side panels (todo, fileops, worktree) ── */
+/* ══════════════════════════════════════════════════════════════════
+   SIDE PANELS
+   ══════════════════════════════════════════════════════════════════ */
+
 #todo-panel, #fileops-panel, #wt-panel {
-  animation: panel-slide-in var(--duration-normal) var(--ease-out) both;
+  animation: panel-slide-in 0.4s var(--ease-spring) both;
 }
 @keyframes panel-slide-in {
-  from { opacity: 0; transform: translateX(12px); }
+  from { opacity: 0; transform: translateX(30px); }
   to   { opacity: 1; transform: translateX(0); }
 }
 
-/* ── Ask dialog options ── */
+/* ══════════════════════════════════════════════════════════════════
+   ASK DIALOG OPTIONS
+   ══════════════════════════════════════════════════════════════════ */
+
 #ask-options li {
-  transition: background var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out);
+  transition: background 0.2s ease, transform 0.15s var(--ease-out), padding-left 0.15s ease;
 }
 #ask-options li:hover {
-  transform: translateX(3px);
+  transform: translateX(6px);
+  padding-left: 18px;
+  background: var(--glow-accent);
 }
 #ask-options li.ask-active {
-  transform: translateX(3px);
+  transform: translateX(6px);
+  padding-left: 18px;
+  background: var(--glow-accent);
 }
 
-/* ── Nav buttons ── */
+/* ══════════════════════════════════════════════════════════════════
+   NAV BUTTONS
+   ══════════════════════════════════════════════════════════════════ */
+
 .btn-nav {
-  transition: opacity var(--duration-fast) ease, transform var(--duration-fast) var(--ease-out), background var(--duration-fast) ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s var(--ease-spring),
+    background 0.2s ease,
+    box-shadow 0.2s ease;
 }
 .btn-nav:hover {
-  transform: scale(1.08);
+  transform: scale(1.15);
+  box-shadow: 0 0 12px var(--glow-accent);
 }
 .btn-nav:active {
-  transform: scale(0.9);
-  transition-duration: 0.04s;
+  transform: scale(0.85);
+  transition-duration: 0.06s;
 }
 
-/* ── Model select ── */
+/* ══════════════════════════════════════════════════════════════════
+   MODEL SELECT
+   ══════════════════════════════════════════════════════════════════ */
+
 #model-select {
-  transition: border-color var(--duration-normal) ease, box-shadow var(--duration-normal) ease;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 #model-select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--glow-accent);
+  box-shadow: 0 0 0 3px var(--glow-accent);
 }
 
-/* ── Search highlight pulse ── */
+/* ══════════════════════════════════════════════════════════════════
+   SEARCH HIGHLIGHT
+   ══════════════════════════════════════════════════════════════════ */
+
 @keyframes highlight-pulse {
-  0%   { background: rgba(250, 204, 21, 0.5); }
-  100% { background: rgba(250, 204, 21, 0.25); }
+  0%   { background: rgba(250, 204, 21, 0.6); box-shadow: 0 0 8px rgba(250, 204, 21, 0.4); }
+  50%  { background: rgba(250, 204, 21, 0.3); box-shadow: 0 0 0px rgba(250, 204, 21, 0); }
+  100% { background: rgba(250, 204, 21, 0.6); box-shadow: 0 0 8px rgba(250, 204, 21, 0.4); }
 }
 mark.search-highlight {
-  animation: highlight-pulse 0.8s ease both;
+  animation: highlight-pulse 1.5s ease infinite;
+  border-radius: 3px;
+  padding: 1px 3px;
 }
 
-/* ── Code block copy button ── */
+/* ══════════════════════════════════════════════════════════════════
+   CODE BLOCK COPY BUTTON
+   ══════════════════════════════════════════════════════════════════ */
+
 .btn-copy {
-  transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
+  transition: background 0.2s ease, color 0.2s ease, transform 0.1s ease;
+}
+.btn-copy:hover {
+  transform: scale(1.05);
+}
+.btn-copy:active {
+  transform: scale(0.92);
 }
 
-/* ── Scrollbar ── */
+/* ══════════════════════════════════════════════════════════════════
+   SCROLLBAR
+   ══════════════════════════════════════════════════════════════════ */
+
 ::-webkit-scrollbar-thumb {
-  transition: background var(--duration-fast) ease;
+  transition: background 0.3s ease;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent) !important;
 }
 
-/* ── Reduce motion for accessibility ── */
+/* ══════════════════════════════════════════════════════════════════
+   ACCESSIBILITY
+   ══════════════════════════════════════════════════════════════════ */
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

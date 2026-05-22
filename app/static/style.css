@@ -19,6 +19,7 @@
   --danger: #f7768e;
   --danger-hover: #ff9e9e;
   --hover: rgba(255, 255, 255, 0.05);
+  --glow-accent: rgba(122, 162, 247, 0.2);
   --sidebar-w: 220px;
   --font-size: 14px;
   --radius: 8px;
@@ -44,6 +45,7 @@
   --danger: #c0392b;
   --danger-hover: #e74c3c;
   --hover: rgba(0, 0, 0, 0.04);
+  --glow-accent: rgba(26, 110, 216, 0.12);
 }
 
 /* ── Reset ── */
@@ -92,9 +94,13 @@ pre, code,
   text-overflow: ellipsis;
   user-select: none;
   position: relative;
+  transform: translateX(0);
+  border-left: 3px solid transparent;
+  transition: background 0.3s ease, color 0.2s ease, transform 0.25s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
-#conv-list li:hover { background: var(--bg3); color: var(--text); }
-#conv-list li.active { background: var(--bg3); color: var(--text); font-weight: 500; }
+#conv-list li:hover { background: var(--glow-accent); color: var(--text); transform: translateX(4px); box-shadow: inset 3px 0 0 var(--accent); }
+#conv-list li:active { transform: scale(0.97) translateX(4px); transition-duration: 0.06s; }
+#conv-list li.active { background: var(--glow-accent); color: var(--text); font-weight: 500; border-left-color: var(--accent); box-shadow: inset 4px 0 0 var(--accent), 0 0 12px var(--glow-accent); }
 #conv-list li .conv-actions {
   display: none;
   position: absolute;
@@ -118,8 +124,9 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   width: 100%; padding: 6px 10px; border-radius: var(--radius);
   border: 1px solid var(--border); background: var(--bg3);
   color: var(--text); font-size: 12px; outline: none;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
 }
-#search-input:focus { border-color: var(--accent); }
+#search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow-accent), 0 0 16px var(--glow-accent); background: color-mix(in srgb, var(--bg3) 92%, var(--accent) 8%); }
 
 /* ── Main ── */
 #main {
@@ -186,9 +193,11 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   align-items: center;
   justify-content: center;
   opacity: 0.7;
-  transition: opacity .15s;
+  transform: scale(1);
+  transition: opacity 0.2s ease, background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
-.btn-nav:hover { opacity: 1; background: var(--hover); }
+.btn-nav:hover { opacity: 1; background: var(--hover); transform: scale(1.15); box-shadow: 0 0 12px var(--glow-accent); }
+.btn-nav:active { transform: scale(0.85); transition-duration: 0.06s; }
 
 /* ── Bubbles ── */
 .bubble {
@@ -247,8 +256,8 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 
 .bubble-assistant { background: var(--asst-bubble); border: 1px solid var(--border); }
 .bubble-tool-call { background: var(--tool-bubble); border: 1px solid var(--border); font-size: 12px; color: var(--text-muted); padding: 0; overflow: hidden; }
-.tool-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; user-select: none; }
-.tool-header:hover { background: var(--hover); }
+.tool-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; user-select: none; transition: background 0.25s ease, padding-left 0.2s ease; }
+.tool-header:hover { background: var(--glow-accent); padding-left: 14px; }
 .tool-icon { font-size: 13px; }
 .tool-name { font-weight: 700; color: var(--accent); white-space: nowrap; }
 .tool-args-preview { color: var(--text-dim); font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -414,8 +423,9 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: 8px 12px; font-size: var(--font-size); font-family: inherit;
   outline: none; line-height: 1.5;
+  transition: border-color 0.4s ease, box-shadow 0.4s ease, background 0.3s ease;
 }
-#msg-input:focus { border-color: var(--accent); }
+#msg-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow-accent), 0 0 20px var(--glow-accent); background: color-mix(in srgb, var(--bg3) 90%, var(--accent) 10%); }
 #input-btns { display: flex; flex-direction: column; gap: 4px; }
 
 /* ── Buttons ── */
@@ -423,26 +433,38 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   background: var(--accent); color: #fff; border: none;
   border-radius: var(--radius); padding: 7px 16px; cursor: pointer;
   font-size: 13px; font-weight: 500; white-space: nowrap;
+  transform: translateY(0);
+  transition: background 0.3s ease, color 0.2s ease, transform 0.3s ease, box-shadow 0.3s ease;
 }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(122, 162, 247, 0.4); }
+.btn-primary:active { transform: translateY(0) scale(0.95); transition-duration: 0.08s; }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
 .btn-secondary {
   background: var(--bg3); color: var(--text); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 6px 12px; cursor: pointer; font-size: 13px;
+  transform: translateY(0);
+  transition: background 0.3s ease, color 0.2s ease, transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
-.btn-secondary:hover { background: var(--border); }
+.btn-secondary:hover { background: var(--border); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+.btn-secondary:active { transform: scale(0.94); transition-duration: 0.08s; }
 .btn-ghost {
   background: none; color: var(--text-dim); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 5px 12px; cursor: pointer; font-size: 13px;
+  transform: translateY(0);
+  transition: background 0.3s ease, color 0.2s ease, transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
 }
-.btn-ghost:hover { background: var(--bg3); color: var(--text); }
+.btn-ghost:hover { background: var(--glow-accent); color: var(--text); box-shadow: 0 0 16px var(--glow-accent); }
+.btn-ghost:active { transform: scale(0.94); transition-duration: 0.08s; }
 .btn-danger {
   background: var(--danger); color: #fff; border: none;
   border-radius: var(--radius); padding: 7px 16px; cursor: pointer;
   font-size: 13px; font-weight: 500;
+  transform: translateY(0);
+  transition: background 0.3s ease, color 0.2s ease, transform 0.3s ease, box-shadow 0.3s ease;
 }
-.btn-danger:hover { background: var(--danger-hover); }
-.btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-danger:hover { background: var(--danger-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(247, 118, 142, 0.35); }
+.btn-danger:active { transform: translateY(0) scale(0.95); transition-duration: 0.08s; }
+.btn-danger:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
 .btn-close {
   background: none; border: none; cursor: pointer;
   color: var(--text-muted); font-size: 16px; padding: 4px;
@@ -455,8 +477,11 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   background: rgba(0,0,0,0.55);
   display: flex; align-items: center; justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(4px);
+  transition: opacity 0.35s ease, backdrop-filter 0.35s ease, visibility 0s linear 0s;
+  opacity: 1;
 }
-.overlay.hidden { visibility: hidden; pointer-events: none; }
+.overlay.hidden { visibility: hidden; pointer-events: none; opacity: 0; backdrop-filter: blur(0px); transition: opacity 0.3s ease, backdrop-filter 0.3s ease, visibility 0s linear 0.3s; }
 .modal {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -469,7 +494,12 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transform: scale(1) translateY(0);
+  opacity: 1;
+  transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease, box-shadow 0.4s ease;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px var(--glow-accent);
 }
+.overlay.hidden .modal { transform: scale(0.88) translateY(30px); opacity: 0; box-shadow: 0 0 0 rgba(0,0,0,0); }
 .modal-header {
   display: flex; justify-content: space-between; align-items: center;
   padding: 14px 18px 10px; border-bottom: 1px solid var(--border);

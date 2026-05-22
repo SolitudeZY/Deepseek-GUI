@@ -26,4 +26,4 @@ if __name__ == "__main__":
         min_size=(800, 500),
     )
     api.set_window(window)
-    webview.start(debug=False, icon=icon_path)
+    webview.start(debug=False, icon=icon_path, private_mode=False)
