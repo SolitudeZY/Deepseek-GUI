@@ -182,11 +182,7 @@ function _randomConvColor() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────
-// ── Scroll speed boost ────────────────────────────────────────────
-$('chat-area').addEventListener('wheel', e => {
-  e.preventDefault();
-  $('chat-area').scrollTop += e.deltaY * 1.2;
-}, { passive: false });
+// ── Scroll speed boost (removed: was blocking native scroll) ─────
 
 window.addEventListener('pywebviewready', async () => {
   state.config = await window.pywebview.api.get_config();
