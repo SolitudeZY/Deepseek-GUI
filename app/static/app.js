@@ -129,13 +129,27 @@ function renderMarkdown(text) {
   text = text.replace(/\\\(\s*([\s\S]*?)\s*\\\)/g, (m, inner) =>
     /[\u4e00-\u9fff]/.test(inner) ? m : `$${inner}$`);
 
+  // Stash math blocks to protect them from marked's backslash escaping.
+  // Use a separate placeholder prefix so we can restore them WITH $ delimiters.
+  const mathPlaceholders = [];
+  const stashMath = (m) => {
+    mathPlaceholders.push(m);
+    return `\u0000QM_MATH_${mathPlaceholders.length - 1}\u0000`;
+  };
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, stashMath);
+  text = text.replace(/\$([^\$\n]+?)\$/g, stashMath);
+
   // Restore code spans/blocks.
   text = text.replace(/\u0000QM_CODE_(\d+)\u0000/g, (_, idx) => placeholders[+idx]);
 
   const html = marked.parse(text);
+
+  // Restore math placeholders (with original $ delimiters intact) after marked.
+  let finalHtml = html.replace(/\u0000QM_MATH_(\d+)\u0000/g, (_, idx) => mathPlaceholders[+idx]);
+
   // Render math against a detached container so we can walk the DOM safely.
   const container = document.createElement('div');
-  container.innerHTML = html;
+  container.innerHTML = finalHtml;
   renderLatexInDom(container);
   return container.innerHTML;
 }
