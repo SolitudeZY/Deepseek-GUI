@@ -536,6 +536,11 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 
 /* ── Settings model list ── */
 #settings-modal { max-width: 680px; }
+/* ── Sync list ── */
+#sync-list div { border-bottom: 1px solid var(--border); }
+#sync-list div:last-child { border-bottom: none; }
+.checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); cursor: pointer; }
+.checkbox-label input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
 .model-layout { display: flex; gap: 12px; height: 340px; }
 .model-list-col { width: 150px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
 #model-config-list { list-style: none; flex: 1; overflow-y: auto; }
@@ -717,7 +722,7 @@ body.drag-over #input-area { border-top-color: var(--accent); background: var(--
 #ask-options li { padding: 8px 12px; cursor: pointer; font-size: 13px; border-bottom: 1px solid var(--border); transition: background 0.1s; }
 #ask-options li:last-child { border-bottom: none; }
 #ask-options li:hover { background: var(--hover); }
-#ask-options li.ask-active { background: var(--accent); color: #fff; }
+#ask-options li.ask-active { background: var(--accent); color: #1a1b26; font-weight: 600; }
 #ask-options li.ask-checked { font-weight: 600; }
 #ask-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
 #ask-input { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font-size: 13px; margin-top: 8px; }

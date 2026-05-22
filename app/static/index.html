@@ -6,8 +6,8 @@
 <title>AI Desktop Assistant</title>
 <link rel="stylesheet" href="vendor/katex.min.css">
 <link rel="stylesheet" href="vendor/github-dark.min.css">
-<link rel="stylesheet" href="style.css?v=20260522b">
-<link rel="stylesheet" href="animations.css?v=20260522b">
+<link rel="stylesheet" href="style.css?v=20260522c">
+<link rel="stylesheet" href="animations.css?v=20260522c">
 </head>
 <body>
 <!-- ── 侧边栏 ── -->
@@ -50,6 +50,7 @@
         </div>
       </div>
       <button id="btn-slash" class="btn-ghost" title="命令菜单">⌘ 命令</button>
+      <button id="btn-import" class="btn-ghost">导入</button>
       <button id="btn-export" class="btn-ghost">导出</button>
       <button id="btn-settings" class="btn-ghost">设置</button>
     </div>
@@ -118,6 +119,7 @@
       <button class="tab-btn" data-tab="tools">工具设置</button>
       <button class="tab-btn" data-tab="vision">图片理解</button>
       <button class="tab-btn" data-tab="allowlist">允许的指令</button>
+      <button class="tab-btn" data-tab="sync">云同步</button>
       <button class="tab-btn" data-tab="ui">界面设置</button>
     </div>
     <div class="modal-body">
@@ -193,6 +195,30 @@
         <div class="form-row" style="margin-top:8px">
           <button id="btn-allowlist-save" class="btn-primary">保存</button>
           <button id="btn-allowlist-clear" class="btn-danger">清空全部</button>
+        </div>
+      </div>
+      <!-- 云同步 -->
+      <div class="tab-panel" id="tab-sync">
+        <p class="hint">将对话自动同步到云盘文件夹（坚果云/OneDrive等），实现跨电脑使用。</p>
+        <label>同步文件夹
+          <div class="form-row">
+            <input type="text" id="sync-folder" placeholder="未配置" readonly style="flex:1">
+            <button id="btn-sync-choose" class="btn-secondary">选择</button>
+          </div>
+        </label>
+        <label class="checkbox-label"><input type="checkbox" id="sync-auto-upload" checked> 对话完成后自动上传</label>
+        <hr style="border-color:var(--border);margin:12px 0">
+        <div class="form-row">
+          <button id="btn-sync-upload-all" class="btn-primary">上传全部对话</button>
+          <button id="btn-sync-detect" class="btn-secondary">检测新对话</button>
+        </div>
+        <div id="sync-status" class="hint" style="margin-top:8px"></div>
+        <div id="sync-list" style="margin-top:10px; max-height:200px; overflow-y:auto;"></div>
+        <div id="sync-import-actions" style="margin-top:8px; display:none;">
+          <div class="form-row">
+            <button id="btn-sync-select-all" class="btn-ghost">全选</button>
+            <button id="btn-sync-import" class="btn-primary">导入选中</button>
+          </div>
         </div>
       </div>
       <!-- 界面设置 -->
@@ -316,6 +342,6 @@
 <script src="vendor/marked.min.js"></script>
 <script src="vendor/katex.min.js"></script>
 <script src="vendor/highlight.min.js"></script>
-<script src="app.js?v=20260522b"></script>
+<script src="app.js?v=20260522c"></script>
 </body>
 </html>

@@ -200,6 +200,13 @@ window.addEventListener('pywebviewready', async () => {
   } else {
     await newConversation();
   }
+  // 启动时自动检测云同步新对话
+  if (state.config.sync_folder) {
+    const newItems = await window.pywebview.api.sync_detect_new();
+    if (newItems && newItems.length > 0) {
+      document.title = `QuickModel — ${newItems.length} 个云端新对话可导入`;
+    }
+  }
 });
 
 // ── Theme / font ──────────────────────────────────────────────────
@@ -353,6 +360,9 @@ async function openConversation(convId) {
   if (kw) _runContentSearch(kw);
   loadHistory(conv.messages || []);
   Chat.updateFileOps(conv.file_ops || []);
+  // 刷新上下文用量
+  const ctx = await window.pywebview.api.get_context_usage(convId);
+  updateContextBar(ctx.used, ctx.total);
   // Highlight and scroll to keyword match in chat
   if (kw) {
     requestAnimationFrame(() => _highlightAndScrollTo(kw));
@@ -417,6 +427,7 @@ async function newConversation() {
   convTitle.textContent = conv.title;
   renderConvList(searchInput.value);
   chatMessages.innerHTML = '';
+  updateContextBar(0, 80000);
 }
 
 async function deleteConversation(convId) {
@@ -1421,9 +1432,19 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ── Export ────────────────────────────────────────────────────────
+// ── Export & Import ──────────────────────────────────────────────
 $('btn-export').addEventListener('click', () => {
   if (state.currentConvId) window.pywebview.api.export_conversation(state.currentConvId);
+});
+
+$('btn-import').addEventListener('click', async () => {
+  const result = await window.pywebview.api.import_conversation();
+  if (result) {
+    // 刷新对话列表并打开导入的对话
+    state.conversations = await window.pywebview.api.list_conversations();
+    renderConvList('');
+    await openConversation(result.id);
+  }
 });
 
 // ── Settings ──────────────────────────────────────────────────────
@@ -1470,6 +1491,12 @@ async function openSettings() {
   $('vision-model').value = cfg.vision_model || '';
   $('ui-theme').value = cfg.theme || 'dark';
   $('ui-fontsize').value = String(cfg.font_size || 14);
+  // Sync tab
+  $('sync-folder').value = cfg.sync_folder || '';
+  $('sync-auto-upload').checked = cfg.sync_auto_upload !== false;
+  $('sync-list').innerHTML = '';
+  $('sync-import-actions').style.display = 'none';
+  $('sync-status').textContent = cfg.sync_folder ? '' : '未配置同步文件夹';
   renderModelConfigList();
   // load allowlist
   const cmds = await window.pywebview.api.get_allowed_commands();
@@ -1495,12 +1522,78 @@ async function saveSettings() {
   state.config.vision_model = $('vision-model').value.trim();
   state.config.theme = $('ui-theme').value;
   state.config.font_size = parseInt($('ui-fontsize').value) || 14;
+  state.config.sync_auto_upload = $('sync-auto-upload').checked;
   applyTheme(state.config.theme);
   applyFontSize(state.config.font_size);
   await window.pywebview.api.save_config(state.config);
   populateModelSelect();
   $('settings-overlay').classList.add('hidden');
 }
+
+// ── Sync handlers ────────────────────────────────────────────────
+$('btn-sync-choose').addEventListener('click', async () => {
+  const folder = await window.pywebview.api.sync_choose_folder();
+  if (folder) {
+    $('sync-folder').value = folder;
+    state.config.sync_folder = folder;
+    $('sync-status').textContent = '已配置';
+  }
+});
+
+$('btn-sync-upload-all').addEventListener('click', async () => {
+  $('sync-status').textContent = '正在上传...';
+  const result = await window.pywebview.api.sync_upload_all();
+  $('sync-status').textContent = `已上传 ${result.uploaded} 个对话`;
+});
+
+$('btn-sync-detect').addEventListener('click', async () => {
+  $('sync-status').textContent = '正在检测...';
+  const items = await window.pywebview.api.sync_detect_new();
+  if (!items || items.length === 0) {
+    $('sync-status').textContent = '没有发现新对话';
+    $('sync-list').innerHTML = '';
+    $('sync-import-actions').style.display = 'none';
+    return;
+  }
+  $('sync-status').textContent = `发现 ${items.length} 个可导入的对话：`;
+  const list = $('sync-list');
+  list.innerHTML = '';
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.style.cssText = 'display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px;';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = true;
+    cb.dataset.filename = item.filename;
+    const label = document.createElement('span');
+    const badge = item.is_new ? '<span style="color:var(--accent);font-size:11px;">[新]</span> ' : '<span style="color:#e0af68;font-size:11px;">[更新]</span> ';
+    label.innerHTML = `${badge}${item.title} <span style="color:var(--text-muted);font-size:11px;">${item.updated_at ? item.updated_at.slice(0,16).replace('T',' ') : ''}</span>`;
+    div.appendChild(cb);
+    div.appendChild(label);
+    list.appendChild(div);
+  });
+  $('sync-import-actions').style.display = '';
+});
+
+$('btn-sync-select-all').addEventListener('click', () => {
+  const cbs = $('sync-list').querySelectorAll('input[type="checkbox"]');
+  const allChecked = [...cbs].every(cb => cb.checked);
+  cbs.forEach(cb => cb.checked = !allChecked);
+});
+
+$('btn-sync-import').addEventListener('click', async () => {
+  const cbs = $('sync-list').querySelectorAll('input[type="checkbox"]:checked');
+  const filenames = [...cbs].map(cb => cb.dataset.filename);
+  if (!filenames.length) return;
+  $('sync-status').textContent = '正在导入...';
+  const result = await window.pywebview.api.sync_import_selected(filenames);
+  $('sync-status').textContent = `成功导入 ${result.imported} 个对话`;
+  $('sync-list').innerHTML = '';
+  $('sync-import-actions').style.display = 'none';
+  // 刷新对话列表
+  state.conversations = await window.pywebview.api.list_conversations();
+  renderConvList('');
+});
 
 // Model config list
 function renderModelConfigList() {

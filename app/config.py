@@ -83,6 +83,8 @@ DEFAULT_CONFIG = {
     "thinking": "high",             # off | high | max
     "search_mode": "auto",         # auto | manual
     "search_enabled": True,        # manual mode: whether search tool is active
+    "sync_folder": "",             # 云同步文件夹路径（如坚果云同步目录）
+    "sync_auto_upload": True,      # 对话保存时自动上传到同步文件夹
 }
 
 

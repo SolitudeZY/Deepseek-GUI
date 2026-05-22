@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -110,3 +111,73 @@ def export_conversation_md(conv: dict) -> str:
         elif role == "assistant" and content:
             lines.append(f"**Assistant:**\n\n{content}\n\n")
     return "".join(lines)
+
+
+def import_conversation_from_file(file_path: str) -> Optional[dict]:
+    """从文件导入对话。支持 .json（原生格式）和 .md（导出格式）。"""
+    p = Path(file_path)
+    if not p.exists():
+        return None
+
+    if p.suffix.lower() == '.json':
+        return _import_from_json(p)
+    elif p.suffix.lower() == '.md':
+        return _import_from_md(p)
+    return None
+
+
+def _import_from_json(p: Path) -> Optional[dict]:
+    """导入原生 JSON 格式的对话文件。"""
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return None
+
+    # 如果是完整的对话 JSON（有 id 和 messages）
+    if "messages" in data:
+        conv = new_conversation(data.get("model_config", ""))
+        conv["title"] = data.get("title", p.stem)
+        conv["messages"] = data["messages"]
+        save_conversation(conv)
+        return conv
+
+    return None
+
+
+def _import_from_md(p: Path) -> Optional[dict]:
+    """解析导出的 Markdown 格式，还原为对话。"""
+    try:
+        text = p.read_text(encoding="utf-8")
+    except Exception:
+        return None
+
+    messages = []
+    title = p.stem
+
+    # 提取标题
+    lines = text.split('\n')
+    for line in lines:
+        if line.startswith('# '):
+            title = line[2:].strip()
+            break
+
+    # 按 **User:** 和 **Assistant:** 分割
+    parts = re.split(r'\n\*\*(User|Assistant):\*\*\s*\n', text)
+    # parts: [header, 'User', content, 'Assistant', content, ...]
+    i = 1
+    while i < len(parts) - 1:
+        role = parts[i].lower()
+        content = parts[i + 1].strip()
+        if role in ('user', 'assistant') and content:
+            messages.append({"role": role, "content": content})
+        i += 2
+
+    if not messages:
+        return None
+
+    conv = new_conversation("")
+    conv["title"] = title
+    conv["messages"] = messages
+    save_conversation(conv)
+    return conv

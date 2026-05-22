@@ -10,11 +10,16 @@ from app.conversation import (
     new_conversation, save_conversation, load_conversation,
     delete_conversation, rename_conversation, list_conversations,
     update_sort_orders, auto_title_from_message, export_conversation_md,
+    import_conversation_from_file,
 )
-from app.agent import Agent
+from app.sync import (
+    upload_conversation, upload_all_conversations,
+    detect_new_conversations, import_from_sync, get_sync_dir,
+)
+from app.agent import Agent, AUTO_COMPACT_THRESHOLD, AUTO_COMPACT_THRESHOLD_V4, V4_MODELS
 from app.tools import read_file as _read_file
 from app.vision import is_image, describe_image
-from app.advanced_tools import TodoManager, TaskManager, BackgroundManager
+from app.advanced_tools import TodoManager, TaskManager, BackgroundManager, estimate_tokens
 from app.team import TEAM, WORKTREES
 from app.skills import skill_list, skill_save, skill_delete, skill_read, memory_list, memory_read, memory_write, skill_import_from_path
 
@@ -267,6 +272,33 @@ class API:
         if save_path:
             dest = save_path[0] if isinstance(save_path, (list, tuple)) else save_path
             Path(dest).write_text(md, encoding='utf-8')
+
+    def import_conversation(self) -> Optional[dict]:
+        """打开文件选择对话框，导入 .json 或 .md 对话文件。"""
+        file_path = self._window.create_file_dialog(
+            webview.FileDialog.OPEN,
+            file_types=('对话文件 (*.json;*.md)', 'JSON (*.json)', 'Markdown (*.md)', 'All files (*.*)')
+        )
+        if not file_path:
+            return None
+        path = file_path[0] if isinstance(file_path, (list, tuple)) else file_path
+        conv = import_conversation_from_file(path)
+        if conv:
+            return {"id": conv["id"], "title": conv["title"]}
+        return None
+
+    def get_context_usage(self, conv_id: str) -> dict:
+        """计算指定对话的上下文 token 使用量。"""
+        conv = load_conversation(conv_id)
+        if not conv:
+            return {"used": 0, "total": 80000}
+        messages = conv.get("messages", [])
+        used = estimate_tokens(messages)
+        # 根据当前活跃模型决定阈值
+        active_mc = get_active_model_config(self._config)
+        model = active_mc.get("model", "") if active_mc else ""
+        total = AUTO_COMPACT_THRESHOLD_V4 if model in V4_MODELS else AUTO_COMPACT_THRESHOLD
+        return {"used": used, "total": total}
 
     # ── File helpers ──────────────────────────────────────────────
     def save_uploaded_file(self, filename: str, base64_content: str) -> str:
@@ -577,6 +609,9 @@ class API:
         save_conversation(conv)
         self._running = False
         self._js('Chat.finishMessage()')
+        # Auto-upload to sync folder
+        if self._config.get("sync_auto_upload") and get_sync_dir():
+            upload_conversation(conv["id"])
         # Only auto-title if still a placeholder
         title = conv.get('title', '新对话')
         if title == '新对话' or len(title) <= 30:
@@ -621,3 +656,47 @@ class API:
         save_conversation(conv)
         self._running = False
         self._js(f'Chat.showError({json.dumps(error)})')
+
+    # ── Cloud Sync ───────────────────────────────────────────────────
+
+    def sync_upload_all(self) -> dict:
+        """上传所有本地对话到同步文件夹。"""
+        count = upload_all_conversations()
+        return {"uploaded": count}
+
+    def sync_upload_current(self, conv_id: str) -> bool:
+        """上传当前对话到同步文件夹。"""
+        return upload_conversation(conv_id)
+
+    def sync_detect_new(self) -> list:
+        """检测同步文件夹中的新对话或更新的对话。"""
+        return detect_new_conversations()
+
+    def sync_import_selected(self, filenames: list) -> dict:
+        """从同步文件夹导入选中的对话。"""
+        count = import_from_sync(filenames)
+        return {"imported": count}
+
+    def sync_get_status(self) -> dict:
+        """获取同步状态信息。"""
+        sync_dir = get_sync_dir()
+        if not sync_dir:
+            return {"configured": False, "folder": ""}
+        return {
+            "configured": True,
+            "folder": str(sync_dir),
+            "exists": sync_dir.exists(),
+        }
+
+    def sync_choose_folder(self) -> Optional[str]:
+        """打开文件夹选择对话框，选择同步文件夹。"""
+        result = self._window.create_file_dialog(
+            webview.FileDialog.FOLDER
+        )
+        if result:
+            folder = result[0] if isinstance(result, (list, tuple)) else result
+            config = load_config()
+            config["sync_folder"] = folder
+            save_config(config)
+            return folder
+        return None
