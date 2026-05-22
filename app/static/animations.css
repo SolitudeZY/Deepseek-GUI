@@ -447,15 +447,13 @@ mark.search-highlight {
   transition-duration: 0.06s;
 }
 
-/* Tab panel — fade + slide transition */
-.tab-panel {
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.3s ease, transform 0.3s var(--ease-out);
+/* Tab panel — fade-in via animation when activated */
+@keyframes tab-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 .tab-panel.active {
-  opacity: 1;
-  transform: translateY(0);
+  animation: tab-fade-in 0.3s var(--ease-out) both;
 }
 
 /* Settings inputs — focus glow & click feedback */
