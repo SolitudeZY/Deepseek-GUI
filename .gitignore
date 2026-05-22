@@ -25,3 +25,7 @@ newton_bisection.tex
 # IDE
 .vscode/
 .idea/
+
+# AI Agent
+.claude/
+CLAUDE.md
