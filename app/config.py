@@ -1,13 +1,20 @@
 import json
 import os
+import platform
 from pathlib import Path
 from typing import Optional
 
 APP_NAME = "AIDesktopAssistant"
 
+IS_MAC = platform.system() == "Darwin"
+IS_WIN = platform.system() == "Windows"
+
 
 def get_app_data_dir() -> Path:
-    base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    if IS_MAC:
+        base = Path.home() / "Library" / "Application Support"
+    else:
+        base = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
     d = base / APP_NAME
     d.mkdir(parents=True, exist_ok=True)
     return d
