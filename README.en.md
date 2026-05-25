@@ -13,11 +13,11 @@ A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-co
 ### Core Agent
 
 - **Multi-vendor LLM** — Works with any OpenAI-compatible API: DeepSeek (V3/R1/V4 Pro/V4 Flash), OpenAI, Qwen, Ollama, and more
-- **Multiple models per provider** — Configure and switch between multiple model backends in settings
+- **Multiple model configs** — Configure and switch between multiple model backends; each model has independent context length and compact threshold settings
 - **Reasoning intensity (off / high / max)** — Three-level thinking mode cycled via toolbar button; persisted across sessions
-- **Auto-Compact** — Context auto-summarizes at 80k tokens (800k for V4 models); manual `/compact` command also available; prefix-cache-aware compression preserves DeepSeek cache hits
+- **Auto-Compact** — Context auto-summarizes when exceeding threshold (default 600K, customizable); manual `/compact` command; prefix-cache-aware compression preserves DeepSeek cache hits
 - **Image understanding** — Paste or drop images into chat; described via Qwen-VL or any vision API
-- **Real-time cost tracking** — Per-round and per-session token usage with cache hit/miss breakdown displayed in the sidebar
+- **Real-time cost tracking** — Per-round and per-session token usage with cache hit/miss breakdown
 
 ### Built-in Tools
 
@@ -36,28 +36,32 @@ A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-co
 | `subagent` | Spawn a focused sub-agent with its own tool loop |
 | `glob_files` | Search files by glob pattern |
 | `grep_files` | Search file contents by regex |
+| `ask_user_question` | Ask the user a question and wait for response |
+| `enter_plan_mode` / `exit_plan_mode` | Enter/exit planning mode |
 
 ### Multi-Engine Web Search
 
 - **6 search backends** — Tavily, Brave Search, Firecrawl, Google Custom Search, SearXNG, DuckDuckGo
-- **Auto-fallback** — If the preferred engine fails, automatically tries the next available engine; DuckDuckGo (free, no key) as ultimate fallback
-- **Auto-read** — Automatically fetches full page content for top search results
+- **Auto-fallback** — If the preferred engine fails, automatically tries the next; DuckDuckGo (free) as ultimate fallback
+- **Parallel fetching** — Search result pages fetched concurrently (up to 5 threads), significantly reducing wait time
 - **Soft limit** — After 5 searches in one turn, the agent is nudged to consolidate results
 - **Manual / Auto modes** — Auto lets the model decide; manual gives you a toolbar toggle
 
 ### Cloud Sync & Import/Export
 
-- **Cloud sync** — Automatically sync conversations to a local cloud folder (Nutstore/OneDrive/Google Drive) for seamless cross-device usage
-- **Auto-upload** — Conversations are automatically copied to the sync folder after completion
+- **One-click full sync** — Upload all conversations + config files to a cloud folder (Nutstore/OneDrive/Google Drive)
+- **One-click full import** — Import all conversations and config on a new machine with a single click
+- **Auto-upload** — Conversations automatically copied to sync folder after completion
 - **Startup detection** — Automatically detects new conversations from cloud on launch
 - **Selective import** — Checkbox interface to choose which conversations to import
+- **Config sync** — API keys, model configs, allowed commands all synced (local sync path is preserved)
 - **Export to Markdown** — Exports only user and assistant content, excluding tool calls
 - **Import conversations** — Import from .json (full backup) or .md (exported format) files
 
 ### Skills System
 
-- **Built-in & custom skills** — Save and reuse prompt templates that change agent behavior
-- **Import Claude-style skills** — Import from folder (auto-detects `SKILL.md` + companion files, batch import supported)
+- **Built-in & custom skills** — Save and reuse prompt templates
+- **Import Claude-style skills** — Import from folder (auto-detects `SKILL.md` + companion files, batch import)
 - **Full CRUD panel** — Create, edit, and delete skills from a management UI
 
 ### Memory System
@@ -74,8 +78,9 @@ A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-co
 ### Team Collaboration
 
 - **Multi-agent teams** — Spawn persistent team members running in independent threads
-- **Message bus** — In-memory inbox/outbox for agent-to-agent communication
+- **Message bus** — Thread-safe inbox/outbox for agent-to-agent communication
 - **UI notifications** — Real-time callback when team members complete work
+- **Auto-claim** — Idle members automatically claim unclaimed tasks from the task board
 
 ### Task Management
 
@@ -103,13 +108,41 @@ A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-co
 
 ## Screenshots
 
-> Coming soon
+> <img width="1238" height="748" alt="QQ20260524-122750-HD" src="https://github.com/user-attachments/assets/f334c249-8b9c-4176-bb22-6e3b364bb37e" />
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  pywebview (WebView2)                                   │
+│  ┌───────────────┐    JS ↔ Python API    ┌───────────┐ │
+│  │  Frontend     │◄─────────────────────►│  Backend  │ │
+│  │  HTML/CSS/JS  │                       │  Python   │ │
+│  └───────────────┘                       └─────┬─────┘ │
+└────────────────────────────────────────────────┼────────┘
+                                                 │
+         ┌───────────────────────────────────────┼──────┐
+         │              Agent Loop               │      │
+         │  ┌─────────┐  ┌──────────┐  ┌───────┴───┐  │
+         │  │ Stream & │  │ Tool     │  │ Context   │  │
+         │  │ Parse    │  │ Registry │  │ Manager   │  │
+         │  └─────────┘  └──────────┘  └───────────┘  │
+         └──────────────────────────────────────────────┘
+                          │
+         ┌────────────────┼────────────────────────┐
+         │                ▼                        │
+         │  ┌──────┐ ┌────────┐ ┌──────┐ ┌─────┐ │
+         │  │ File │ │ Search │ │ Team │ │ ... │ │
+         │  │ I/O  │ │ (6 eng)│ │ Bus  │ │     │ │
+         │  └──────┘ └────────┘ └──────┘ └─────┘ │
+         └─────────────────────────────────────────┘
+```
 
 ## Requirements
 
-- Windows 10/11 with [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (usually pre-installed on Win11)
+- Windows 10/11 with [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (pre-installed on Win11)
 - Python 3.10+
-- API key for at least one supported LLM provider
+- At least one LLM provider API key
 
 ## Installation
 
@@ -124,53 +157,31 @@ pip install openai pywebview tavily-python duckduckgo-search firecrawl-py
 python main.py
 ```
 
-### Download pre-built .exe
-
-Download `QuickModel.exe` from [Releases](https://github.com/SolitudeZY/Deepseek-GUI/releases) and run directly. No installation needed.
-
-## Build
+### Build as EXE
 
 ```bash
 pip install pyinstaller
-pyinstaller --onefile --windowed --name QuickModel --icon=icon.ico --add-data "app/static;app/static" --add-data "icon.ico;." main.py
+pyinstaller main.spec
 ```
 
-Output: `dist/QuickModel.exe`
+The generated `dist/QuickModel/` folder is ready to distribute.
 
-## Configuration
+## Quick Start
 
-On first launch, open **Settings** to configure. Config is stored in `%APPDATA%\AIDesktopAssistant\config.json`.
+1. Launch the app and click **Settings** in the top-right
+2. Under "Model Config", enter your API Key and Base URL
+3. Optional: configure search engine keys (Tavily/Brave etc.)
+4. Optional: set up a cloud sync folder for cross-device sync
+5. Close settings and start chatting
 
-| Key | Description |
-|-----|-------------|
-| `model_configs` | Multiple model backends (switchable in settings) |
-| `thinking` | Reasoning intensity: `"off"`, `"high"`, or `"max"` |
-| `search_engine` | Preferred search engine: `tavily`, `brave`, `firecrawl`, `duckduckgo`, `google`, `searxng` |
-| `search_fallback` | Auto-fallback to next available engine on failure |
-| `sync_folder` | Cloud sync folder path (e.g., Nutstore/OneDrive sync directory) |
-| `sync_auto_upload` | Auto-upload conversations to sync folder after completion |
-| `vision_api_key` / `vision_model` | Vision model configuration for image understanding |
+## Tips
 
-## Supported Providers
-
-| Provider | Base URL |
-|----------|----------|
-| DeepSeek | `https://api.deepseek.com/v1` |
-| OpenAI | `https://api.openai.com/v1` |
-| Ollama (local) | `http://localhost:11434/v1` |
-| DashScope (Qwen) | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| Any OpenAI-compatible API | Custom URL |
-
-## Usage Tips
-
-- **Cloud Sync**: Configure a sync folder in settings; conversations auto-upload. On another PC, click "Detect new conversations" to import
-- **Skills**: Open the skills panel to create or import specializations before starting a task
-- **Worktrees**: When the agent needs to modify code, ask it to create a worktree first for isolation
-- **Memory**: Tell the agent "remember this..." and it will save to persistent memory
-- **Thinking**: Cycle through off → high → max with the 💭 button; use off for fast responses, max for deep reasoning
-- **Search**: Use auto mode for research tasks; switch to manual when you want to control search usage
+- **Thinking mode**: Use high/max for complex reasoning; off for simple Q&A to save tokens
+- **Web search**: Use auto mode for research tasks; switch to manual to control search usage
 - **RLM**: Ask the agent to batch-process tasks (e.g., "translate these 10 paragraphs") and it will use parallel sub-tasks
 - **Compact**: If the conversation gets too long, use `/compact` or wait for auto-compact
+- **Cloud sync**: After setting the sync folder, click "Upload All" to backup; on a new PC click "Import All" to restore
+- **Skills**: Save frequently-used prompts as skills for quick reuse
 
 ## Project Structure
 
@@ -178,32 +189,31 @@ On first launch, open **Settings** to configure. Config is stored in `%APPDATA%\
 quick_model/
 ├── main.py              # Entry point
 ├── app/
-│   ├── agent.py         # Core agent loop, tool dispatch, compact logic
+│   ├── agent.py         # Core agent loop (split into stream/parse, tool exec, context mgmt)
 │   ├── tools.py         # Built-in tool implementations (file, search, shell)
 │   ├── advanced_tools.py # Sub-agent, task, background task, todo management
 │   ├── skills.py        # Skill CRUD, import, memory persistence
-│   ├── team.py          # Multi-agent team, message bus, worktree index
-│   ├── sync.py          # Cloud sync module (upload/detect/import)
+│   ├── team.py          # Multi-agent team, message bus (thread-safe), worktree
+│   ├── sync.py          # Cloud sync module (conversations + config upload/detect/import)
 │   ├── webview_app.py   # pywebview API bridge (Python ↔ JavaScript)
 │   ├── config.py        # Configuration loading/saving with defaults
 │   ├── conversation.py  # Conversation CRUD, import/export, sort ordering
 │   ├── compact.py       # Context compression and summarization
 │   ├── vision.py        # Image description via vision API
-│   ├── command_safety.py # Command allow-list and pattern matching
-│   ├── static/          # HTML/CSS/JS frontend
-│   │   ├── index.html   # Main UI layout
-│   │   ├── app.js       # Frontend logic and event handling
-│   │   ├── style.css    # Dark/light theme styles
-│   │   └── animations.css # Animation and transition effects
-│   └── skills/          # Default skill definitions (.md files)
-└── conversations/       # Conversation history (auto-created)
+│   └── static/          # HTML/CSS/JS frontend
+│       ├── index.html   # Main UI layout
+│       ├── app.js       # Frontend logic and event handling
+│       ├── style.css    # Dark/light theme styles
+│       └── animations.css # Animation and transition effects
+└── conversations/       # Conversation history (auto-created in %APPDATA%)
 ```
 
 ## Tech Stack
 
 - **Frontend**: pywebview (WebView2), HTML/CSS/JS
-- **Backend**: Python, OpenAI SDK
+- **Backend**: Python 3.10+, OpenAI SDK
 - **Rendering**: marked.js, KaTeX, highlight.js (all local, offline)
+- **Concurrency**: threading + ThreadPoolExecutor (parallel search fetching, multi-agent teams)
 - **Packaging**: PyInstaller
 
 ## License
