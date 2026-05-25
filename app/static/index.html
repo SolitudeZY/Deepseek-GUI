@@ -6,8 +6,8 @@
 <title>AI Desktop Assistant</title>
 <link rel="stylesheet" href="vendor/katex.min.css">
 <link rel="stylesheet" href="vendor/github-dark.min.css">
-<link rel="stylesheet" href="style.css?v=20260522c">
-<link rel="stylesheet" href="animations.css?v=20260522c">
+<link rel="stylesheet" href="style.css?v=20260525a">
+<link rel="stylesheet" href="animations.css?v=20260525a">
 </head>
 <body>
 <!-- ── 侧边栏 ── -->
@@ -220,7 +220,7 @@
       </div>
       <!-- 云同步 -->
       <div class="tab-panel" id="tab-sync">
-        <p class="hint">将对话自动同步到云盘文件夹（坚果云/OneDrive等），实现跨电脑使用。</p>
+        <p class="hint">将对话和配置同步到云盘文件夹（坚果云/OneDrive等），实现跨电脑一键迁移。</p>
         <label>同步文件夹
           <div class="form-row">
             <input type="text" id="sync-folder" placeholder="未配置" readonly style="flex:1">
@@ -229,9 +229,16 @@
         </label>
         <label class="checkbox-label"><input type="checkbox" id="sync-auto-upload" checked> 对话完成后自动上传</label>
         <hr style="border-color:var(--border);margin:12px 0">
+        <p class="hint" style="margin-bottom:8px">一键同步（对话 + 配置文件，换电脑时使用）：</p>
         <div class="form-row">
-          <button id="btn-sync-upload-all" class="btn-primary">上传全部对话</button>
-          <button id="btn-sync-detect" class="btn-secondary">检测新对话</button>
+          <button id="btn-sync-all" class="btn-primary">⬆ 一键上传全部</button>
+          <button id="btn-sync-import-all" class="btn-secondary">⬇ 一键导入全部</button>
+        </div>
+        <hr style="border-color:var(--border);margin:12px 0">
+        <p class="hint" style="margin-bottom:8px">分项操作：</p>
+        <div class="form-row">
+          <button id="btn-sync-upload-all" class="btn-ghost">上传对话</button>
+          <button id="btn-sync-detect" class="btn-ghost">检测新对话</button>
         </div>
         <div id="sync-status" class="hint" style="margin-top:8px"></div>
         <div id="sync-list" style="margin-top:10px; max-height:200px; overflow-y:auto;"></div>
@@ -363,6 +370,6 @@
 <script src="vendor/marked.min.js"></script>
 <script src="vendor/katex.min.js"></script>
 <script src="vendor/highlight.min.js"></script>
-<script src="app.js?v=20260522c"></script>
+<script src="app.js?v=20260525a"></script>
 </body>
 </html>

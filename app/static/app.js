@@ -1609,6 +1609,29 @@ $('btn-sync-import').addEventListener('click', async () => {
   renderConvList('');
 });
 
+// 一键上传全部（对话+配置）
+$('btn-sync-all').addEventListener('click', async () => {
+  $('sync-status').textContent = '正在同步上传...';
+  const result = await window.pywebview.api.sync_all();
+  const cfgList = result.config_uploaded.length ? `，配置: ${result.config_uploaded.join(', ')}` : '';
+  $('sync-status').textContent = `已上传 ${result.conversations_uploaded} 个对话${cfgList}`;
+});
+
+// 一键导入全部（对话+配置）
+$('btn-sync-import-all').addEventListener('click', async () => {
+  $('sync-status').textContent = '正在一键导入...';
+  const result = await window.pywebview.api.sync_import_all();
+  const cfgList = result.config_imported.length ? `，配置: ${result.config_imported.join(', ')}` : '';
+  $('sync-status').textContent = `导入 ${result.conversations_imported} 个对话${cfgList}`;
+  // 刷新对话列表和配置
+  state.conversations = await window.pywebview.api.list_conversations();
+  renderConvList('');
+  if (result.config_imported.length) {
+    state.config = await window.pywebview.api.get_config();
+    populateModelSelect();
+  }
+});
+
 // Model config list
 function renderModelConfigList() {
   const ul = $('model-config-list');

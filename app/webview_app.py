@@ -15,6 +15,8 @@ from app.conversation import (
 from app.sync import (
     upload_conversation, upload_all_conversations,
     detect_new_conversations, import_from_sync, get_sync_dir,
+    upload_config, detect_config_updates, import_config,
+    sync_all, import_all,
 )
 from app.agent import Agent, AUTO_COMPACT_THRESHOLD, AUTO_COMPACT_THRESHOLD_V4, V4_MODELS
 from app.tools import read_file as _read_file
@@ -705,3 +707,23 @@ class API:
             save_config(config)
             return folder
         return None
+
+    def sync_upload_config(self) -> dict:
+        """上传配置文件到同步文件夹。"""
+        return upload_config()
+
+    def sync_detect_config(self) -> dict:
+        """检测同步文件夹中是否有更新的配置。"""
+        return detect_config_updates()
+
+    def sync_import_config(self, files: Optional[list] = None) -> dict:
+        """从同步文件夹导入配置文件。"""
+        return import_config(files)
+
+    def sync_all(self) -> dict:
+        """一键上传全部（对话 + 配置）。"""
+        return sync_all()
+
+    def sync_import_all(self) -> dict:
+        """一键导入全部（新对话 + 配置）。"""
+        return import_all()
