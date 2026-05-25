@@ -19,8 +19,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
+          pip install openai pywebview pyinstaller
+          pip install tavily-python duckduckgo-search firecrawl-py || true
+          pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-WebKit
+
+      - name: Ensure skills directory exists
+        run: mkdir -p app/skills
 
       - name: Build .app bundle
         run: pyinstaller main_mac.spec --clean
@@ -38,7 +42,7 @@ jobs:
 
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: QuickModel-mac-arm64.zip
         env:
