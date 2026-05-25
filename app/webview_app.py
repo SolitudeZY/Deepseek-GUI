@@ -182,20 +182,30 @@ class API:
         webbrowser.open(url)
 
     def open_file_location(self, path: str) -> None:
-        """Open file in system default app, or reveal in Explorer if it's a directory."""
+        """Open file in system default app, or reveal in file manager."""
         import subprocess as _sp
+        import platform as _plat
         p = Path(path)
-        if p.exists():
-            if p.is_dir():
-                _sp.Popen(['explorer', str(p)])
+        if _plat.system() == "Darwin":
+            if p.exists():
+                if p.is_dir():
+                    _sp.Popen(['open', str(p)])
+                else:
+                    _sp.Popen(['open', '-R', str(p)])
             else:
-                # Open file with default app and select it in Explorer
-                _sp.Popen(['explorer', '/select,', str(p)])
+                parent = p.parent
+                if parent.exists():
+                    _sp.Popen(['open', str(parent)])
         else:
-            # Try opening parent directory
-            parent = p.parent
-            if parent.exists():
-                _sp.Popen(['explorer', str(parent)])
+            if p.exists():
+                if p.is_dir():
+                    _sp.Popen(['explorer', str(p)])
+                else:
+                    _sp.Popen(['explorer', '/select,', str(p)])
+            else:
+                parent = p.parent
+                if parent.exists():
+                    _sp.Popen(['explorer', str(parent)])
 
     def _build_search_config(self) -> dict:
         """Assemble search config dict from self._config for Agent."""

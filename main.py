@@ -1,5 +1,6 @@
 import sys
 import os
+import platform
 
 # 确保 app 目录在路径中（PyInstaller 打包后也能找到）
 if getattr(sys, 'frozen', False):
@@ -14,9 +15,17 @@ from app.webview_app import API, get_html_path
 
 if __name__ == "__main__":
     api = API()
-    icon_path = os.path.join(base_dir, 'icon.ico')
-    if not os.path.exists(icon_path):
-        icon_path = os.path.join(base_dir, 'icon.png')
+
+    # Icon: prefer .icns on macOS, .ico on Windows, .png as fallback
+    if platform.system() == "Darwin":
+        icon_path = os.path.join(base_dir, 'icon.icns')
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(base_dir, 'icon.png')
+    else:
+        icon_path = os.path.join(base_dir, 'icon.ico')
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(base_dir, 'icon.png')
+
     window = webview.create_window(
         'QuickModel',
         get_html_path(),
@@ -26,4 +35,12 @@ if __name__ == "__main__":
         min_size=(800, 500),
     )
     api.set_window(window)
-    webview.start(debug=False, icon=icon_path, private_mode=False)
+
+    # macOS: pywebview uses WebKit (cocoa); no private_mode param needed
+    start_kwargs = {"debug": False}
+    if os.path.exists(icon_path):
+        start_kwargs["icon"] = icon_path
+    if platform.system() == "Windows":
+        start_kwargs["private_mode"] = False
+
+    webview.start(**start_kwargs)

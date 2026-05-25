@@ -192,15 +192,19 @@ def grep_files(pattern: str, path: str = ".", file_type: str = "",
 
 
 def run_command(command: str, timeout: int = 30, stop_flag=None) -> str:
-    import time, threading
+    import time, threading, platform
 
     try:
-        # CREATE_NO_WINDOW prevents PowerShell console from flashing
         creationflags = 0
-        if os.name == 'nt':
+        if platform.system() == "Windows":
             creationflags = subprocess.CREATE_NO_WINDOW
+            shell_cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+        else:
+            # macOS / Linux: use bash
+            shell_cmd = ["/bin/bash", "-c", command]
+
         proc = subprocess.Popen(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+            shell_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
@@ -240,8 +244,13 @@ def run_command(command: str, timeout: int = 30, stop_flag=None) -> str:
         def _decode(b: bytes) -> str:
             if not b:
                 return ""
-            import locale
-            for enc in (locale.getpreferredencoding(False), "utf-8", "gbk", "cp936"):
+            # macOS/Linux: UTF-8 is standard; Windows may use GBK
+            if platform.system() == "Windows":
+                import locale
+                encodings = (locale.getpreferredencoding(False), "utf-8", "gbk", "cp936")
+            else:
+                encodings = ("utf-8",)
+            for enc in encodings:
                 try:
                     return b.decode(enc)
                 except (UnicodeDecodeError, LookupError):
