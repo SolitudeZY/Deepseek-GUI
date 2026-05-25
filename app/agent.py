@@ -20,6 +20,28 @@ AUTO_COMPACT_THRESHOLD_V4 = 800_000
 V4_MODELS = {"deepseek-v4-pro", "deepseek-v4-flash"}
 
 
+
+class _Callbacks:
+    """Simple namespace to bundle callbacks."""
+    __slots__ = ('on_token', 'on_tool_start', 'on_tool_result', 'on_confirm',
+                 'on_done', 'on_error', 'on_todo_update', 'on_context_update',
+                 'on_thinking', 'on_usage', 'on_ask_user')
+
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+class _StreamResult:
+    """Result of streaming and parsing one LLM round."""
+    __slots__ = ('assistant_msg', 'tool_calls', 'provider')
+
+    def __init__(self, assistant_msg, tool_calls, provider):
+        self.assistant_msg = assistant_msg
+        self.tool_calls = tool_calls
+        self.provider = provider
+
+
 class Agent:
     """
     封装 OpenAI 兼容 API 的工具调用循环。
@@ -69,6 +91,9 @@ class Agent:
         # Build stable system prompt with skill index (appended once, never changes
         # per-round, so the prefix stays cache-friendly).
         self.system_prompt = self._build_system_prompt(system_prompt)
+
+        # Tool dispatch registry (replaces if-elif chain)
+        self._tool_handlers = self._build_tool_handlers()
 
     @staticmethod
     def _build_system_prompt(base_prompt: str) -> str:
@@ -160,112 +185,96 @@ class Agent:
         return tools
 
     def _dispatch_advanced(self, tool_name: str, args: dict) -> Optional[str]:
-        """Handle advanced tools. Returns None if not an advanced tool."""
-        if tool_name == "todo_write":
-            try:
-                return self._todo.update(args.get("items", []))
-            except ValueError as e:
-                return f"TodoWrite 错误：{e}"
-        elif tool_name == "task_create":
-            return self._tasks.create(args.get("subject", ""), args.get("description", ""))
-        elif tool_name == "task_get":
-            return self._tasks.get(int(args.get("task_id", 0)))
-        elif tool_name == "task_update":
-            return self._tasks.update(
-                int(args.get("task_id", 0)),
-                args.get("status"),
-                args.get("add_blocked_by"),
-                args.get("remove_blocked_by"),
-            )
-        elif tool_name == "task_list":
-            return self._tasks.list_all()
-        elif tool_name == "background_run":
-            return self._bg.run(args.get("command", ""), int(args.get("timeout", 120)))
-        elif tool_name == "background_check":
-            return self._bg.check(args.get("task_id"))
-        elif tool_name == "subagent":
-            return run_subagent(
-                prompt=args.get("prompt", ""),
+        """Handle advanced tools via registry. Returns None if not an advanced tool."""
+        handler = self._tool_handlers.get(tool_name)
+        if handler is None:
+            return None
+        return handler(args)
+
+    def _build_tool_handlers(self) -> dict:
+        """Build tool name -> handler mapping."""
+        return {
+            "todo_write": self._handle_todo_write,
+            "task_create": lambda a: self._tasks.create(a.get("subject", ""), a.get("description", "")),
+            "task_get": lambda a: self._tasks.get(int(a.get("task_id", 0))),
+            "task_update": lambda a: self._tasks.update(
+                int(a.get("task_id", 0)), a.get("status"),
+                a.get("add_blocked_by"), a.get("remove_blocked_by")),
+            "task_list": lambda a: self._tasks.list_all(),
+            "background_run": lambda a: self._bg.run(a.get("command", ""), int(a.get("timeout", 120))),
+            "background_check": lambda a: self._bg.check(a.get("task_id")),
+            "subagent": lambda a: run_subagent(
+                prompt=a.get("prompt", ""),
                 api_key=self._client.api_key,
                 base_url=str(self._client.base_url),
                 model=self.model,
-                agent_type=args.get("agent_type", "Explore"),
-            )
-        elif tool_name == "rlm_query":
-            # Use flash model for RLM; find it in model_configs or default
-            flash_model = "deepseek-v4-flash"
-            rlm_api_key = self._client.api_key
-            rlm_base_url = str(self._client.base_url)
-            if self._model_configs:
-                flash_mc = next((c for c in self._model_configs if "flash" in c.get("model", "").lower()), None)
-                if flash_mc:
-                    rlm_api_key = flash_mc.get("api_key") or rlm_api_key
-                    rlm_base_url = flash_mc.get("base_url") or rlm_base_url
-                    flash_model = flash_mc.get("model") or flash_model
-            return run_rlm(
-                prompts=args.get("prompts", []),
-                api_key=rlm_api_key,
-                base_url=rlm_base_url,
-                model=flash_model,
-                system_prompt=args.get("system_prompt", ""),
-            )
-        # ── Team tools (s09-s12) ──────────────────────────────────────
-        elif tool_name == "team_spawn":
-            mc_name = args.get("model_config", "")
-            # resolve model config: use named config or fall back to current agent's creds
-            if mc_name and self._model_configs:
-                mc = next((c for c in self._model_configs if c.get("name") == mc_name), None)
-            else:
-                mc = None
-            api_key = mc["api_key"] if mc else self._client.api_key
-            base_url = mc["base_url"] if mc else str(self._client.base_url)
-            model = mc["model"] if mc else self.model
-            return TEAM.spawn(
-                name=args.get("name", ""),
-                role=args.get("role", ""),
-                prompt=args.get("prompt", ""),
-                api_key=api_key,
-                base_url=base_url,
-                model=model,
-            )
-        elif tool_name == "team_list":
-            return TEAM.list_all()
-        elif tool_name == "team_send":
-            return BUS.send("lead", args.get("to", ""), args.get("content", ""),
-                            args.get("msg_type", "message"))
-        elif tool_name == "team_read_inbox":
-            msgs = BUS.read_inbox("lead")
-            return json.dumps(msgs, ensure_ascii=False, indent=2) if msgs else "收件箱为空。"
-        elif tool_name == "team_broadcast":
-            return BUS.broadcast("lead", args.get("content", ""), TEAM.member_names())
-        elif tool_name == "team_approve_plan":
-            return TEAM.approve_plan(args.get("request_id", ""), bool(args.get("approve", False)))
-        elif tool_name == "team_shutdown":
-            return TEAM.shutdown(args.get("name", ""))
-        elif tool_name == "worktree_create":
-            return WORKTREES.create(args.get("name", ""), args.get("task_id"), args.get("base_ref", "HEAD"))
-        elif tool_name == "worktree_list":
-            return WORKTREES.list_all()
-        elif tool_name == "worktree_run":
-            return WORKTREES.run(args.get("name", ""), args.get("command", ""))
-        elif tool_name == "worktree_status":
-            return WORKTREES.status(args.get("name", ""))
-        elif tool_name == "worktree_keep":
-            return WORKTREES.keep(args.get("name", ""))
-        elif tool_name == "worktree_remove":
-            return WORKTREES.remove(args.get("name", ""), bool(args.get("force", False)),
-                                    bool(args.get("complete_task", False)))
-        elif tool_name == "worktree_events":
-            return WORKTREES.events(args.get("limit", 20))
-        elif tool_name == "skill_list":
-            return skill_list_str()
-        elif tool_name == "skill_read":
-            return skill_read(args.get("name", ""))
-        elif tool_name == "memory_read":
-            return memory_read(args.get("key", ""))
-        elif tool_name == "memory_write":
-            return memory_write(args.get("key", ""), args.get("content", ""))
-        return None
+                agent_type=a.get("agent_type", "Explore")),
+            "rlm_query": self._handle_rlm_query,
+            "team_spawn": self._handle_team_spawn,
+            "team_list": lambda a: TEAM.list_all(),
+            "team_send": lambda a: BUS.send("lead", a.get("to", ""), a.get("content", ""), a.get("msg_type", "message")),
+            "team_read_inbox": self._handle_team_read_inbox,
+            "team_broadcast": lambda a: BUS.broadcast("lead", a.get("content", ""), TEAM.member_names()),
+            "team_approve_plan": lambda a: TEAM.approve_plan(a.get("request_id", ""), bool(a.get("approve", False))),
+            "team_shutdown": lambda a: TEAM.shutdown(a.get("name", "")),
+            "worktree_create": lambda a: WORKTREES.create(a.get("name", ""), a.get("task_id"), a.get("base_ref", "HEAD")),
+            "worktree_list": lambda a: WORKTREES.list_all(),
+            "worktree_run": lambda a: WORKTREES.run(a.get("name", ""), a.get("command", "")),
+            "worktree_status": lambda a: WORKTREES.status(a.get("name", "")),
+            "worktree_keep": lambda a: WORKTREES.keep(a.get("name", "")),
+            "worktree_remove": lambda a: WORKTREES.remove(a.get("name", ""), bool(a.get("force", False)), bool(a.get("complete_task", False))),
+            "worktree_events": lambda a: WORKTREES.events(a.get("limit", 20)),
+            "skill_list": lambda a: skill_list_str(),
+            "skill_read": lambda a: skill_read(a.get("name", "")),
+            "memory_read": lambda a: memory_read(a.get("key", "")),
+            "memory_write": lambda a: memory_write(a.get("key", ""), a.get("content", "")),
+        }
+
+    def _handle_todo_write(self, args: dict) -> str:
+        try:
+            return self._todo.update(args.get("items", []))
+        except ValueError as e:
+            return f"TodoWrite 错误：{e}"
+
+    def _handle_rlm_query(self, args: dict) -> str:
+        flash_model = "deepseek-v4-flash"
+        rlm_api_key = self._client.api_key
+        rlm_base_url = str(self._client.base_url)
+        if self._model_configs:
+            flash_mc = next((c for c in self._model_configs if "flash" in c.get("model", "").lower()), None)
+            if flash_mc:
+                rlm_api_key = flash_mc.get("api_key") or rlm_api_key
+                rlm_base_url = flash_mc.get("base_url") or rlm_base_url
+                flash_model = flash_mc.get("model") or flash_model
+        return run_rlm(
+            prompts=args.get("prompts", []),
+            api_key=rlm_api_key,
+            base_url=rlm_base_url,
+            model=flash_model,
+            system_prompt=args.get("system_prompt", ""),
+        )
+
+    def _handle_team_spawn(self, args: dict) -> str:
+        mc_name = args.get("model_config", "")
+        if mc_name and self._model_configs:
+            mc = next((c for c in self._model_configs if c.get("name") == mc_name), None)
+        else:
+            mc = None
+        api_key = mc["api_key"] if mc else self._client.api_key
+        base_url = mc["base_url"] if mc else str(self._client.base_url)
+        model = mc["model"] if mc else self.model
+        return TEAM.spawn(
+            name=args.get("name", ""),
+            role=args.get("role", ""),
+            prompt=args.get("prompt", ""),
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+        )
+
+    def _handle_team_read_inbox(self, args: dict) -> str:
+        msgs = BUS.read_inbox("lead")
+        return json.dumps(msgs, ensure_ascii=False, indent=2) if msgs else "收件箱为空。"
 
     def _apply_window(self, messages: list[dict]) -> list[dict]:
         system = [m for m in messages if m.get("role") == "system"]
@@ -305,249 +314,265 @@ class Agent:
         self._rounds_without_todo = 0
         all_messages = [{"role": "system", "content": self.system_prompt}] + messages
 
-        # Session-level usage accumulator
+        cb = _Callbacks(
+            on_token=on_token, on_tool_start=on_tool_start,
+            on_tool_result=on_tool_result, on_confirm=on_confirm,
+            on_done=on_done, on_error=on_error,
+            on_todo_update=on_todo_update, on_context_update=on_context_update,
+            on_thinking=on_thinking, on_usage=on_usage, on_ask_user=on_ask_user,
+        )
+
         session_usage = {
             "prompt_tokens": 0, "completion_tokens": 0,
             "cache_hit_tokens": 0, "cache_miss_tokens": 0,
         }
 
         try:
-            max_rounds = self.max_rounds
             round_count = 0
             search_count = 0
             SEARCH_SOFT_LIMIT = 5
             threshold = self.compact_threshold
-            while not self._stop_flag.is_set() and round_count < max_rounds:
-                # 注入后台任务完成通知
-                notes = self._bg.drain_notifications()
-                for note in notes:
-                    all_messages.append({
-                        "role": "user",
-                        "content": f"<bg_notification>后台任务 {note['task_id']} 已完成：{note['result']}</bg_notification>",
-                    })
 
-                # 注入团队成员发给 lead 的消息
-                from app.team import BUS as _BUS
-                inbox_msgs = _BUS.read_inbox("lead")
-                for im in inbox_msgs:
-                    all_messages.append({
-                        "role": "user",
-                        "content": f"<team_inbox>来自 {im.get('from','?')} 的消息：{im.get('content','')}</team_inbox>",
-                    })
+            while not self._stop_flag.is_set() and round_count < self.max_rounds:
+                all_messages = self._inject_context(all_messages)
+                all_messages = self._manage_context(all_messages, threshold, cb)
+                full_messages = self._prepare_messages(all_messages)
 
-                # microcompact：只压缩滑动窗口外的旧 tool result，保留窗口内消息不变以命中缓存
-                microcompact(all_messages, self.CONTEXT_WINDOW)
-
-                # auto_compact：token 超限时压缩
-                if estimate_tokens(all_messages) > threshold:
-                    all_messages = auto_compact(all_messages, self._client, self.model)
-
-                # 推送上下文用量
-                if on_context_update:
-                    on_context_update(estimate_tokens(all_messages), threshold)
-
-                full_messages = self._apply_window(all_messages)
-
-                # DeepSeek thinking mode: all assistant messages must carry reasoning_content.
-                # Patch any that are missing it (old history, compact summaries, etc.)
-                if self._is_reasoner() and self._provider() == "deepseek":
-                    full_messages = [
-                        {**msg, "reasoning_content": msg.get("reasoning_content") or ""}
-                        if msg.get("role") == "assistant" else msg
-                        for msg in full_messages
-                    ]
-                # Non-thinking mode: strip reasoning_content from history to avoid DeepSeek
-                # treating the session as a thinking-mode conversation (causes 400 error).
-                elif not self._is_reasoner() and self._provider() == "deepseek":
-                    full_messages = [
-                        {k: v for k, v in msg.items() if k != "reasoning_content"}
-                        if msg.get("role") == "assistant" else msg
-                        for msg in full_messages
-                    ]
-
-                tool_calls_accumulated = []
-                assistant_content = ""
-                thinking_content = ""
-                round_usage = None
-
-                stream, provider = self._build_stream(full_messages)
-                current_tool_calls: dict[int, dict] = {}
-
-                for chunk in stream:
-                    if self._stop_flag.is_set():
-                        break
-                    # Capture usage from final chunk (stream_options include_usage)
-                    if hasattr(chunk, 'usage') and chunk.usage:
-                        round_usage = chunk.usage
-                    delta = chunk.choices[0].delta if chunk.choices else None
-                    if delta is None:
-                        continue
-                    # reasoning_content (DeepSeek reasoner / some providers)
-                    rc = getattr(delta, "reasoning_content", None)
-                    if rc:
-                        thinking_content += rc
-                        if on_thinking:
-                            on_thinking(rc)
-                    if delta.content:
-                        assistant_content += delta.content
-                        on_token(delta.content)
-                    if delta.tool_calls:
-                        for tc in delta.tool_calls:
-                            idx = tc.index
-                            if idx not in current_tool_calls:
-                                current_tool_calls[idx] = {
-                                    "id": "", "type": "function",
-                                    "function": {"name": "", "arguments": ""},
-                                }
-                            if tc.id:
-                                current_tool_calls[idx]["id"] = tc.id
-                            if tc.function:
-                                if tc.function.name:
-                                    current_tool_calls[idx]["function"]["name"] += tc.function.name
-                                if tc.function.arguments:
-                                    current_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
-
-                # Push usage stats
-                if round_usage and on_usage:
-                    pt = getattr(round_usage, 'prompt_tokens', 0) or 0
-                    ct = getattr(round_usage, 'completion_tokens', 0) or 0
-                    ch = getattr(round_usage, 'prompt_cache_hit_tokens', 0) or 0
-                    cm = getattr(round_usage, 'prompt_cache_miss_tokens', 0) or 0
-                    session_usage["prompt_tokens"] += pt
-                    session_usage["completion_tokens"] += ct
-                    session_usage["cache_hit_tokens"] += ch
-                    session_usage["cache_miss_tokens"] += cm
-                    on_usage({
-                        "round": {"prompt": pt, "completion": ct, "cache_hit": ch, "cache_miss": cm},
-                        "session": dict(session_usage),
-                    })
-
-                tool_calls_accumulated = list(current_tool_calls.values())
+                result = self._stream_and_parse(full_messages, cb, session_usage)
                 round_count += 1
 
-                assistant_msg: dict = {"role": "assistant", "content": assistant_content}
-                # DeepSeek thinking mode: reasoning_content must ALWAYS be present on every
-                # assistant message when thinking is enabled — even if empty this round.
-                if self._is_reasoner() and provider == "deepseek":
-                    assistant_msg["reasoning_content"] = thinking_content
-                if tool_calls_accumulated:
-                    assistant_msg["tool_calls"] = tool_calls_accumulated
-                all_messages.append(assistant_msg)
+                all_messages.append(result.assistant_msg)
 
-                # DeepSeek reasoner (old model): no tool calls, single-turn, always break
-                if self._is_reasoner() and provider == "deepseek" and not tool_calls_accumulated:
+                if not result.tool_calls:
                     break
 
-                if not tool_calls_accumulated:
-                    break
+                search_count = self._execute_tools(
+                    result.tool_calls, all_messages, cb,
+                    search_count, SEARCH_SOFT_LIMIT, on_ask_user,
+                )
 
-                used_todo = False
-                for tc in tool_calls_accumulated:
-                    tool_name = tc["function"]["name"]
-                    try:
-                        args = json.loads(tc["function"]["arguments"] or "{}")
-                    except json.JSONDecodeError:
-                        args = {}
+                self._check_todo_nag(all_messages)
 
-                    if self._stop_flag.is_set():
-                        all_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": "用户已停止",
-                        })
-                        continue
-
-                    on_tool_start(tool_name, args)
-
-                    # Layer 3: manual compact
-                    if tool_name == "compact":
-                        all_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": "正在压缩上下文…",
-                        })
-                        all_messages = auto_compact(all_messages, self._client, self.model)
-                        on_tool_result(tool_name, "上下文已压缩")
-                        continue
-
-                    # ask_user_question: pause and ask user
-                    if tool_name == "ask_user_question" and on_ask_user:
-                        answer = on_ask_user(args)
-                        result = answer or "用户未回答"
-                        on_tool_result(tool_name, result)
-                        all_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": result,
-                        })
-                        continue
-
-                    # enter_plan_mode: signal plan mode entry
-                    if tool_name == "enter_plan_mode":
-                        result = "已进入计划模式。请逐步输出你的实现计划，每个关键决策点使用 ask_user_question 工具询问用户意见，确认后再继续下一步。所有步骤确认完毕后调用 exit_plan_mode 表示计划完成。"
-                        on_tool_result(tool_name, result)
-                        all_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": result,
-                        })
-                        continue
-
-                    # exit_plan_mode: plan is done, proceed to execution
-                    if tool_name == "exit_plan_mode":
-                        result = "计划已完成，所有步骤已经用户确认。开始执行。"
-                        on_tool_result(tool_name, result)
-                        all_messages.append({
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": result,
-                        })
-                        continue
-
-                    # Try advanced tools first
-                    result = self._dispatch_advanced(tool_name, args)
-                    if result is None:
-                        # Standard tools
-                        if tool_name in CONFIRM_REQUIRED:
-                            if self.command_safety == "disabled":
-                                result = f"工具 {tool_name} 已被禁用"
-                            elif self.command_safety == "confirm":
-                                allowed = on_confirm(tool_name, args)
-                                result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
-                                          if allowed else f"用户拒绝执行工具：{tool_name}")
-                            else:
-                                result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
-                        else:
-                            result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
-
-                    if tool_name == "todo_write":
-                        used_todo = True
-                        if on_todo_update:
-                            on_todo_update(self._todo.get_items())
-
-                    # Search soft limit: nudge model to stop after N searches
-                    if tool_name == "web_search":
-                        search_count += 1
-                        if search_count >= SEARCH_SOFT_LIMIT:
-                            result += f"\n\n⚠ 你已经搜索了 {search_count} 次。请根据已有结果整理回答，检查是否需要继续搜索，如无必要，请整理现有内容并作出回答。"
-
-                    on_tool_result(tool_name, result)
-                    all_messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": result,
-                    })
-
-                # Todo nag: remind model to update todos if it has open items
-                self._rounds_without_todo = 0 if used_todo else self._rounds_without_todo + 1
-                if self._todo.has_open_items() and self._rounds_without_todo >= 3:
-                    all_messages.append({
-                        "role": "user",
-                        "content": "<reminder>请更新你的 todo_write 清单。</reminder>",
-                    })
-                    self._rounds_without_todo = 0
-
-            on_done(all_messages[1:])
+            cb.on_done(all_messages[1:])
 
         except Exception as e:
             on_error(str(e), all_messages[1:])
+
+    def _inject_context(self, all_messages: list[dict]) -> list[dict]:
+        """Inject background notifications and team inbox messages."""
+        notes = self._bg.drain_notifications()
+        for note in notes:
+            all_messages.append({
+                "role": "user",
+                "content": f"<bg_notification>后台任务 {note['task_id']} 已完成：{note['result']}</bg_notification>",
+            })
+
+        from app.team import BUS as _BUS
+        inbox_msgs = _BUS.read_inbox("lead")
+        for im in inbox_msgs:
+            all_messages.append({
+                "role": "user",
+                "content": f"<team_inbox>来自 {im.get('from','?')} 的消息：{im.get('content','')}</team_inbox>",
+            })
+        return all_messages
+
+    def _manage_context(self, all_messages: list[dict], threshold: int, cb) -> list[dict]:
+        """Apply microcompact and auto_compact, push context usage."""
+        microcompact(all_messages, self.CONTEXT_WINDOW)
+        if estimate_tokens(all_messages) > threshold:
+            all_messages = auto_compact(all_messages, self._client, self.model)
+        if cb.on_context_update:
+            cb.on_context_update(estimate_tokens(all_messages), threshold)
+        return all_messages
+
+    def _prepare_messages(self, all_messages: list[dict]) -> list[dict]:
+        """Apply window and provider-specific patches."""
+        full_messages = self._apply_window(all_messages)
+        if self._is_reasoner() and self._provider() == "deepseek":
+            full_messages = [
+                {**msg, "reasoning_content": msg.get("reasoning_content") or ""}
+                if msg.get("role") == "assistant" else msg
+                for msg in full_messages
+            ]
+        elif not self._is_reasoner() and self._provider() == "deepseek":
+            full_messages = [
+                {k: v for k, v in msg.items() if k != "reasoning_content"}
+                if msg.get("role") == "assistant" else msg
+                for msg in full_messages
+            ]
+        return full_messages
+
+    def _stream_and_parse(self, full_messages: list[dict], cb, session_usage: dict) -> _StreamResult:
+        """Stream LLM response and parse into content + tool calls."""
+        assistant_content = ""
+        thinking_content = ""
+        round_usage = None
+
+        stream, provider = self._build_stream(full_messages)
+        current_tool_calls: dict[int, dict] = {}
+
+        for chunk in stream:
+            if self._stop_flag.is_set():
+                break
+            if hasattr(chunk, 'usage') and chunk.usage:
+                round_usage = chunk.usage
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if delta is None:
+                continue
+            rc = getattr(delta, "reasoning_content", None)
+            if rc:
+                thinking_content += rc
+                if cb.on_thinking:
+                    cb.on_thinking(rc)
+            if delta.content:
+                assistant_content += delta.content
+                cb.on_token(delta.content)
+            if delta.tool_calls:
+                for tc in delta.tool_calls:
+                    idx = tc.index
+                    if idx not in current_tool_calls:
+                        current_tool_calls[idx] = {
+                            "id": "", "type": "function",
+                            "function": {"name": "", "arguments": ""},
+                        }
+                    if tc.id:
+                        current_tool_calls[idx]["id"] = tc.id
+                    if tc.function:
+                        if tc.function.name:
+                            current_tool_calls[idx]["function"]["name"] += tc.function.name
+                        if tc.function.arguments:
+                            current_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+
+        # Push usage stats
+        if round_usage and cb.on_usage:
+            pt = getattr(round_usage, 'prompt_tokens', 0) or 0
+            ct = getattr(round_usage, 'completion_tokens', 0) or 0
+            ch = getattr(round_usage, 'prompt_cache_hit_tokens', 0) or 0
+            cm = getattr(round_usage, 'prompt_cache_miss_tokens', 0) or 0
+            session_usage["prompt_tokens"] += pt
+            session_usage["completion_tokens"] += ct
+            session_usage["cache_hit_tokens"] += ch
+            session_usage["cache_miss_tokens"] += cm
+            cb.on_usage({
+                "round": {"prompt": pt, "completion": ct, "cache_hit": ch, "cache_miss": cm},
+                "session": dict(session_usage),
+            })
+
+        tool_calls_accumulated = list(current_tool_calls.values())
+
+        assistant_msg: dict = {"role": "assistant", "content": assistant_content}
+        if self._is_reasoner() and provider == "deepseek":
+            assistant_msg["reasoning_content"] = thinking_content
+        if tool_calls_accumulated:
+            assistant_msg["tool_calls"] = tool_calls_accumulated
+
+        return _StreamResult(
+            assistant_msg=assistant_msg,
+            tool_calls=tool_calls_accumulated,
+            provider=provider,
+        )
+
+    def _execute_tools(
+        self, tool_calls: list[dict], all_messages: list[dict],
+        cb, search_count: int, search_soft_limit: int, on_ask_user,
+    ) -> int:
+        """Execute tool calls and append results to messages. Returns updated search_count."""
+        used_todo = False
+        for tc in tool_calls:
+            tool_name = tc["function"]["name"]
+            try:
+                args = json.loads(tc["function"]["arguments"] or "{}")
+            except json.JSONDecodeError:
+                args = {}
+
+            if self._stop_flag.is_set():
+                all_messages.append({
+                    "role": "tool", "tool_call_id": tc["id"],
+                    "content": "用户已停止",
+                })
+                continue
+
+            cb.on_tool_start(tool_name, args)
+
+            # Manual compact
+            if tool_name == "compact":
+                all_messages.append({
+                    "role": "tool", "tool_call_id": tc["id"],
+                    "content": "正在压缩上下文…",
+                })
+                compact_result = auto_compact(all_messages, self._client, self.model)
+                all_messages.clear()
+                all_messages.extend(compact_result)
+                cb.on_tool_result(tool_name, "上下文已压缩")
+                continue
+
+            # ask_user_question
+            if tool_name == "ask_user_question" and on_ask_user:
+                answer = on_ask_user(args)
+                result = answer or "用户未回答"
+                cb.on_tool_result(tool_name, result)
+                all_messages.append({
+                    "role": "tool", "tool_call_id": tc["id"], "content": result,
+                })
+                continue
+
+            # enter_plan_mode
+            if tool_name == "enter_plan_mode":
+                result = "已进入计划模式。请逐步输出你的实现计划，每个关键决策点使用 ask_user_question 工具询问用户意见，确认后再继续下一步。所有步骤确认完毕后调用 exit_plan_mode 表示计划完成。"
+                cb.on_tool_result(tool_name, result)
+                all_messages.append({
+                    "role": "tool", "tool_call_id": tc["id"], "content": result,
+                })
+                continue
+
+            # exit_plan_mode
+            if tool_name == "exit_plan_mode":
+                result = "计划已完成，所有步骤已经用户确认。开始执行。"
+                cb.on_tool_result(tool_name, result)
+                all_messages.append({
+                    "role": "tool", "tool_call_id": tc["id"], "content": result,
+                })
+                continue
+
+            # Try advanced tools (registry)
+            result = self._dispatch_advanced(tool_name, args)
+            if result is None:
+                # Basic tools — may need confirmation
+                from app.config import is_command_allowed
+                if tool_name in CONFIRM_REQUIRED and self.command_safety == "confirm":
+                    if not is_command_allowed(args.get("command", "")):
+                        allowed = cb.on_confirm(tool_name, args)
+                        result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
+                                  if allowed else f"用户拒绝执行工具：{tool_name}")
+                    else:
+                        result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
+                else:
+                    result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
+
+            if tool_name == "todo_write":
+                used_todo = True
+                if cb.on_todo_update:
+                    cb.on_todo_update(self._todo.get_items())
+
+            # Search soft limit
+            if tool_name == "web_search":
+                search_count += 1
+                if search_count >= search_soft_limit:
+                    result += f"\n\n⚠ 你已经搜索了 {search_count} 次。请根据已有结果整理回答，检查是否需要继续搜索，如无必要，请整理现有内容并作出回答。"
+
+            cb.on_tool_result(tool_name, result)
+            all_messages.append({
+                "role": "tool", "tool_call_id": tc["id"], "content": result,
+            })
+
+        self._rounds_without_todo = 0 if used_todo else self._rounds_without_todo + 1
+        return search_count
+
+    def _check_todo_nag(self, all_messages: list[dict]):
+        """Remind model to update todos if it has open items."""
+        if self._todo.has_open_items() and self._rounds_without_todo >= 3:
+            all_messages.append({
+                "role": "user",
+                "content": "<reminder>请更新你的 todo_write 清单。</reminder>",
+            })
+            self._rounds_without_todo = 0

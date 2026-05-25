@@ -288,19 +288,34 @@ def _enrich_with_full_content(search_result: str, engine: str, query: str,
                                auto_read: int, read_chars: int) -> str:
     """Fetch full page content for top search results and append to output."""
     import re as _re
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     # Extract URLs from the formatted search result
     urls = _re.findall(r'URL: (https?://\S+)', search_result)
     if not urls:
         return search_result
 
-    parts = [search_result, "\n\n--- 以下为搜索结果的完整网页内容 ---\n"]
-    for i, url in enumerate(urls[:auto_read]):
+    def _fetch(i_url):
+        i, url = i_url
         try:
             content = web_read(url, max_chars=read_chars)
             if content and not content.startswith("读取失败"):
-                parts.append(f"\n### [{i+1}] {url}\n{content}\n")
+                return i, url, content
         except Exception:
             pass
+        return i, url, None
+
+    parts = [search_result, "\n\n--- 以下为搜索结果的完整网页内容 ---\n"]
+    results = {}
+    with ThreadPoolExecutor(max_workers=min(auto_read, 5)) as pool:
+        futures = [pool.submit(_fetch, (i, url)) for i, url in enumerate(urls[:auto_read])]
+        for fut in as_completed(futures):
+            i, url, content = fut.result()
+            if content:
+                results[i] = (url, content)
+
+    for i in sorted(results.keys()):
+        url, content = results[i]
+        parts.append(f"\n### [{i+1}] {url}\n{content}\n")
     return "\n".join(parts)
 
 

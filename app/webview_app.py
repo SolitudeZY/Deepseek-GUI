@@ -563,7 +563,9 @@ class API:
                 if self._cmd_prefix_counts[prefix] >= 3:
                     wildcard = f"{prefix} *"
         self._js(f'Chat.showConfirmDialog({json.dumps(tool_name)}, {json.dumps(args)}, {json.dumps(wildcard)})')
-        self._confirm_event.wait()
+        if not self._confirm_event.wait(timeout=120):
+            # Timeout — treat as rejection to avoid permanent deadlock
+            return False
         return self._confirm_result
 
     def confirm_tool(self, approved: bool) -> None:
@@ -585,7 +587,8 @@ class API:
         multi_select = args.get("multi_select", False)
         self._ask_event.clear()
         self._js(f'showAskDialog({json.dumps(question)}, {json.dumps(options)}, {json.dumps(multi_select)})')
-        self._ask_event.wait()
+        if not self._ask_event.wait(timeout=120):
+            return "用户未响应（超时）"
         return self._ask_answer
 
     def answer_question(self, answer: str) -> None:
@@ -597,7 +600,8 @@ class API:
         """Callback: agent exits plan mode, asks user to approve."""
         self._plan_event.clear()
         self._js(f'showPlanApproval({json.dumps(plan_summary)})')
-        self._plan_event.wait()
+        if not self._plan_event.wait(timeout=120):
+            return False
         return self._plan_approved
 
     def approve_plan(self, approved: bool) -> None:

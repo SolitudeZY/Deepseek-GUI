@@ -51,6 +51,16 @@ def _tasks_dir() -> Path:
 
 # ── MessageBus (s09) ─────────────────────────────────────────────────
 class MessageBus:
+    def __init__(self):
+        self._locks: dict[str, threading.Lock] = {}
+        self._meta_lock = threading.Lock()
+
+    def _get_lock(self, name: str) -> threading.Lock:
+        with self._meta_lock:
+            if name not in self._locks:
+                self._locks[name] = threading.Lock()
+            return self._locks[name]
+
     def send(self, sender: str, to: str, content: str,
              msg_type: str = "message", extra: dict = None) -> str:
         if msg_type not in VALID_MSG_TYPES:
@@ -60,22 +70,24 @@ class MessageBus:
         if extra:
             msg.update(extra)
         inbox = _inbox_dir() / f"{to}.jsonl"
-        with open(inbox, "a", encoding="utf-8") as f:
-            f.write(json.dumps(msg, ensure_ascii=False) + "\n")
+        with self._get_lock(to):
+            with open(inbox, "a", encoding="utf-8") as f:
+                f.write(json.dumps(msg, ensure_ascii=False) + "\n")
         return f"已发送 {msg_type} 给 {to}"
 
     def read_inbox(self, name: str) -> list:
         inbox = _inbox_dir() / f"{name}.jsonl"
-        if not inbox.exists():
-            return []
-        msgs = []
-        for line in inbox.read_text(encoding="utf-8").strip().splitlines():
-            if line:
-                try:
-                    msgs.append(json.loads(line))
-                except Exception:
-                    pass
-        inbox.write_text("", encoding="utf-8")
+        with self._get_lock(name):
+            if not inbox.exists():
+                return []
+            msgs = []
+            for line in inbox.read_text(encoding="utf-8").strip().splitlines():
+                if line:
+                    try:
+                        msgs.append(json.loads(line))
+                    except Exception:
+                        pass
+            inbox.write_text("", encoding="utf-8")
         return msgs
 
     def broadcast(self, sender: str, content: str, names: list) -> str:
@@ -133,6 +145,7 @@ plan_requests: dict = {}
 class TeammateManager:
     def __init__(self):
         self._config_path = _team_dir() / "config.json"
+        self._config_lock = threading.Lock()
         self._config = self._load_config()
         self._threads: dict[str, threading.Thread] = {}
         self._notification_cb = None  # set by webview_app for UI push
@@ -166,13 +179,21 @@ class TeammateManager:
         return None
 
     def _set_status(self, name: str, status: str):
-        m = self._find(name)
-        if m:
-            m["status"] = status
-            self._save_config()
+        with self._config_lock:
+            m = self._find(name)
+            if m:
+                m["status"] = status
+                self._save_config()
+
+    def _cleanup_threads(self):
+        """Remove references to threads that have finished."""
+        dead = [name for name, t in self._threads.items() if not t.is_alive()]
+        for name in dead:
+            del self._threads[name]
 
     def spawn(self, name: str, role: str, prompt: str,
               api_key: str, base_url: str, model: str) -> str:
+        self._cleanup_threads()
         m = self._find(name)
         if m:
             if m["status"] not in ("idle", "shutdown"):
