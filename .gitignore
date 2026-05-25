@@ -4,6 +4,7 @@ dist_v1/
 build/
 build_v1/
 *.spec
+!main_mac.spec
 
 # Python
 __pycache__/
