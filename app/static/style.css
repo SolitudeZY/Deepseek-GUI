@@ -547,7 +547,15 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 #model-config-list li {
   padding: 6px 8px; border-radius: 6px; cursor: pointer;
   font-size: 13px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: flex; align-items: center; gap: 4px;
 }
+#model-config-list li .mc-item-name { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+#model-config-list li .mc-item-del {
+  display: none; background: none; border: none; color: var(--text-dim);
+  font-size: 16px; cursor: pointer; padding: 0 4px; line-height: 1; border-radius: 4px;
+}
+#model-config-list li .mc-item-del:hover { color: #e55; background: rgba(255,80,80,0.15); }
+#model-config-list li:hover .mc-item-del { display: inline-block; }
 #model-config-list li:hover { background: var(--bg3); }
 #model-config-list li.active { background: var(--bg3); color: var(--text); }
 .model-form-col { flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }

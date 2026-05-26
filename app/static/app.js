@@ -373,6 +373,12 @@ async function openConversation(convId) {
   // Re-apply content search results so the list doesn't disappear
   if (kw) _runContentSearch(kw);
   loadHistory(conv.messages || []);
+  // If this conversation is currently streaming, re-attach all stream nodes
+  if (_streamingConvId === convId && _streamNodes.length > 0) {
+    _streamNodes.forEach(node => chatMessages.appendChild(node));
+    if (_typingEl) chatMessages.appendChild(_typingEl);
+    scrollToBottom();
+  }
   Chat.updateFileOps(conv.file_ops || []);
   // 刷新上下文用量
   const ctx = await window.pywebview.api.get_context_usage(convId);
@@ -579,7 +585,10 @@ function addToolCallBubble(toolName, args) {
 
 function addToolResultBubble(toolName, result) {
   // find the last tool-call bubble for this tool and update its result inline
-  const bubbles = chatMessages.querySelectorAll('.bubble-tool-call');
+  // Search both attached (chatMessages) and detached (_streamNodes) bubbles
+  const attached = Array.from(chatMessages.querySelectorAll('.bubble-tool-call'));
+  const detached = _streamNodes.filter(n => n.classList && n.classList.contains('bubble-tool-call') && !n.parentNode);
+  const bubbles = [...attached, ...detached];
   for (let i = bubbles.length - 1; i >= 0; i--) {
     const nameEl = bubbles[i].querySelector('.tool-name');
     if (nameEl && nameEl.textContent === toolName) {
@@ -649,14 +658,19 @@ function addErrorBubble(msg) {
 let _streamBubble = null;
 let _streamContent = '';
 let _typingEl = null;
+let _streamingConvId = null;  // tracks which conv is currently streaming
+let _streamNodes = [];        // all DOM nodes added during this streaming session
 
 function startAssistantStream() {
   removeTypingIndicator();
   _streamContent = '';
+  _streamingConvId = state.currentConvId;
+  _streamNodes = [];
   _streamBubble = document.createElement('div');
   _streamBubble.className = 'bubble bubble-assistant';
   _streamBubble.innerHTML = `<div class="bubble-label">Assistant</div><div class="bubble-content"></div>`;
   chatMessages.appendChild(_streamBubble);
+  _streamNodes.push(_streamBubble);
   _typingEl = document.createElement('div');
   _typingEl.className = 'typing-indicator';
   _typingEl.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
@@ -671,11 +685,16 @@ window.Chat = {
     _streamContent += token;
     if (_streamBubble) {
       _streamBubble.querySelector('.bubble-content').innerHTML = renderMarkdown(_streamContent);
-      scrollToBottom();
+      if (state.currentConvId === _streamingConvId) scrollToBottom();
     }
   },
   showToolCall(toolName, args) {
-    addToolCallBubble(toolName, args);
+    const el = addToolCallBubble(toolName, args);
+    if (_streamingConvId) _streamNodes.push(el);
+    // If viewing a different conv, detach immediately (will re-attach on switch back)
+    if (state.currentConvId !== _streamingConvId && el.parentNode) {
+      el.parentNode.removeChild(el);
+    }
   },
   showToolResult(toolName, result) {
     addToolResultBubble(toolName, result);
@@ -706,6 +725,8 @@ window.Chat = {
     removeTypingIndicator();
     _streamBubble = null;
     _streamContent = '';
+    _streamingConvId = null;
+    _streamNodes = [];
     _thinkingBubble = null;
     _thinkingContent = '';
     setRunning(false);
@@ -782,15 +803,20 @@ window.Chat = {
       });
       _thinkingBubble.appendChild(toggle);
       _thinkingBubble.appendChild(body);
-      chatMessages.appendChild(_thinkingBubble);
+      if (state.currentConvId === _streamingConvId) {
+        chatMessages.appendChild(_thinkingBubble);
+      }
+      if (_streamingConvId) _streamNodes.push(_thinkingBubble);
     }
     _thinkingContent += token;
     _thinkingBubble.querySelector('.thinking-body').textContent = _thinkingContent;
-    scrollToBottom();
+    if (state.currentConvId === _streamingConvId) scrollToBottom();
   },
   showError(msg) {
     removeTypingIndicator();
     _streamBubble = null;
+    _streamingConvId = null;
+    _streamNodes = [];
     addErrorBubble(msg);
     setRunning(false);
   },
@@ -1638,8 +1664,34 @@ function renderModelConfigList() {
   ul.innerHTML = '';
   (state.config.model_configs || []).forEach((mc, i) => {
     const li = document.createElement('li');
-    li.textContent = mc.name;
     if (i === state.selectedMcIdx) li.classList.add('active');
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'mc-item-name';
+    nameSpan.textContent = mc.name;
+    li.appendChild(nameSpan);
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'mc-item-del';
+    delBtn.textContent = '×';
+    delBtn.title = '删除此配置';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const configs = state.config.model_configs || [];
+      if (configs.length <= 1) { alert('至少保留一个模型配置'); return; }
+      if (!confirm(`确定删除配置「${mc.name}」？`)) return;
+      configs.splice(i, 1);
+      if (state.selectedMcIdx === i) {
+        state.selectedMcIdx = null;
+        ['mc-name','mc-key','mc-url','mc-model'].forEach(id => $(id).value = '');
+        $('mc-system').value = '';
+      } else if (state.selectedMcIdx > i) {
+        state.selectedMcIdx--;
+      }
+      renderModelConfigList();
+    });
+    li.appendChild(delBtn);
+
     li.addEventListener('click', () => selectMc(i));
     ul.appendChild(li);
   });
