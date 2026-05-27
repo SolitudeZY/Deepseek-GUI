@@ -836,7 +836,12 @@ window.Chat = {
         btnWild.style.display = 'none';
       }
     }
+    _clearCountdown();
     $('confirm-overlay').classList.remove('hidden');
+    // Auto-countdown mode
+    if (state.config.command_safety === 'auto_countdown') {
+      _startCountdown();
+    }
   },
 };
 
@@ -847,19 +852,55 @@ function removeTypingIndicator() {
 // ── Confirm dialog ────────────────────────────────────────────────
 let _confirmCommand = '';
 let _confirmWildcard = '';
+let _countdownTimer = null;
+let _countdownSeconds = 0;
+
+function _clearCountdown() {
+  if (_countdownTimer) { clearInterval(_countdownTimer); _countdownTimer = null; }
+  $('confirm-countdown-wrap').classList.add('hidden');
+  $('confirm-countdown-fill').style.width = '100%';
+}
+
+function _startCountdown() {
+  _countdownSeconds = 5;
+  $('confirm-countdown-wrap').classList.remove('hidden');
+  $('confirm-countdown-text').textContent = `${_countdownSeconds} 秒后自动执行`;
+  $('confirm-countdown-fill').style.transition = 'none';
+  $('confirm-countdown-fill').style.width = '100%';
+  // Force reflow then animate
+  void $('confirm-countdown-fill').offsetWidth;
+  $('confirm-countdown-fill').style.transition = 'width 1s linear';
+
+  _countdownTimer = setInterval(() => {
+    _countdownSeconds--;
+    const pct = (_countdownSeconds / 5) * 100;
+    $('confirm-countdown-fill').style.width = pct + '%';
+    $('confirm-countdown-text').textContent = `${_countdownSeconds} 秒后自动执行`;
+    if (_countdownSeconds <= 0) {
+      _clearCountdown();
+      $('confirm-overlay').classList.add('hidden');
+      window.pywebview.api.confirm_tool(true);
+    }
+  }, 1000);
+}
+
 $('btn-confirm-yes').addEventListener('click', () => {
+  _clearCountdown();
   $('confirm-overlay').classList.add('hidden');
   window.pywebview.api.confirm_tool(true);
 });
 $('btn-confirm-no').addEventListener('click', () => {
+  _clearCountdown();
   $('confirm-overlay').classList.add('hidden');
   window.pywebview.api.confirm_tool(false);
 });
 $('btn-confirm-always').addEventListener('click', () => {
+  _clearCountdown();
   $('confirm-overlay').classList.add('hidden');
   window.pywebview.api.confirm_tool_always(_confirmCommand);
 });
 $('btn-confirm-wildcard').addEventListener('click', () => {
+  _clearCountdown();
   $('confirm-overlay').classList.add('hidden');
   window.pywebview.api.confirm_tool_always(_confirmWildcard);
 });
@@ -868,10 +909,12 @@ document.addEventListener('keydown', e => {
   if ($('confirm-overlay').classList.contains('hidden')) return;
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
+    _clearCountdown();
     $('confirm-overlay').classList.add('hidden');
     window.pywebview.api.confirm_tool(true);
   } else if (e.key === 'Enter' && e.shiftKey) {
     e.preventDefault();
+    _clearCountdown();
     $('confirm-overlay').classList.add('hidden');
     if (_confirmWildcard && !$('btn-confirm-wildcard').classList.contains('hidden')) {
       window.pywebview.api.confirm_tool_always(_confirmWildcard);
@@ -880,6 +923,7 @@ document.addEventListener('keydown', e => {
     }
   } else if (e.key === 'Escape') {
     e.preventDefault();
+    _clearCountdown();
     $('confirm-overlay').classList.add('hidden');
     window.pywebview.api.confirm_tool(false);
   }

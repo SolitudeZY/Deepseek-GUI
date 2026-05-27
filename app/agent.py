@@ -539,7 +539,7 @@ class Agent:
             if result is None:
                 # Basic tools — may need confirmation
                 from app.config import is_command_allowed
-                if tool_name in CONFIRM_REQUIRED and self.command_safety == "confirm":
+                if tool_name in CONFIRM_REQUIRED and self.command_safety in ("confirm", "auto_countdown"):
                     if not is_command_allowed(args.get("command", "")):
                         allowed = cb.on_confirm(tool_name, args)
                         result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)

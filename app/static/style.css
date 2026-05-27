@@ -569,6 +569,22 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   padding: 10px 14px; margin: 10px 18px; font-size: 12px;
   overflow: auto; max-height: 200px; color: var(--code-fg);
 }
+#confirm-countdown-wrap {
+  margin: 8px 18px; text-align: center;
+}
+#confirm-countdown-wrap .confirm-warning {
+  color: #e8a838; font-size: 13px; font-weight: 600; margin-bottom: 6px;
+}
+.confirm-countdown-bar {
+  height: 4px; background: var(--bg3); border-radius: 2px; overflow: hidden; margin-bottom: 4px;
+}
+#confirm-countdown-fill {
+  height: 100%; width: 100%; background: #e8a838; border-radius: 2px;
+  transition: width 1s linear;
+}
+#confirm-countdown-text {
+  font-size: 12px; color: var(--text-dim);
+}
 
 /* ── Todo panel ── */
 #todo-panel {
