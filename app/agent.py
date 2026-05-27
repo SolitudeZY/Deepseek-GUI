@@ -539,12 +539,18 @@ class Agent:
             if result is None:
                 # Basic tools — may need confirmation
                 from app.config import is_command_allowed
-                if tool_name in CONFIRM_REQUIRED and self.command_safety in ("confirm", "auto_countdown"):
-                    if not is_command_allowed(args.get("command", "")):
-                        allowed = cb.on_confirm(tool_name, args)
-                        result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
-                                  if allowed else f"用户拒绝执行工具：{tool_name}")
+                if tool_name in CONFIRM_REQUIRED:
+                    if self.command_safety == "disabled":
+                        result = f"命令执行已禁用（disabled 模式），拒绝执行：{tool_name}"
+                    elif self.command_safety in ("confirm", "auto_countdown"):
+                        if not is_command_allowed(args.get("command", "")):
+                            allowed = cb.on_confirm(tool_name, args)
+                            result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
+                                      if allowed else f"用户拒绝执行工具：{tool_name}")
+                        else:
+                            result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
                     else:
+                        # auto mode — execute directly
                         result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
                 else:
                     result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)

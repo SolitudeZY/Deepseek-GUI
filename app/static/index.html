@@ -196,7 +196,7 @@
             <option value="confirm">confirm（每次确认）</option>
             <option value="auto_countdown">auto_countdown（5秒自动确认）</option>
             <option value="auto">auto（直接执行，不提示）</option>
-            <option value="disabled">disabled（禁用）</option>
+            <option value="disabled">disabled（禁止执行命令）</option>
           </select>
         </label>
         <p class="hint">auto_countdown 模式下，命令将在 5 秒倒计时后自动执行，期间可取消。自动执行结果后果自负。</p>
@@ -291,6 +291,7 @@
     </div>
     <div class="modal-footer">
       <button id="btn-confirm-no" class="btn-ghost">拒绝</button>
+      <button id="btn-confirm-auto" class="btn-ghost" title="切换为5秒自动确认模式">开启自动确认</button>
       <button id="btn-confirm-wildcard" class="btn-secondary" style="display:none">允许所有</button>
       <button id="btn-confirm-always" class="btn-secondary">以后都允许</button>
       <button id="btn-confirm-yes" class="btn-primary">允许</button>

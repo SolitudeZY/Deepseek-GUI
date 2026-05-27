@@ -838,6 +838,8 @@ window.Chat = {
     }
     _clearCountdown();
     $('confirm-overlay').classList.remove('hidden');
+    // Show "开启自动确认" button only in confirm mode
+    $('btn-confirm-auto').style.display = (state.config.command_safety === 'confirm') ? '' : 'none';
     // Auto-countdown mode
     if (state.config.command_safety === 'auto_countdown') {
       _startCountdown();
@@ -898,6 +900,13 @@ $('btn-confirm-always').addEventListener('click', () => {
   _clearCountdown();
   $('confirm-overlay').classList.add('hidden');
   window.pywebview.api.confirm_tool_always(_confirmCommand);
+});
+$('btn-confirm-auto').addEventListener('click', () => {
+  // Switch to auto_countdown mode and start countdown for current dialog
+  state.config.command_safety = 'auto_countdown';
+  window.pywebview.api.save_config(state.config);
+  $('btn-confirm-auto').style.display = 'none';
+  _startCountdown();
 });
 $('btn-confirm-wildcard').addEventListener('click', () => {
   _clearCountdown();
