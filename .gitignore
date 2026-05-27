@@ -18,6 +18,7 @@ conversations/
 *.jpg
 *.png
 *.pdf
+!image/**
 
 # Misc test/temp files
 矩阵运算*.md
