@@ -168,6 +168,8 @@ pyinstaller main.spec
 
 ## 快速开始
 
+> 详细图文教程请参阅 [使用说明](./使用说明.md) | [主流 LLM 模型的 API Base URL 汇总](./主流%20LLM%20模型的%20API%20Base%20URL%20汇总.md)
+
 1. 启动后点击右上角 **设置**
 2. 在「模型配置」中填入 API Key 和 Base URL
 3. 可选：配置搜索引擎 Key（Tavily/Brave 等）

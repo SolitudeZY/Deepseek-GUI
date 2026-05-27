@@ -168,6 +168,8 @@ The generated `dist/QuickModel/` folder is ready to distribute.
 
 ## Quick Start
 
+> See [Usage Guide (Chinese)](./使用说明.md) | [LLM API Base URL Reference](./主流%20LLM%20模型的%20API%20Base%20URL%20汇总.md)
+
 1. Launch the app and click **Settings** in the top-right
 2. Under "Model Config", enter your API Key and Base URL
 3. Optional: configure search engine keys (Tavily/Brave etc.)
