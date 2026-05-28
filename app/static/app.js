@@ -1669,6 +1669,93 @@ $('allowlist-cmds').addEventListener('input', () => {
   _updateAllowlistCount(n);
 });
 
+// ── Update checker ───────────────────────────────────────────────
+$('btn-check-update').addEventListener('click', async () => {
+  $('update-status').textContent = '正在检查更新...';
+  $('update-releases').innerHTML = '';
+  const result = await window.pywebview.api.check_for_updates();
+  $('update-current-ver').textContent = result.current_version || '-';
+  if (result.error) {
+    $('update-status').textContent = `检查失败: ${result.error}`;
+    return;
+  }
+  const releases = result.releases || [];
+  if (releases.length === 0) {
+    $('update-status').textContent = '未找到任何发布版本。';
+    return;
+  }
+  // Compare versions
+  const current = result.current_version;
+  const latest = releases[0].tag.replace(/^v/, '');
+  if (latest === current) {
+    $('update-status').textContent = `已是最新版本 (${current})`;
+  } else {
+    $('update-status').textContent = `发现新版本: ${releases[0].tag}`;
+  }
+  // Render release cards
+  const container = $('update-releases');
+  releases.forEach(r => {
+    const tag = r.tag.replace(/^v/, '');
+    const isNew = _compareVersions(tag, current) > 0;
+    const card = document.createElement('div');
+    card.className = 'update-card' + (isNew ? ' is-new' : '');
+    const date = r.published ? new Date(r.published).toLocaleDateString('zh-CN') : '';
+    card.innerHTML = `
+      <div class="update-card-header">
+        <span class="update-card-tag">${escapeHtml(r.tag)}</span>
+        ${isNew ? '<span class="update-card-badge">新版本</span>' : ''}
+        <span class="update-card-date">${date}</span>
+      </div>
+      <div class="update-card-body">${escapeHtml(r.body || '无说明')}</div>
+      <div class="update-card-assets"></div>
+    `;
+    const assetsEl = card.querySelector('.update-card-assets');
+    if (r.assets && r.assets.length > 0) {
+      r.assets.forEach(a => {
+        const btn = document.createElement('button');
+        btn.className = 'update-asset-btn';
+        const sizeMB = (a.size / 1048576).toFixed(1);
+        btn.textContent = `${a.name} (${sizeMB}MB)`;
+        btn.addEventListener('click', () => _downloadAsset(a.url, a.name));
+        assetsEl.appendChild(btn);
+      });
+    } else {
+      const link = document.createElement('button');
+      link.className = 'update-asset-btn';
+      link.textContent = '前往 GitHub 下载';
+      link.addEventListener('click', () => window.pywebview.api.open_url(r.html_url));
+      assetsEl.appendChild(link);
+    }
+    container.appendChild(card);
+  });
+});
+
+function _compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0, nb = pb[i] || 0;
+    if (na > nb) return 1;
+    if (na < nb) return -1;
+  }
+  return 0;
+}
+
+async function _downloadAsset(url, filename) {
+  if (!confirm(`下载 ${filename}？\n\n下载完成后将自动替换当前版本并重启应用。`)) return;
+  $('update-status').textContent = `正在下载 ${filename}...`;
+  const result = await window.pywebview.api.download_update(url, filename);
+  if (result.error) {
+    $('update-status').textContent = `下载失败: ${result.error}`;
+    return;
+  }
+  $('update-status').textContent = '下载完成，正在应用更新...';
+  const applyResult = await window.pywebview.api.apply_update_and_restart(result.path);
+  if (applyResult.error) {
+    $('update-status').textContent = `更新失败: ${applyResult.error}`;
+  }
+}
+
 // Tab switching
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -1707,6 +1794,10 @@ async function openSettings() {
   // load allowlist
   const cmds = await window.pywebview.api.get_allowed_commands();
   $('allowlist-cmds').value = cmds.join('\n');
+  _updateAllowlistCount(cmds.length);
+  // load current version
+  const ver = await window.pywebview.api.get_app_version();
+  $('update-current-ver').textContent = ver || '-';
   $('settings-overlay').classList.remove('hidden');
 }
 

@@ -1,11 +1,16 @@
 import json
+import os
 import threading
 import webbrowser
 import webview
 from pathlib import Path
 from typing import Optional
 
-from app.config import load_config, save_config, get_active_model_config, load_allowed_commands, save_allowed_commands, is_command_allowed, add_allowed_command
+from app.config import (
+    load_config, save_config, get_active_model_config,
+    load_allowed_commands, save_allowed_commands, is_command_allowed, add_allowed_command,
+    APP_VERSION, GITHUB_REPO, IS_WIN,
+)
 from app.conversation import (
     new_conversation, save_conversation, load_conversation,
     delete_conversation, rename_conversation, list_conversations,
@@ -720,6 +725,110 @@ class API:
 
     def save_allowed_commands_api(self, commands: list) -> None:
         save_allowed_commands(commands)
+
+    def get_app_version(self) -> str:
+        return APP_VERSION
+
+    def check_for_updates(self) -> dict:
+        """Fetch latest releases from GitHub. Returns {releases: [...], current_version: str}."""
+        import urllib.request
+        import urllib.error
+        url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "QuickModel-Updater"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            releases = []
+            for r in data[:10]:  # last 10 releases
+                releases.append({
+                    "tag": r.get("tag_name", ""),
+                    "name": r.get("name", ""),
+                    "body": r.get("body", ""),
+                    "published": r.get("published_at", ""),
+                    "assets": [
+                        {"name": a["name"], "url": a["browser_download_url"], "size": a["size"]}
+                        for a in r.get("assets", [])
+                    ],
+                    "html_url": r.get("html_url", ""),
+                })
+            return {"releases": releases, "current_version": APP_VERSION}
+        except Exception as e:
+            return {"error": str(e), "current_version": APP_VERSION}
+
+    def download_update(self, download_url: str, filename: str) -> dict:
+        """Download an update asset to a temp folder. Returns {path: str} or {error: str}."""
+        import urllib.request
+        import tempfile
+        try:
+            dest_dir = Path(tempfile.gettempdir()) / "QuickModel_Update"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest = dest_dir / filename
+            req = urllib.request.Request(download_url, headers={"User-Agent": "QuickModel-Updater"})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                with open(dest, 'wb') as f:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+            return {"path": str(dest)}
+        except Exception as e:
+            return {"error": str(e)}
+
+    def apply_update_and_restart(self, downloaded_path: str) -> dict:
+        """Generate a script to replace current exe and restart. Returns {ok: bool} or {error: str}."""
+        import sys
+        import subprocess
+        try:
+            current_exe = sys.executable
+            current_dir = Path(current_exe).parent
+            dl_path = Path(downloaded_path)
+
+            if IS_WIN:
+                # Generate a bat script that waits, extracts/copies, and restarts
+                script = current_dir / "_update.bat"
+                script.write_text(
+                    f'@echo off\n'
+                    f'echo 正在更新 QuickModel，请稍候...\n'
+                    f'timeout /t 2 /nobreak >nul\n'
+                    f'taskkill /f /pid {os.getpid()} >nul 2>&1\n'
+                    f'timeout /t 1 /nobreak >nul\n'
+                    f'if /i "{dl_path.suffix}" == ".zip" (\n'
+                    f'  powershell -Command "Expand-Archive -Force \'{dl_path}\' \'{current_dir}\'"\n'
+                    f') else (\n'
+                    f'  copy /y "{dl_path}" "{current_dir}\\{dl_path.name}"\n'
+                    f')\n'
+                    f'start "" "{current_exe}"\n'
+                    f'del "%~f0"\n',
+                    encoding='utf-8'
+                )
+                subprocess.Popen(['cmd', '/c', str(script)], creationflags=0x00000008)  # DETACHED_PROCESS
+            else:
+                # macOS: shell script
+                script = current_dir / "_update.sh"
+                script.write_text(
+                    f'#!/bin/bash\n'
+                    f'sleep 2\n'
+                    f'kill {os.getpid()} 2>/dev/null\n'
+                    f'sleep 1\n'
+                    f'if [[ "{dl_path.suffix}" == ".zip" ]]; then\n'
+                    f'  unzip -o "{dl_path}" -d "{current_dir}"\n'
+                    f'else\n'
+                    f'  cp -f "{dl_path}" "{current_dir}/{dl_path.name}"\n'
+                    f'fi\n'
+                    f'open "{current_exe}"\n'
+                    f'rm -- "$0"\n',
+                    encoding='utf-8'
+                )
+                os.chmod(script, 0o755)
+                subprocess.Popen(['bash', str(script)])
+
+            # Exit the app
+            if self._window:
+                self._window.destroy()
+            return {"ok": True}
+        except Exception as e:
+            return {"error": str(e)}
 
     def _on_done(self, conv: dict, updated_messages: list):
         conv['messages'] = updated_messages

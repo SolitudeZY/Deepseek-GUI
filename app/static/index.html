@@ -124,6 +124,7 @@
       <button class="tab-btn" data-tab="vision">图片理解</button>
       <button class="tab-btn" data-tab="allowlist">允许的指令</button>
       <button class="tab-btn" data-tab="sync">云同步</button>
+      <button class="tab-btn" data-tab="update">检查更新</button>
       <button class="tab-btn" data-tab="ui">界面设置</button>
     </div>
     <div class="modal-body">
@@ -261,6 +262,15 @@
             <button id="btn-sync-import" class="btn-primary">导入选中</button>
           </div>
         </div>
+      </div>
+      <!-- 检查更新 -->
+      <div class="tab-panel" id="tab-update">
+        <div class="update-header">
+          <span>当前版本：<strong id="update-current-ver">-</strong></span>
+          <button id="btn-check-update" class="btn-primary">检查更新</button>
+        </div>
+        <div id="update-status" class="hint" style="margin:8px 0"></div>
+        <div id="update-releases"></div>
       </div>
       <!-- 界面设置 -->
       <div class="tab-panel" id="tab-ui">
