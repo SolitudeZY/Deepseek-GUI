@@ -271,6 +271,11 @@
         </div>
         <div id="update-status" class="hint" style="margin:8px 0"></div>
         <div id="update-releases"></div>
+        <hr style="border-color:var(--border);margin:12px 0">
+        <label>GitHub Token（可选，避免 API 速率限制）
+          <input type="password" id="github-token" placeholder="ghp_...">
+        </label>
+        <p class="hint">无 Token 时每小时限 60 次请求。获取 Token：<a href="#" onclick="pywebview.api.open_url('https://github.com/settings/tokens');return false">github.com/settings/tokens</a>（无需勾选任何权限）</p>
       </div>
       <!-- 界面设置 -->
       <div class="tab-panel" id="tab-ui">

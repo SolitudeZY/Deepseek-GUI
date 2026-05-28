@@ -1676,7 +1676,15 @@ $('btn-check-update').addEventListener('click', async () => {
   const result = await window.pywebview.api.check_for_updates();
   $('update-current-ver').textContent = result.current_version || '-';
   if (result.error) {
-    $('update-status').textContent = `检查失败: ${result.error}`;
+    $('update-status').textContent = result.error;
+    if (result.rate_limited) {
+      const btn = document.createElement('button');
+      btn.className = 'update-asset-btn';
+      btn.textContent = '直接前往 GitHub Releases 页面';
+      btn.style.marginTop = '8px';
+      btn.addEventListener('click', () => window.pywebview.api.open_url('https://github.com/SolitudeZY/Deepseek-GUI/releases'));
+      $('update-releases').appendChild(btn);
+    }
     return;
   }
   const releases = result.releases || [];
@@ -1790,6 +1798,8 @@ async function openSettings() {
   $('sync-list').innerHTML = '';
   $('sync-import-actions').style.display = 'none';
   $('sync-status').textContent = cfg.sync_folder ? '' : '未配置同步文件夹';
+  // Update tab
+  $('github-token').value = cfg.github_token || '';
   renderModelConfigList();
   // load allowlist
   const cmds = await window.pywebview.api.get_allowed_commands();
@@ -1820,6 +1830,7 @@ async function saveSettings() {
   state.config.theme = $('ui-theme').value;
   state.config.font_size = parseInt($('ui-fontsize').value) || 14;
   state.config.sync_auto_upload = $('sync-auto-upload').checked;
+  state.config.github_token = $('github-token').value.trim();
   applyTheme(state.config.theme);
   applyFontSize(state.config.font_size);
   await window.pywebview.api.save_config(state.config);

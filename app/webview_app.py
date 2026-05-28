@@ -734,8 +734,13 @@ class API:
         import urllib.request
         import urllib.error
         url = f"https://api.github.com/repos/{GITHUB_REPO}/releases"
+        headers = {"User-Agent": "QuickModel-Updater"}
+        # Use GitHub token if configured to avoid rate limiting
+        gh_token = self._config.get("github_token", "")
+        if gh_token:
+            headers["Authorization"] = f"token {gh_token}"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "QuickModel-Updater"})
+            req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode())
             releases = []
@@ -752,6 +757,10 @@ class API:
                     "html_url": r.get("html_url", ""),
                 })
             return {"releases": releases, "current_version": APP_VERSION}
+        except urllib.error.HTTPError as e:
+            if e.code == 403:
+                return {"error": "GitHub API 速率限制，请稍后重试或在设置中配置 GitHub Token", "rate_limited": True, "current_version": APP_VERSION}
+            return {"error": f"HTTP {e.code}: {e.reason}", "current_version": APP_VERSION}
         except Exception as e:
             return {"error": str(e), "current_version": APP_VERSION}
 
