@@ -1147,6 +1147,31 @@ $('btn-undo').addEventListener('click', async () => {
   _streamNodes = [];
 });
 
+// ── Retry last message ───────────────────────────────────────────
+$('btn-retry').addEventListener('click', async () => {
+  if (!state.currentConvId || state.running) return;
+  // Undo last exchange, then immediately resend
+  const text = await window.pywebview.api.undo_last_message(state.currentConvId);
+  if (text === null || text === undefined) return;
+  // Reload conversation
+  const conv = await window.pywebview.api.open_conversation(state.currentConvId);
+  if (conv) {
+    loadHistory(conv.messages || []);
+    Chat.updateFileOps(conv.file_ops || []);
+  }
+  _streamBubble = null;
+  _streamContent = '';
+  _streamingConvId = null;
+  _streamNodes = [];
+  // Resend
+  addUserBubble(text);
+  startAssistantStream();
+  setRunning(true);
+  _undoUsed = false;
+  $('btn-undo').disabled = false;
+  await window.pywebview.api.send_message(state.currentConvId, text, []);
+});
+
 // ── Model debate ─────────────────────────────────────────────────
 $('btn-debate').addEventListener('click', () => {
   if (!state.currentConvId) return;

@@ -438,6 +438,8 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .btn-action-pill:disabled { opacity: 0.35; cursor: not-allowed; }
 #btn-undo { border-color: #e8a838; color: #e8a838; }
 #btn-undo:hover { background: rgba(232,168,56,0.1); border-color: #f0b840; color: #f0b840; box-shadow: 0 0 8px rgba(232,168,56,0.25); }
+#btn-retry { border-color: #4eca6a; color: #4eca6a; }
+#btn-retry:hover { background: rgba(78,202,106,0.1); border-color: #5fd87a; color: #5fd87a; box-shadow: 0 0 8px rgba(78,202,106,0.25); }
 #btn-debate { border-color: #7aa2f7; color: #7aa2f7; }
 #btn-debate:hover { background: rgba(122,162,247,0.1); border-color: #9bb8ff; color: #9bb8ff; box-shadow: 0 0 8px rgba(122,162,247,0.25); }
 
