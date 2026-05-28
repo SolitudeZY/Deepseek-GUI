@@ -1118,11 +1118,113 @@ document.addEventListener('click', (e) => {
 btnSend.addEventListener('click', sendMessage);
 btnStop.addEventListener('click', () => window.pywebview.api.stop_generation());
 
+// ── Undo last message ────────────────────────────────────────────
+let _undoUsed = false;
+$('btn-undo').addEventListener('click', async () => {
+  if (!state.currentConvId) return;
+  if (_undoUsed) { return; }
+  _undoUsed = true;
+  $('btn-undo').disabled = true;
+  const text = await window.pywebview.api.undo_last_message(state.currentConvId);
+  if (text === null || text === undefined) {
+    _undoUsed = false;
+    $('btn-undo').disabled = false;
+    return;
+  }
+  // Reload conversation to reflect removed messages
+  const conv = await window.pywebview.api.open_conversation(state.currentConvId);
+  if (conv) {
+    loadHistory(conv.messages || []);
+    Chat.updateFileOps(conv.file_ops || []);
+  }
+  // Put user text back in input
+  msgInput.value = text;
+  msgInput.focus();
+  setRunning(false);
+  _streamBubble = null;
+  _streamContent = '';
+  _streamingConvId = null;
+  _streamNodes = [];
+});
+
+// ── Model debate ─────────────────────────────────────────────────
+$('btn-debate').addEventListener('click', () => {
+  if (!state.currentConvId) return;
+  // Populate message list for selection
+  const container = $('debate-messages');
+  container.innerHTML = '';
+  const conv = state.conversations.find(c => c.id === state.currentConvId);
+  // Get messages from DOM bubbles
+  const bubbles = chatMessages.querySelectorAll('.bubble-user, .bubble-assistant');
+  let msgIdx = 0;
+  const messages = [];
+  // We need actual message indices from the conversation
+  // Fetch from backend
+  window.pywebview.api.open_conversation(state.currentConvId).then(convData => {
+    if (!convData) return;
+    const msgs = convData.messages || [];
+    msgs.forEach((m, i) => {
+      if (m.role !== 'user' && m.role !== 'assistant') return;
+      if (!m.content) return;
+      const label = document.createElement('label');
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = i;
+      cb.checked = true; // default select last few
+      if (i >= msgs.length - 4) cb.checked = true;
+      else cb.checked = false;
+      const role = document.createElement('span');
+      role.className = 'debate-role';
+      role.textContent = m.role === 'user' ? '用户' : 'AI';
+      const preview = document.createElement('span');
+      preview.className = 'debate-preview';
+      preview.textContent = m.content.slice(0, 120);
+      label.appendChild(cb);
+      label.appendChild(role);
+      label.appendChild(preview);
+      container.appendChild(label);
+    });
+    // Populate model select (exclude current active model)
+    const select = $('debate-model-select');
+    select.innerHTML = '';
+    const configs = state.config.model_configs || [];
+    configs.forEach(mc => {
+      const opt = document.createElement('option');
+      opt.value = mc.name;
+      opt.textContent = mc.name;
+      // Pre-select first non-active model
+      if (mc.name !== state.config.active_model_config) opt.selected = !select.value;
+      select.appendChild(opt);
+    });
+    $('debate-overlay').classList.remove('hidden');
+  });
+});
+
+$('btn-debate-close').addEventListener('click', () => $('debate-overlay').classList.add('hidden'));
+$('btn-debate-cancel').addEventListener('click', () => $('debate-overlay').classList.add('hidden'));
+$('btn-debate-send').addEventListener('click', async () => {
+  const checkboxes = $('debate-messages').querySelectorAll('input[type="checkbox"]:checked');
+  const indices = Array.from(checkboxes).map(cb => parseInt(cb.value));
+  const modelName = $('debate-model-select').value;
+  const userPrompt = $('debate-user-prompt').value.trim();
+  if (indices.length === 0) { alert('请至少选择一条消息'); return; }
+  if (!modelName) { alert('请选择评审模型'); return; }
+  $('debate-overlay').classList.add('hidden');
+  // Show stream bubble for the debate response
+  startAssistantStream();
+  setRunning(true);
+  await window.pywebview.api.debate_review(state.currentConvId, indices, modelName, userPrompt);
+});
+
 async function sendMessage() {
   if (state.running) return;
   const text = msgInput.value.trim();
   if (!text && state.attachedFiles.length === 0) return;
   if (!state.currentConvId) await newConversation();
+
+  // Reset undo state — user sent a new message, allow undo again
+  _undoUsed = false;
+  $('btn-undo').disabled = false;
 
   msgInput.value = '';
   addUserBubble(text || '[附件]');

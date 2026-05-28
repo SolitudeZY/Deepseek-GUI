@@ -6,8 +6,8 @@
 <title>AI Desktop Assistant</title>
 <link rel="stylesheet" href="vendor/katex.min.css">
 <link rel="stylesheet" href="vendor/github-dark.min.css">
-<link rel="stylesheet" href="style.css?v=20260526a">
-<link rel="stylesheet" href="animations.css?v=20260526a">
+<link rel="stylesheet" href="style.css?v=20260528a">
+<link rel="stylesheet" href="animations.css?v=20260528a">
 </head>
 <body>
 <!-- ── 侧边栏 ── -->
@@ -103,6 +103,10 @@
         <button id="btn-send" class="btn-primary">发送</button>
         <button id="btn-stop" class="btn-danger" disabled>停止</button>
       </div>
+    </div>
+    <div id="input-actions">
+      <button id="btn-undo" class="btn-action-pill" title="撤回上一条消息，内容返回输入框">↩ 撤回</button>
+      <button id="btn-debate" class="btn-action-pill" title="模型辩论：选择内容发送给另一个模型评价">⚖ 辩论</button>
     </div>
   </footer>
 </main>
@@ -299,6 +303,32 @@
   </div>
 </div>
 
+<!-- ── 模型辩论弹窗 ── -->
+<div id="debate-overlay" class="overlay hidden">
+  <div id="debate-modal" class="modal">
+    <div class="modal-header">
+      <h2>模型辩论</h2>
+      <button class="btn-close" id="btn-debate-close">✕</button>
+    </div>
+    <p class="hint" style="margin:0 18px">选择要发送给评审模型的消息，由另一个模型对当前输出进行客观评价。注意：此功能会额外消耗 token。</p>
+    <div id="debate-messages" style="margin:10px 18px;max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius);padding:8px"></div>
+    <div style="margin:10px 18px">
+      <label>评审提示（可选，引导评审模型关注特定问题）
+        <textarea id="debate-user-prompt" rows="2" placeholder="例如：请重点检查代码逻辑是否正确、有无安全漏洞"></textarea>
+      </label>
+    </div>
+    <div style="margin:10px 18px">
+      <label>评审模型
+        <select id="debate-model-select"></select>
+      </label>
+    </div>
+    <div class="modal-footer">
+      <button id="btn-debate-cancel" class="btn-ghost">取消</button>
+      <button id="btn-debate-send" class="btn-primary">发送评审</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── 重命名弹窗 ── -->
 <div id="rename-overlay" class="overlay hidden">
   <div id="rename-modal" class="modal">
@@ -378,6 +408,6 @@
 <script src="vendor/marked.min.js"></script>
 <script src="vendor/katex.min.js"></script>
 <script src="vendor/highlight.min.js"></script>
-<script src="app.js?v=20260526a"></script>
+<script src="app.js?v=20260528a"></script>
 </body>
 </html>

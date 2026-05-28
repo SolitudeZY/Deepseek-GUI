@@ -67,6 +67,7 @@ class API:
         self._search_enabled = bool(self._config.get("search_enabled", True))
         # Track command prefix approvals for wildcard suggestion
         self._cmd_prefix_counts: dict[str, int] = {}
+        self._debate_stop = False
         # Team notification callback — push teammate activity to UI
         TEAM.set_notification_cb(lambda msg: self._js(f'Chat.showTeamNotification({json.dumps(msg)})'))
 
@@ -506,6 +507,101 @@ class API:
     def stop_generation(self) -> None:
         if self._agent:
             self._agent.stop()
+        self._debate_stop = True
+
+    def undo_last_message(self, conv_id: str) -> Optional[str]:
+        """Remove the last user+assistant exchange, return the user's text."""
+        if self._running:
+            self._agent.stop()
+            import time
+            time.sleep(0.3)
+        conv = load_conversation(conv_id)
+        if not conv or not conv.get('messages'):
+            return None
+        messages = conv['messages']
+        # Remove trailing assistant message(s) and tool messages
+        while messages and messages[-1]['role'] in ('assistant', 'tool'):
+            messages.pop()
+        # Now remove the last user message and return its content
+        if messages and messages[-1]['role'] == 'user':
+            user_msg = messages.pop()
+            save_conversation(conv)
+            self._running = False
+            return user_msg.get('content', '')
+        save_conversation(conv)
+        self._running = False
+        return None
+
+    def debate_review(self, conv_id: str, selected_indices: list, model_config_name: str, user_prompt: str = '') -> None:
+        """Send selected messages to another model for objective review."""
+        conv = load_conversation(conv_id)
+        if not conv:
+            return
+        messages = conv.get('messages', [])
+        # Gather selected messages
+        selected = []
+        for idx in selected_indices:
+            if 0 <= idx < len(messages):
+                m = messages[idx]
+                if m.get('role') in ('user', 'assistant') and m.get('content'):
+                    selected.append(m)
+        if not selected:
+            self._js('Chat.showError("未选择有效消息")')
+            return
+        # Find the target model config
+        configs = self._config.get('model_configs', [])
+        mc = None
+        for c in configs:
+            if c.get('name') == model_config_name:
+                mc = c
+                break
+        if not mc:
+            self._js('Chat.showError("未找到指定模型配置")')
+            return
+
+        # Build review prompt
+        conv_text = '\n\n'.join(
+            f"{'【用户】' if m['role'] == 'user' else '【AI助手】'}:\n{m['content']}"
+            for m in selected
+        )
+        user_guidance = f"\n\n--- 用户补充要求 ---\n\n{user_prompt}" if user_prompt else ""
+        review_prompt = (
+            "你是一位客观公正的 AI 评审专家。请对以下对话内容进行评价，指出回答中的优点、不足、"
+            "可能的错误或遗漏，并给出改进建议。请用中文回答。\n\n"
+            f"--- 待评审内容 ---\n\n{conv_text}{user_guidance}\n\n--- 请给出你的评价 ---"
+        )
+
+        self._running = True
+        self._debate_stop = False
+
+        def run():
+            from openai import OpenAI
+            client = OpenAI(api_key=mc.get('api_key', ''), base_url=mc.get('base_url', ''))
+            try:
+                response = client.chat.completions.create(
+                    model=mc.get('model', ''),
+                    messages=[{"role": "user", "content": review_prompt}],
+                    stream=True,
+                )
+                full_response = ''
+                for chunk in response:
+                    if self._debate_stop:
+                        break
+                    delta = chunk.choices[0].delta if chunk.choices else None
+                    if delta and delta.content:
+                        self._js(f'Chat.appendToken({json.dumps(delta.content)})')
+                        full_response += delta.content
+                # Save the debate result as a message in conversation
+                debate_label = f"[模型辩论 - 评审模型: {mc.get('name', model_config_name)}]\n\n"
+                conv['messages'].append({'role': 'assistant', 'content': debate_label + full_response})
+                save_conversation(conv)
+                self._js('Chat.finishMessage()')
+            except Exception as e:
+                self._js(f'Chat.showError({json.dumps(f"评审请求失败: {str(e)}")})')
+            finally:
+                self._running = False
+
+        threading.Thread(target=run, daemon=True).start()
 
     # ── Agent callbacks ───────────────────────────────────────────
     def _on_todo_update(self, items: list):

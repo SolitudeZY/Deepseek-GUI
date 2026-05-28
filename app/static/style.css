@@ -172,7 +172,7 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 #chat-messages { display: flex; flex-direction: column; gap: 4px; padding: 0 16px; max-width: 900px; margin: 0 auto; width: 100%; }
 #chat-nav {
   position: fixed;
-  bottom: 80px;
+  bottom: 160px;
   right: 20px;
   display: flex;
   flex-direction: column;
@@ -428,6 +428,13 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 }
 #msg-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow-accent), 0 0 20px var(--glow-accent); background: color-mix(in srgb, var(--bg3) 90%, var(--accent) 10%); }
 #input-btns { display: flex; flex-direction: column; gap: 4px; }
+#input-actions { display: flex; gap: 6px; padding: 0 2px; }
+.btn-action-pill {
+  font-size: 12px; padding: 3px 10px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--bg2); color: var(--text-dim);
+  cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+.btn-action-pill:hover { background: var(--bg3); color: var(--text); border-color: var(--accent); }
 
 /* ── Buttons ── */
 .btn-primary {
@@ -585,6 +592,16 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 #confirm-countdown-text {
   font-size: 12px; color: var(--text-dim);
 }
+
+/* ── Debate modal ── */
+#debate-messages label {
+  display: flex; align-items: flex-start; gap: 8px; padding: 6px 4px;
+  border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px;
+}
+#debate-messages label:last-child { border-bottom: none; }
+#debate-messages label:hover { background: var(--bg3); }
+#debate-messages .debate-role { font-weight: 600; min-width: 60px; color: var(--accent); }
+#debate-messages .debate-preview { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Todo panel ── */
 #todo-panel {
