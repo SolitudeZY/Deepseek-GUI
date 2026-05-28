@@ -1,4 +1,4 @@
-# QuickModel
+# QuickModel——Deepseek GUI
 
 Windows 桌面 AI 助手，支持通过 OpenAI 兼容 API 接入多家 LLM 服务商。基于 pywebview (WebView2) + Python 后端构建。
 
