@@ -432,9 +432,14 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .btn-action-pill {
   font-size: 12px; padding: 3px 10px; border-radius: 12px;
   border: 1px solid var(--border); background: var(--bg2); color: var(--text-dim);
-  cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s;
+  cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s, box-shadow 0.2s;
 }
 .btn-action-pill:hover { background: var(--bg3); color: var(--text); border-color: var(--accent); }
+.btn-action-pill:disabled { opacity: 0.35; cursor: not-allowed; }
+#btn-undo { border-color: #e8a838; color: #e8a838; }
+#btn-undo:hover { background: rgba(232,168,56,0.1); border-color: #f0b840; color: #f0b840; box-shadow: 0 0 8px rgba(232,168,56,0.25); }
+#btn-debate { border-color: #7aa2f7; color: #7aa2f7; }
+#btn-debate:hover { background: rgba(122,162,247,0.1); border-color: #9bb8ff; color: #9bb8ff; box-shadow: 0 0 8px rgba(122,162,247,0.25); }
 
 /* ── Buttons ── */
 .btn-primary {
@@ -602,6 +607,33 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 #debate-messages label:hover { background: var(--bg3); }
 #debate-messages .debate-role { font-weight: 600; min-width: 60px; color: var(--accent); }
 #debate-messages .debate-preview { flex: 1; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#debate-user-prompt {
+  width: 100%; resize: vertical; font-size: 13px; font-family: inherit;
+  background: var(--bg3); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 8px 10px; outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+#debate-user-prompt:focus { border-color: #7aa2f7; box-shadow: 0 0 0 3px rgba(122,162,247,0.15); }
+#debate-user-prompt::placeholder { color: var(--text-muted); }
+
+/* ── Allowlist editor ── */
+.allowlist-editor {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  overflow: hidden; background: var(--code-bg);
+}
+.allowlist-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; background: var(--bg3);
+  font-size: 12px; color: var(--text-dim); border-bottom: 1px solid var(--border);
+}
+.allowlist-icon { font-size: 14px; }
+.allowlist-count { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.allowlist-editor textarea {
+  width: 100%; border: none; border-radius: 0; background: var(--code-bg);
+  color: var(--code-fg); font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 12px; line-height: 1.6; padding: 10px 12px; resize: vertical; outline: none;
+}
+.allowlist-editor textarea:focus { box-shadow: inset 0 0 0 1px var(--accent); }
 
 /* ── Todo panel ── */
 #todo-panel {

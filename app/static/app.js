@@ -1651,11 +1651,22 @@ $('btn-allowlist-save').addEventListener('click', async () => {
   const cmds = $('allowlist-cmds').value.split('\n').map(s => s.trim()).filter(Boolean);
   await window.pywebview.api.save_allowed_commands_api(cmds);
   $('allowlist-cmds').value = cmds.join('\n');
+  _updateAllowlistCount(cmds.length);
 });
 $('btn-allowlist-clear').addEventListener('click', async () => {
   if (!confirm('确定清空所有允许的指令？')) return;
   await window.pywebview.api.save_allowed_commands_api([]);
   $('allowlist-cmds').value = '';
+  _updateAllowlistCount(0);
+});
+function _updateAllowlistCount(n) {
+  const el = $('allowlist-count');
+  if (el) el.textContent = `${n} 条`;
+}
+// Update count when allowlist textarea changes
+$('allowlist-cmds').addEventListener('input', () => {
+  const n = $('allowlist-cmds').value.split('\n').filter(s => s.trim()).length;
+  _updateAllowlistCount(n);
 });
 
 // Tab switching

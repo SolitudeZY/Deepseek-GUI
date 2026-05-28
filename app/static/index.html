@@ -217,8 +217,15 @@
       </div>
       <!-- 允许的指令 -->
       <div class="tab-panel" id="tab-allowlist">
-        <p class="hint">以下命令在模型调用时将跳过确认直接执行。每行一条。</p>
-        <textarea id="allowlist-cmds" rows="10" style="width:100%;font-family:monospace;font-size:12px"></textarea>
+        <p class="hint">以下命令在模型调用时将跳过确认直接执行。每行一条，支持通配符（如 <code>Get-Content *</code>）。</p>
+        <div class="allowlist-editor">
+          <div class="allowlist-header">
+            <span class="allowlist-icon">⚡</span>
+            <span>已允许的命令</span>
+            <span class="allowlist-count" id="allowlist-count">0 条</span>
+          </div>
+          <textarea id="allowlist-cmds" rows="12" placeholder="每行一条命令，例如：&#10;Get-Content *&#10;Get-Process *&#10;python *"></textarea>
+        </div>
         <div class="form-row" style="margin-top:8px">
           <button id="btn-allowlist-save" class="btn-primary">保存</button>
           <button id="btn-allowlist-clear" class="btn-danger">清空全部</button>
