@@ -18,7 +18,8 @@ def _skills_dir() -> Path:
 
 
 def _skill_path(name: str) -> Path:
-    safe = name.replace("/", "_").replace("\\", "_").strip()
+    import re
+    safe = re.sub(r'[<>:"/\\|?*]', '_', name).strip()
     return _skills_dir() / f"{safe}.md"
 
 
@@ -30,7 +31,10 @@ def skill_save(name: str, description: str, content: str) -> str:
         return "错误：技能名称不能为空"
     p = _skill_path(name)
     header = f"---\nname: {name}\ndescription: {description.strip()}\n---\n\n"
-    p.write_text(header + content, encoding="utf-8")
+    try:
+        p.write_text(header + content, encoding="utf-8")
+    except Exception as e:
+        return f"错误：保存失败 - {e}"
     return f"技能 '{name}' 已保存"
 
 

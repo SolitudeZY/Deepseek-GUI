@@ -1431,7 +1431,10 @@ $('btn-skill-save').addEventListener('click', async () => {
   const desc = $('skill-desc').value.trim();
   const content = $('skill-content').value;
   if (!name) return;
-  await window.pywebview.api.save_skill(name, desc, content);
+  try {
+    const result = await window.pywebview.api.save_skill(name, desc, content);
+    if (result && result.startsWith('错误')) { alert(result); return; }
+  } catch (e) { alert('保存失败: ' + e.message); return; }
   _editingSkill = name;
   await refreshSkillList();
 });
