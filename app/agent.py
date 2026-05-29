@@ -137,7 +137,9 @@ class Agent:
         return False
 
     def _build_stream(self, messages: list) -> tuple:
-        """Return (stream, extra_kwargs). Handles provider-specific params."""
+        """Return (stream, provider). Handles provider-specific params.
+        If the request is blocked (content filter), retries without tools.
+        """
         kwargs: dict = dict(
             model=self.model,
             messages=messages,
@@ -166,7 +168,33 @@ class Agent:
             kwargs["tools"] = self._all_tools()
             kwargs["tool_choice"] = "auto"
 
-        return self._client.chat.completions.create(**kwargs), provider
+        try:
+            return self._client.chat.completions.create(**kwargs), provider
+        except Exception as e:
+            err_msg = str(e).lower()
+            # If blocked by content filter or tools not supported, retry without tools
+            if any(kw in err_msg for kw in ("blocked", "content_filter", "invalid_tool", "not support")):
+                kwargs.pop("tools", None)
+                kwargs.pop("tool_choice", None)
+                # Strip tool_calls and tool messages from history for compatibility
+                kwargs["messages"] = self._strip_tool_messages(kwargs["messages"])
+                return self._client.chat.completions.create(**kwargs), provider
+            raise
+
+    @staticmethod
+    def _strip_tool_messages(messages: list[dict]) -> list[dict]:
+        """Remove tool-related content from messages for providers that don't support tools."""
+        cleaned = []
+        for m in messages:
+            if m.get("role") == "tool":
+                continue
+            if m.get("role") == "assistant" and m.get("tool_calls"):
+                # Keep the message but remove tool_calls, keep content only
+                cleaned_msg = {"role": "assistant", "content": m.get("content") or ""}
+                cleaned.append(cleaned_msg)
+            else:
+                cleaned.append(m)
+        return cleaned
 
     def stop(self):
         self._stop_flag.set()
@@ -353,6 +381,15 @@ class Agent:
 
                 self._check_todo_nag(all_messages)
 
+            # If stopped mid-tool-call, append stub tool results to keep history valid
+            if all_messages and all_messages[-1].get("role") == "assistant" and all_messages[-1].get("tool_calls"):
+                for tc in all_messages[-1]["tool_calls"]:
+                    all_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "content": "用户已停止",
+                    })
+
             cb.on_done(all_messages[1:])
 
         except Exception as e:
@@ -387,6 +424,22 @@ class Agent:
 
     def _prepare_messages(self, all_messages: list[dict]) -> list[dict]:
         """Apply window and provider-specific patches."""
+        # Sanitize: if last assistant msg has tool_calls without matching tool results, add stubs
+        if all_messages and all_messages[-1].get("role") == "assistant" and all_messages[-1].get("tool_calls"):
+            tc_ids = {tc.get("id") for tc in all_messages[-1]["tool_calls"]}
+            # Check if tool results follow
+            has_results = False
+            for m in all_messages[all_messages.index(all_messages[-1]) + 1:]:
+                if m.get("role") == "tool" and m.get("tool_call_id") in tc_ids:
+                    has_results = True
+                    break
+            if not has_results:
+                for tc in all_messages[-1]["tool_calls"]:
+                    all_messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc.get("id", ""),
+                        "content": "用户已停止",
+                    })
         full_messages = self._apply_window(all_messages)
         if self._is_reasoner() and self._provider() == "deepseek":
             full_messages = [
