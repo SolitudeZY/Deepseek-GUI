@@ -97,15 +97,26 @@ class Agent:
 
     @staticmethod
     def _build_system_prompt(base_prompt: str) -> str:
-        """Append skill index to system prompt so the model knows what skills exist.
+        """Append environment info and skill index to system prompt.
 
         The index is built once at agent creation. Because it's part of the system
         message (always the first message), it forms a stable prefix that DeepSeek
         can cache across rounds.
         """
+        import platform
+        # Inject environment context so the model knows tools run on user's machine
+        env_block = (
+            "\n\n<environment>\n"
+            f"操作系统：{platform.system()} {platform.release()}\n"
+            "你拥有的工具（如 run_command、read_file、write_file 等）直接在用户的本地电脑上执行，"
+            "而非沙箱或远程环境。你可以直接操作用户的文件系统和运行命令。\n"
+            "</environment>"
+        )
+        prompt = base_prompt + env_block
+
         skills = skill_list()
         if not skills:
-            return base_prompt
+            return prompt
         lines = [f"- {s['name']}: {s['description']}" for s in skills]
         skill_block = (
             "\n\n<available_skills>\n"
@@ -114,7 +125,7 @@ class Agent:
             + "\n".join(lines)
             + "\n</available_skills>"
         )
-        return base_prompt + skill_block
+        return prompt + skill_block
 
     def _provider(self) -> str:
         """Detect provider from base_url."""
