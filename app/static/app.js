@@ -949,7 +949,7 @@ function showAskDialog(question, options, multiSelect) {
   _askMultiSelect = !!multiSelect;
   _askSelectedIdx = _askOptions.length > 0 ? 0 : -1;
   _askSelected = new Set();
-  $('ask-question').textContent = question;
+  $('ask-question').textContent = question || '(AI 需要你的输入才能继续)';
   $('ask-hint').textContent = _askOptions.length > 0
     ? `↑↓ 选择 · Enter ${_askMultiSelect ? '切换选中' : '确认'} · ${_askMultiSelect ? 'Tab 提交 · ' : ''}下方可自由输入`
     : '';

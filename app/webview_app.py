@@ -733,8 +733,12 @@ class API:
 
     def _on_ask_user(self, args: dict) -> str:
         """Callback: agent wants to ask user a question. Block until user answers."""
-        question = args.get("question", "")
+        question = args.get("question", "") or args.get("content", "") or args.get("text", "")
+        if not question.strip():
+            return "错误：question 参数为空。请使用 ask_user_question 工具时必须提供 question 参数，格式：{\"question\": \"你的问题\", \"options\": [\"选项1\", \"选项2\"]}"
         options = args.get("options", [])
+        if not isinstance(options, list):
+            options = []
         multi_select = args.get("multi_select", False)
         self._ask_event.clear()
         self._js(f'showAskDialog({json.dumps(question)}, {json.dumps(options)}, {json.dumps(multi_select)})')

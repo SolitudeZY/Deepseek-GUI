@@ -752,11 +752,11 @@ ADVANCED_TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "ask_user_question",
-            "description": "暂停执行并向用户提问。用于需要用户确认方向、选择方案、或补充信息时。返回用户的回答。不要用于问'计划可以吗'这类问题（用 exit_plan_mode 代替）。",
+            "description": "暂停执行并向用户提问。用于需要用户确认方向、选择方案、或补充信息时。返回用户的回答。必须提供 question 参数（不能为空）。不要用于问'计划可以吗'这类问题（用 exit_plan_mode 代替）。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "question": {"type": "string", "description": "要问用户的问题"},
+                    "question": {"type": "string", "description": "要问用户的问题（必填，不能为空字符串）"},
                     "options": {
                         "type": "array",
                         "items": {"type": "string"},
