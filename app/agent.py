@@ -2,7 +2,8 @@ import json
 import threading
 from typing import Callable, Optional
 
-from openai import OpenAI
+# Lazy imports — these are heavy and slow down startup
+OpenAI = None  # will be imported on first use
 
 from app.tools import TOOLS_SCHEMA, CONFIRM_REQUIRED, dispatch
 from app.advanced_tools import (
@@ -11,6 +12,14 @@ from app.advanced_tools import (
 )
 from app.team import TEAM, WORKTREES, BUS
 from app.skills import skill_list, skill_list_str, skill_read, memory_read, memory_write
+
+
+def _get_openai():
+    global OpenAI
+    if OpenAI is None:
+        from openai import OpenAI as _OpenAI
+        OpenAI = _OpenAI
+    return OpenAI
 
 # Token threshold for auto-compact (approx)
 AUTO_COMPACT_THRESHOLD = 600_000
@@ -80,7 +89,7 @@ class Agent:
         self.compact_threshold = compact_threshold or AUTO_COMPACT_THRESHOLD
         self.search_enabled = search_enabled
         self._model_configs: list = []
-        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._client = _get_openai()(api_key=api_key, base_url=base_url)
         self._base_url = (base_url or "").rstrip("/")
         self._stop_flag = threading.Event()
         self._todo = todo_manager or TodoManager()

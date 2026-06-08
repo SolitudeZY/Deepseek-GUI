@@ -23,12 +23,38 @@ from app.sync import (
     upload_config, detect_config_updates, import_config,
     sync_all, import_all,
 )
-from app.agent import Agent, AUTO_COMPACT_THRESHOLD, AUTO_COMPACT_THRESHOLD_V4, V4_MODELS
 from app.tools import read_file as _read_file
 from app.vision import is_image, describe_image
-from app.advanced_tools import TodoManager, TaskManager, BackgroundManager, estimate_tokens
-from app.team import TEAM, WORKTREES
 from app.skills import skill_list, skill_save, skill_delete, skill_read, memory_list, memory_read, memory_write, skill_import_from_path
+
+# Lazy-loaded heavy modules (deferred to first use for faster startup)
+_agent_module = None
+_team_module = None
+_advanced_tools_module = None
+
+
+def _lazy_agent():
+    global _agent_module
+    if _agent_module is None:
+        import app.agent as _m
+        _agent_module = _m
+    return _agent_module
+
+
+def _lazy_team():
+    global _team_module
+    if _team_module is None:
+        import app.team as _m
+        _team_module = _m
+    return _team_module
+
+
+def _lazy_advanced_tools():
+    global _advanced_tools_module
+    if _advanced_tools_module is None:
+        import app.advanced_tools as _m
+        _advanced_tools_module = _m
+    return _advanced_tools_module
 
 
 def get_static_dir() -> Path:
@@ -48,7 +74,7 @@ class API:
     def __init__(self):
         self._window: Optional[webview.Window] = None
         self._config = load_config()
-        self._agent: Optional[Agent] = None
+        self._agent = None
         self._running = False
         self._confirm_event = threading.Event()
         self._confirm_result = False
@@ -56,10 +82,10 @@ class API:
         self._ask_answer = ""
         self._plan_event = threading.Event()
         self._plan_approved = False
-        # Shared managers — persist across conversations
-        self._todo = TodoManager()
-        self._tasks = TaskManager()
-        self._bg = BackgroundManager()
+        # Shared managers — lazy init on first send
+        self._todo = None
+        self._tasks = None
+        self._bg = None
         # Persist thinking/search state from config
         thinking_val = self._config.get("thinking", "high")
         # Migrate old bool values
@@ -73,8 +99,20 @@ class API:
         # Track command prefix approvals for wildcard suggestion
         self._cmd_prefix_counts: dict[str, int] = {}
         self._debate_stop = False
-        # Team notification callback — push teammate activity to UI
-        TEAM.set_notification_cb(lambda msg: self._js(f'Chat.showTeamNotification({json.dumps(msg)})'))
+        self._team_initialized = False
+
+    def _ensure_managers(self):
+        """Lazily initialize heavy managers on first use."""
+        if self._todo is None:
+            at = _lazy_advanced_tools()
+            self._todo = at.TodoManager()
+            self._tasks = at.TaskManager()
+            self._bg = at.BackgroundManager()
+        if not self._team_initialized:
+            self._team_initialized = True
+            _lazy_team().TEAM.set_notification_cb(
+                lambda msg: self._js(f'Chat.showTeamNotification({json.dumps(msg)})')
+            )
 
     def set_window(self, window: webview.Window):
         self._window = window
@@ -274,7 +312,7 @@ class API:
     # ── Worktree ─────────────────────────────────────────────────
     def get_worktrees(self) -> list:
         """Return worktree list for frontend panel."""
-        idx = WORKTREES._load_index()
+        idx = _lazy_team().WORKTREES._load_index()
         return idx.get("worktrees", [])
 
     def export_conversation(self, conv_id: str) -> None:
@@ -311,12 +349,12 @@ class API:
         if not conv:
             return {"used": 0, "total": 600000}
         messages = conv.get("messages", [])
-        used = estimate_tokens(messages)
+        used = _lazy_advanced_tools().estimate_tokens(messages)
         # 根据当前活跃模型的配置决定阈值
         active_mc = get_active_model_config(self._config)
         total = 600000
         if active_mc:
-            total = active_mc.get("compact_threshold", 0) or AUTO_COMPACT_THRESHOLD
+            total = active_mc.get("compact_threshold", 0) or _lazy_agent().AUTO_COMPACT_THRESHOLD
         return {"used": used, "total": total}
 
     # ── File helpers ──────────────────────────────────────────────
@@ -426,7 +464,8 @@ class API:
             self._js('Chat.showError("未配置模型，请在设置中添加模型配置")')
             return
 
-        self._agent = Agent(
+        self._ensure_managers()
+        self._agent = _lazy_agent().Agent(
             api_key=mc.get('api_key', ''),
             base_url=mc.get('base_url', ''),
             model=mc.get('model', ''),
@@ -470,7 +509,8 @@ class API:
         if not mc:
             self._js('Chat.showError("未配置模型，请在设置中添加模型配置")')
             return
-        self._agent = Agent(
+        self._ensure_managers()
+        self._agent = _lazy_agent().Agent(
             api_key=mc.get('api_key', ''),
             base_url=mc.get('base_url', ''),
             model=mc.get('model', ''),

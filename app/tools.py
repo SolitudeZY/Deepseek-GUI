@@ -4,24 +4,43 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-# ── 文档解析依赖（可选，缺失时降级为纯文本）──────────────────────────
-try:
-    import pdfplumber
-    _PDF_OK = True
-except ImportError:
-    _PDF_OK = False
+# ── 文档解析依赖（延迟加载，加快启动）──────────────────────────
+_PDF_OK = None
+_DOCX_OK = None
+_XLSX_OK = None
 
-try:
-    from docx import Document as DocxDocument
-    _DOCX_OK = True
-except ImportError:
-    _DOCX_OK = False
 
-try:
-    import openpyxl
-    _XLSX_OK = True
-except ImportError:
-    _XLSX_OK = False
+def _check_pdf():
+    global _PDF_OK
+    if _PDF_OK is None:
+        try:
+            import pdfplumber  # noqa: F401
+            _PDF_OK = True
+        except ImportError:
+            _PDF_OK = False
+    return _PDF_OK
+
+
+def _check_docx():
+    global _DOCX_OK
+    if _DOCX_OK is None:
+        try:
+            from docx import Document as DocxDocument  # noqa: F401
+            _DOCX_OK = True
+        except ImportError:
+            _DOCX_OK = False
+    return _DOCX_OK
+
+
+def _check_xlsx():
+    global _XLSX_OK
+    if _XLSX_OK is None:
+        try:
+            import openpyxl  # noqa: F401
+            _XLSX_OK = True
+        except ImportError:
+            _XLSX_OK = False
+    return _XLSX_OK
 
 MAX_FILE_CHARS = 50_000
 
@@ -52,8 +71,9 @@ def read_file(path: str) -> str:
 
 
 def _read_pdf(p: Path) -> str:
-    if not _PDF_OK:
+    if not _check_pdf():
         return "错误：pdfplumber 未安装，无法读取 PDF"
+    import pdfplumber
     text_parts = []
     with pdfplumber.open(p) as pdf:
         for page in pdf.pages:
@@ -64,16 +84,18 @@ def _read_pdf(p: Path) -> str:
 
 
 def _read_docx(p: Path) -> str:
-    if not _DOCX_OK:
+    if not _check_docx():
         return "错误：python-docx 未安装，无法读取 Word 文档"
+    from docx import Document as DocxDocument
     doc = DocxDocument(str(p))
     text = "\n".join(para.text for para in doc.paragraphs)
     return _truncate(text, str(p))
 
 
 def _read_xlsx(p: Path) -> str:
-    if not _XLSX_OK:
+    if not _check_xlsx():
         return "错误：openpyxl 未安装，无法读取 Excel 文件"
+    import openpyxl
     wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
     lines = []
     for sheet in wb.worksheets:
