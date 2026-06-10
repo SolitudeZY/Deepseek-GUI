@@ -144,7 +144,9 @@ class API:
         """Actually send the OS notification (runs in background thread)."""
         try:
             if IS_WIN:
-                # Use PowerShell toast notification (Windows 10+, no dependencies)
+                # Use WinRT Toast with PowerShell's registered AppID
+                safe_title = title.replace("'", "''").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                safe_msg = message.replace("'", "''").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                 ps_script = f'''
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType = WindowsRuntime] > $null
@@ -152,17 +154,17 @@ $template = @"
 <toast>
   <visual>
     <binding template="ToastGeneric">
-      <text>{title}</text>
-      <text>{message}</text>
+      <text>{safe_title}</text>
+      <text>{safe_msg}</text>
     </binding>
   </visual>
-  <audio silent="true"/>
 </toast>
 "@
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
 $xml.LoadXml($template)
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("QuickModel").Show($toast)
+$appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\powershell.exe'
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
 '''
                 import subprocess
                 subprocess.Popen(
