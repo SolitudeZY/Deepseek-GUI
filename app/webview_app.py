@@ -123,15 +123,22 @@ class API:
             self._window.evaluate_js(code)
 
     def _is_window_focused(self) -> bool:
-        """Check if the app window is currently in foreground."""
+        """Check if the app window is currently the foreground window.
+
+        Handles pywebview/WebView2 where the visible window may belong to a
+        child process. Uses window title matching as the reliable approach.
+        """
         try:
             if IS_WIN:
                 import ctypes
-                hwnd = ctypes.windll.user32.GetForegroundWindow()
-                # Get our window's hwnd via title match
-                pid = ctypes.c_ulong()
-                ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                return pid.value == os.getpid()
+                user32 = ctypes.windll.user32
+                fg_hwnd = user32.GetForegroundWindow()
+                if not fg_hwnd:
+                    return False
+                # Check window title of the foreground window
+                buf = ctypes.create_unicode_buffer(256)
+                user32.GetWindowTextW(fg_hwnd, buf, 256)
+                return "QuickModel" in buf.value
             else:
                 # macOS: check if app is frontmost
                 import subprocess
