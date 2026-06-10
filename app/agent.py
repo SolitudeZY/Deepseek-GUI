@@ -227,10 +227,15 @@ class Agent:
         return self._todo
 
     def _all_tools(self) -> list:
-        tools = TOOLS_SCHEMA + ADVANCED_TOOLS_SCHEMA
-        if not self.search_enabled:
-            tools = [t for t in tools if t.get("function", {}).get("name") not in ("web_search", "web_read")]
-        return tools
+        """Return tool schemas. Cached for prefix stability — never changes mid-session."""
+        if not hasattr(self, '_cached_tools'):
+            tools = TOOLS_SCHEMA + ADVANCED_TOOLS_SCHEMA
+            if not self.search_enabled:
+                tools = [t for t in tools if t.get("function", {}).get("name") not in ("web_search", "web_read")]
+            # Sort deterministically so JSON serialization is byte-stable across turns
+            tools = sorted(tools, key=lambda t: t.get("function", {}).get("name", ""))
+            self._cached_tools = tools
+        return self._cached_tools
 
     def _dispatch_advanced(self, tool_name: str, args: dict) -> Optional[str]:
         """Handle advanced tools via registry. Returns None if not an advanced tool."""

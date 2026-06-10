@@ -235,7 +235,15 @@ def microcompact(messages: list, window_size: int = 40) -> None:
 
 
 def auto_compact(messages: list, client, model: str) -> list:
-    """Summarize conversation when context is too large."""
+    """Summarize conversation when context is too large.
+
+    Preserves: system message (head) + recent tail (last 8 messages).
+    Replaces: the middle section with a summary.
+    This keeps the system prompt byte-stable so DeepSeek prefix cache stays warm.
+    """
+    RECENT_KEEP = 8  # keep last N messages verbatim
+
+    # Archive full transcript for traceability
     transcripts_dir = get_app_data_dir() / "transcripts"
     transcripts_dir.mkdir(exist_ok=True)
     path = transcripts_dir / f"transcript_{int(time.time())}.jsonl"
@@ -243,19 +251,39 @@ def auto_compact(messages: list, client, model: str) -> list:
         for msg in messages:
             f.write(json.dumps(msg, default=str, ensure_ascii=False) + "\n")
 
-    conv_text = json.dumps(messages, default=str, ensure_ascii=False)[-80000:]
+    # Separate system messages (prefix) from conversation
+    system_msgs = [m for m in messages if m.get("role") == "system"]
+    conv_msgs = [m for m in messages if m.get("role") != "system"]
+
+    # Keep recent tail verbatim; align backward off tool messages so we don't
+    # start the tail with an orphan tool result
+    tail = conv_msgs[-RECENT_KEEP:] if len(conv_msgs) > RECENT_KEEP else conv_msgs
+    while tail and tail[0].get("role") == "tool":
+        tail = tail[1:]
+
+    # Summarize the middle (everything except the tail)
+    middle = conv_msgs[:-len(tail)] if tail else conv_msgs
+    if not middle:
+        return messages  # nothing to compact
+
+    conv_text = json.dumps(middle, default=str, ensure_ascii=False)[-80000:]
     try:
         resp = client.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content":
-                f"请用中文简洁总结以下对话内容，保留关键信息和结论，供后续对话继续使用：\n{conv_text}"}],
+                f"请用中文简洁总结以下对话内容，保留关键信息、决策和结论，供后续对话继续使用：\n{conv_text}"}],
         )
         summary = resp.choices[0].message.content or "(无摘要)"
     except Exception as e:
         summary = f"(压缩失败: {e})"
 
-    return [{"role": "user", "content": f"[对话已压缩，原始记录：{path}]\n\n{summary}"},
-            {"role": "assistant", "content": "已了解之前的对话内容，请继续。"}]
+    # Reassemble: system (unchanged prefix) + summary + recent tail
+    compacted = list(system_msgs)
+    compacted.append({"role": "user", "content":
+        f"<context_summary>\n以下是之前对话的摘要（原始记录：{path}）：\n{summary}\n</context_summary>"})
+    compacted.append({"role": "assistant", "content": "已了解之前的对话内容，请继续。"})
+    compacted.extend(tail)
+    return compacted
 
 
 # ── RLM 并行子任务 ──────────────────────────────────────────────────
