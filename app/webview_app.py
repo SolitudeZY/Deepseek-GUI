@@ -100,6 +100,7 @@ class API:
         self._cmd_prefix_counts: dict[str, int] = {}
         self._debate_stop = False
         self._team_initialized = False
+        self._window_visible = True  # tracks page visibility from JS
 
     def _ensure_managers(self):
         """Lazily initialize heavy managers on first use."""
@@ -123,32 +124,14 @@ class API:
             self._window.evaluate_js(code)
 
     def _is_window_focused(self) -> bool:
-        """Check if the app window is currently the foreground window.
-
-        Handles pywebview/WebView2 where the visible window may belong to a
-        child process. Uses window title matching as the reliable approach.
+        """Check if the app window is currently visible/focused.
+        Reads the flag set by JS visibilitychange event.
         """
-        try:
-            if IS_WIN:
-                import ctypes
-                user32 = ctypes.windll.user32
-                fg_hwnd = user32.GetForegroundWindow()
-                if not fg_hwnd:
-                    return False
-                # Check window title of the foreground window
-                buf = ctypes.create_unicode_buffer(256)
-                user32.GetWindowTextW(fg_hwnd, buf, 256)
-                return "QuickModel" in buf.value
-            else:
-                # macOS: check if app is frontmost
-                import subprocess
-                result = subprocess.run(
-                    ["osascript", "-e", 'tell application "System Events" to get name of first process whose frontmost is true'],
-                    capture_output=True, text=True, timeout=2
-                )
-                return "QuickModel" in result.stdout
-        except Exception:
-            return True  # assume focused if detection fails
+        return self._window_visible
+
+    def set_window_visible(self, visible: bool) -> None:
+        """Called from JS when page visibility changes."""
+        self._window_visible = visible
 
     def _notify_system(self, title: str, message: str):
         """Send OS-level notification if window is not focused."""

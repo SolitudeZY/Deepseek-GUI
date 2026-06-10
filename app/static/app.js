@@ -221,6 +221,12 @@ window.addEventListener('pywebviewready', async () => {
       document.title = `QuickModel — ${newItems.length} 个云端新对话可导入`;
     }
   }
+  // Track page visibility for system notifications
+  document.addEventListener('visibilitychange', () => {
+    window.pywebview.api.set_window_visible(!document.hidden);
+  });
+  window.addEventListener('focus', () => window.pywebview.api.set_window_visible(true));
+  window.addEventListener('blur', () => window.pywebview.api.set_window_visible(false));
 });
 
 // ── Theme / font ──────────────────────────────────────────────────
