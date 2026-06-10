@@ -122,6 +122,75 @@ class API:
         if self._window:
             self._window.evaluate_js(code)
 
+    def _is_window_focused(self) -> bool:
+        """Check if the app window is currently in foreground."""
+        try:
+            if IS_WIN:
+                import ctypes
+                hwnd = ctypes.windll.user32.GetForegroundWindow()
+                # Get our window's hwnd via title match
+                pid = ctypes.c_ulong()
+                ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                return pid.value == os.getpid()
+            else:
+                # macOS: check if app is frontmost
+                import subprocess
+                result = subprocess.run(
+                    ["osascript", "-e", 'tell application "System Events" to get name of first process whose frontmost is true'],
+                    capture_output=True, text=True, timeout=2
+                )
+                return "QuickModel" in result.stdout
+        except Exception:
+            return True  # assume focused if detection fails
+
+    def _notify_system(self, title: str, message: str):
+        """Send OS-level notification if window is not focused."""
+        if self._is_window_focused():
+            return
+        threading.Thread(target=self._do_notify, args=(title, message), daemon=True).start()
+
+    @staticmethod
+    def _do_notify(title: str, message: str):
+        """Actually send the OS notification (runs in background thread)."""
+        try:
+            if IS_WIN:
+                # Use PowerShell toast notification (Windows 10+, no dependencies)
+                ps_script = f'''
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType = WindowsRuntime] > $null
+$template = @"
+<toast>
+  <visual>
+    <binding template="ToastGeneric">
+      <text>{title}</text>
+      <text>{message}</text>
+    </binding>
+  </visual>
+  <audio silent="true"/>
+</toast>
+"@
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml($template)
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("QuickModel").Show($toast)
+'''
+                import subprocess
+                subprocess.Popen(
+                    ["powershell", "-NoProfile", "-Command", ps_script],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                )
+            else:
+                # macOS: osascript notification
+                import subprocess
+                subprocess.Popen(
+                    ["osascript", "-e",
+                     f'display notification "{message}" with title "{title}"'],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+        except Exception:
+            pass  # notification is best-effort
+
     # ── Config ────────────────────────────────────────────────────
     def get_config(self) -> dict:
         return self._config
@@ -714,6 +783,9 @@ class API:
                 if self._cmd_prefix_counts[prefix] >= 3:
                     wildcard = f"{prefix} *"
         self._js(f'Chat.showConfirmDialog({json.dumps(tool_name)}, {json.dumps(args)}, {json.dumps(wildcard)})')
+        # Notify user if window is in background
+        cmd_preview = args.get("command", tool_name)[:50] if tool_name == "run_command" else tool_name
+        self._notify_system("需要确认执行", f"工具: {cmd_preview}")
         if not self._confirm_event.wait(timeout=120):
             # Timeout — treat as rejection to avoid permanent deadlock
             return False
@@ -742,6 +814,8 @@ class API:
         multi_select = args.get("multi_select", False)
         self._ask_event.clear()
         self._js(f'showAskDialog({json.dumps(question)}, {json.dumps(options)}, {json.dumps(multi_select)})')
+        # Notify user if window is in background
+        self._notify_system("AI 需要你的输入", question[:60])
         if not self._ask_event.wait(timeout=120):
             return "用户未响应（超时）"
         return self._ask_answer
@@ -888,6 +962,8 @@ class API:
         save_conversation(conv)
         self._running = False
         self._js('Chat.finishMessage()')
+        # Notify user if window is in background
+        self._notify_system("AI 回答完成", "模型已完成回复，点击查看")
         # Auto-upload to sync folder
         if self._config.get("sync_auto_upload") and get_sync_dir():
             upload_conversation(conv["id"])
