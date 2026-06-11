@@ -4,6 +4,26 @@
 // ── marked config ──────────────────────────────────────────────────
 marked.setOptions({ breaks: true, gfm: true });
 
+// Fix: only treat ~~text~~ (double tilde) as strikethrough, not single ~
+// This prevents false positives like "~5%" ... "~10%" being rendered as <del>
+marked.use({
+  extensions: [{
+    name: 'del',
+    level: 'inline',
+    start(src) { return src.indexOf('~~'); },
+    tokenizer(src) {
+      const match = src.match(/^~~(?!~)([\s\S]*?)~~(?!~)/);
+      if (match) {
+        return { type: 'del', raw: match[0], text: match[1], tokens: [] };
+      }
+    },
+    renderer(token) {
+      return `<del>${this.parser.parseInline(token.tokens)}</del>`;
+    },
+    childTokens: ['tokens'],
+  }]
+});
+
 // Custom renderer: code blocks with highlight.js + copy button
 const renderer = new marked.Renderer();
 renderer.code = function(token) {
