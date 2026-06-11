@@ -76,9 +76,11 @@ class Agent:
         search_enabled: bool = True,
         compact_threshold: int = 0,
         context_length: int = 0,
+        vision_config: dict = None,
     ):
         self.model = model
         self.search_config = search_config or {}
+        self.vision_config = vision_config or {}
         self.command_safety = command_safety
         self.command_timeout = command_timeout
         self.thinking = thinking  # "off" | "high" | "max"
@@ -623,15 +625,15 @@ class Agent:
                     elif self.command_safety in ("confirm", "auto_countdown"):
                         if not is_command_allowed(args.get("command", "")):
                             allowed = cb.on_confirm(tool_name, args)
-                            result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
+                            result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config)
                                       if allowed else f"用户拒绝执行工具：{tool_name}")
                         else:
-                            result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
+                            result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config)
                     else:
                         # auto mode — execute directly
-                        result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
+                        result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config)
                 else:
-                    result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag)
+                    result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config)
 
             if tool_name == "todo_write":
                 used_todo = True

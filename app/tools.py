@@ -176,6 +176,31 @@ def glob_files(pattern: str, path: str = ".") -> str:
     return result
 
 
+def analyze_image(path: str, question: str = "", vision_config: dict = None) -> str:
+    """用视觉模型针对具体问题分析一张本地图片。
+
+    与发送时的"通用预描述"不同，这里把主模型给出的、贴合当前对话的问题
+    透传给视觉模型，从而获得有针对性的分析结果。
+    """
+    from app.vision import is_image, describe_image
+    vc = vision_config or {}
+    p = (path or "").strip()
+    if not p:
+        return "错误：未提供图片路径 path"
+    if not Path(p).expanduser().exists():
+        return f"错误：图片文件不存在 — {p}"
+    if not is_image(p):
+        return f"错误：'{p}' 不是受支持的图片格式（png/jpg/jpeg/gif/webp/bmp）"
+    prompt = (question or "").strip() or "请详细描述这张图片的内容，包括文字、图表、场景、数据等所有细节。"
+    return describe_image(
+        p,
+        prompt=prompt,
+        api_key=vc.get("vision_api_key", ""),
+        base_url=vc.get("vision_base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        model=vc.get("vision_model", "qwen-vl-max"),
+    )
+
+
 def grep_files(pattern: str, path: str = ".", file_type: str = "",
                multiline: bool = False, max_results: int = 50) -> str:
     """Search file contents by regex pattern."""
@@ -808,6 +833,21 @@ TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "analyze_image",
+            "description": "用视觉模型针对具体问题分析一张本地图片。当用户消息中附带了图片（形如 [图片: 文件名 路径: ...]）且需要了解图片内容时调用。请根据用户的实际问题撰写贴合的 question，而不是泛泛地要求描述——这样能获得有针对性的分析（如人物表情、图表数值、代码截图文字、特定区域细节等）。同一张图可在不同问题下多次调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "图片的本地绝对路径（取自用户消息中标注的图片路径）"},
+                    "question": {"type": "string", "description": "希望视觉模型针对这张图回答的具体问题或分析角度，应贴合用户当前的提问"},
+                },
+                "required": ["path", "question"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "grep_files",
             "description": "在文件内容中搜索正则表达式。支持文件类型过滤和多行模式。返回匹配的文件路径、行号和内容。用于在代码库中查找特定函数、变量、字符串等。",
             "parameters": {
@@ -902,10 +942,12 @@ TOOLS_SCHEMA = [
 CONFIRM_REQUIRED = {"run_command", "write_file", "apply_patch"}
 
 
-def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: int = 30, stop_flag=None) -> str:
+def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: int = 30, stop_flag=None, vision_config: dict = None) -> str:
     """执行工具调用，返回字符串结果。"""
     if tool_name == "read_file":
         return read_file(args.get("path", ""))
+    elif tool_name == "analyze_image":
+        return analyze_image(args.get("path", ""), args.get("question", ""), vision_config=vision_config)
     elif tool_name == "list_directory":
         return list_directory(args.get("path", ""))
     elif tool_name == "glob_files":

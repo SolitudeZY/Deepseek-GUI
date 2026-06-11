@@ -1512,11 +1512,9 @@ async function addFileChip(file) {
   chip.querySelector('.chip-status').textContent = '';
 
   if (isImg) {
-    chip.querySelector('.chip-status').textContent = ' 🔍';
-    window.pywebview.api.describe_image(localPath).then(desc => {
-      entry.content = desc;
-      chip.querySelector('.chip-status').textContent = ' ✓';
-    });
+    // 不再在附加时预生成通用描述；改由主模型在需要时按问题调用 analyze_image。
+    // 这里仅标记图片已就绪。
+    chip.querySelector('.chip-status').textContent = ' 🖼';
   } else {
     const content = await window.pywebview.api.read_file_content(localPath);
     entry.content = content;

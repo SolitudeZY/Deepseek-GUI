@@ -325,6 +325,14 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             "searxng_url": self._config.get("searxng_url", ""),
         }
 
+    def _build_vision_config(self) -> dict:
+        """Assemble vision config dict from self._config for the analyze_image tool."""
+        return {
+            "vision_api_key": self._config.get("vision_api_key", ""),
+            "vision_base_url": self._config.get("vision_base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            "vision_model": self._config.get("vision_model", "qwen-vl-max"),
+        }
+
     # ── Skills ────────────────────────────────────────────────────
     def list_skills(self) -> list:
         return skill_list()
@@ -486,19 +494,14 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             ext = Path(name).suffix.lower().lstrip('.')
             is_img = ext in {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'}
             if is_img:
-                if content:
-                    # Already described by vision API in JS
+                # 不再发送时预生成"通用描述"，而是把图片路径告知主模型，
+                # 由它用贴合当前问题的措辞按需调用 analyze_image 工具进行针对性分析。
+                if path:
+                    abs_path = str(Path(path).expanduser().resolve())
+                    parts.append(f"[图片: {name} 路径: {abs_path}]\n（如需了解此图内容，请使用 analyze_image 工具，并根据我的问题撰写针对性的 question。）")
+                elif content:
+                    # 无路径（如纯 base64 来源）时回退到已有描述
                     parts.append(f"[图片: {name}]\n{content}")
-                elif path:
-                    # Describe now (fallback if JS didn't finish in time)
-                    desc = describe_image(
-                        path,
-                        prompt='请详细描述这张图片的内容，包括文字、图表、场景、数据等所有细节。',
-                        api_key=self._config.get('vision_api_key', ''),
-                        base_url=self._config.get('vision_base_url', 'https://dashscope.aliyuncs.com/compatible-mode/v1'),
-                        model=self._config.get('vision_model', 'qwen-vl-max'),
-                    )
-                    parts.append(f"[图片: {name}]\n{desc}")
             else:
                 if content:
                     parts.append(f"[附件: {name}]\n{content}")
@@ -542,6 +545,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             search_enabled=self._search_mode == "auto" or self._search_enabled,
             compact_threshold=mc.get('compact_threshold', 0),
             context_length=mc.get('context_length', 0),
+            vision_config=self._build_vision_config(),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
@@ -587,6 +591,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             search_enabled=self._search_mode == "auto" or self._search_enabled,
             compact_threshold=mc.get('compact_threshold', 0),
             context_length=mc.get('context_length', 0),
+            vision_config=self._build_vision_config(),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
