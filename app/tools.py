@@ -132,14 +132,36 @@ def list_directory(path: str) -> str:
 def glob_files(pattern: str, path: str = ".") -> str:
     """Match files by glob pattern, sorted by modification time (newest first)."""
     import glob as _glob
-    base = Path(path).expanduser().resolve()
+    # 若 pattern 本身是绝对路径，拆出锚点目录作为 base，pattern 转成相对部分
+    pat = (pattern or "").replace("\\", "/")
+    pp = Path(pat)
+    if pp.is_absolute() or (len(pat) > 1 and pat[1] == ":"):
+        # 找到第一个含通配符的部分，之前的当作 base 目录
+        parts = pp.parts
+        anchor_parts = []
+        rest_parts = []
+        for i, seg in enumerate(parts):
+            if any(c in seg for c in "*?[]"):
+                rest_parts = parts[i:]
+                break
+            anchor_parts.append(seg)
+        else:
+            # 整个 pattern 无通配符：直接当作具体路径匹配
+            anchor_parts, rest_parts = parts[:-1], parts[-1:]
+        base = Path(*anchor_parts) if anchor_parts else Path(path)
+        pattern = "/".join(rest_parts) if rest_parts else "*"
+    else:
+        base = Path(path).expanduser().resolve()
     if not base.exists():
-        return f"错误：路径不存在 — {path}"
-    matches = list(base.glob(pattern))
-    if not matches:
-        # Try recursive if pattern doesn't start with **
-        if not pattern.startswith("**"):
+        return f"错误：路径不存在 — {base}"
+    try:
+        matches = list(base.glob(pattern))
+        if not matches and not pattern.startswith("**"):
+            # Try recursive if pattern doesn't start with **
             matches = list(base.glob("**/" + pattern))
+    except ValueError as e:
+        return (f"错误：无效的 glob 模式 '{pattern}' — {e}。"
+                f"提示：pattern 应为相对模式（如 '**/*.py'），绝对目录请放到 path 参数。")
     if not matches:
         return f"未找到匹配 '{pattern}' 的文件"
     # Sort by modification time, newest first
