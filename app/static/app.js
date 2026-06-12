@@ -539,18 +539,8 @@ function addUserBubble(text) {
   collapsible.innerHTML = `<div class="bubble-label">You</div><div class="bubble-content">${buildUserContent(text)}</div>`;
   div.appendChild(collapsible);
   chatMessages.appendChild(div);
-  // Load image thumbnails async (by stored path) + click-to-zoom
-  collapsible.querySelectorAll('img.chat-img-thumb[data-path]').forEach(async img => {
-    const dataUrl = await window.pywebview.api.get_image_data(img.dataset.path);
-    if (dataUrl) img.src = dataUrl;
-    img.addEventListener('click', () => openLightbox(img.src));
-  });
-  // Doc cards: click to reveal in file manager
-  collapsible.querySelectorAll('.attach-doc.attach-openable[data-path]').forEach(card => {
-    card.addEventListener('click', () => {
-      if (card.dataset.path) window.pywebview.api.open_file_location(card.dataset.path);
-    });
-  });
+  // Load image thumbnails + wire doc cards (shared with tool-result bubbles)
+  _hydrateImgThumbs(collapsible);
   // Check if content exceeds collapse threshold after render
   requestAnimationFrame(() => {
     if (collapsible.scrollHeight > 130) {
@@ -601,6 +591,21 @@ function buildUserContent(text) {
     }
     return escapeHtml(seg).replace(/\n/g, '<br>');
   }).join('<br>');
+}
+
+// 在容器内加载图片缩略图（按 data-path）并绑定点击放大 / 文档卡片定位。
+// 供用户气泡和工具结果气泡（generate_image）共用。
+function _hydrateImgThumbs(container) {
+  container.querySelectorAll('img.chat-img-thumb[data-path]').forEach(async img => {
+    const dataUrl = await window.pywebview.api.get_image_data(img.dataset.path);
+    if (dataUrl) img.src = dataUrl;
+    img.addEventListener('click', () => openLightbox(img.src));
+  });
+  container.querySelectorAll('.attach-doc.attach-openable[data-path]').forEach(card => {
+    card.addEventListener('click', () => {
+      if (card.dataset.path) window.pywebview.api.open_file_location(card.dataset.path);
+    });
+  });
 }
 
 function addAssistantBubble(content) {
@@ -670,6 +675,18 @@ function addToolResultBubble(toolName, result) {
   div.className = 'bubble bubble-tool-call';
   const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', write_file:'✏️', apply_patch:'🩹', list_directory:'📁', glob_files:'🔎', grep_files:'🔎' };
   const icon = icons[toolName] || '🔧';
+  // 含图片标记（如历史回放中的 generate_image 结果）→ 展开并渲染缩略图
+  if (/\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result || '')) {
+    div.classList.add('tool-expanded');
+    div.innerHTML = `<div class="tool-header"><span class="tool-icon">🖼</span><span class="tool-name">${escapeHtml(toolName)}</span><span class="tool-chevron">▶</span></div>`
+      + `<div class="tool-body"><div class="tool-result-content"></div></div>`;
+    const rc = div.querySelector('.tool-result-content');
+    rc.innerHTML = buildUserContent(result);
+    chatMessages.appendChild(div);
+    _hydrateImgThumbs(rc);
+    scrollToBottom();
+    return;
+  }
   div.innerHTML = `<div class="tool-header"><span class="tool-icon">${icon}</span><span class="tool-name">${escapeHtml(toolName)}</span></div>`;
   chatMessages.appendChild(div);
   scrollToBottom();

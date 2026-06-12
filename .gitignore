@@ -6,12 +6,13 @@ build_v1/
 *.spec
 !main_mac.spec
 
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.egg-info/
-.env
+conversations/
+*.jpg
+*.png
+*.ico
+!image/**
+
+# Misc test/temp files
 
 # App data
 conversations/
