@@ -539,10 +539,17 @@ function addUserBubble(text) {
   collapsible.innerHTML = `<div class="bubble-label">You</div><div class="bubble-content">${buildUserContent(text)}</div>`;
   div.appendChild(collapsible);
   chatMessages.appendChild(div);
-  // Load image thumbnails async
-  collapsible.querySelectorAll('img.chat-img-thumb[data-filename]').forEach(async img => {
-    const dataUrl = await window.pywebview.api.get_image_data(img.dataset.filename);
+  // Load image thumbnails async (by stored path) + click-to-zoom
+  collapsible.querySelectorAll('img.chat-img-thumb[data-path]').forEach(async img => {
+    const dataUrl = await window.pywebview.api.get_image_data(img.dataset.path);
     if (dataUrl) img.src = dataUrl;
+    img.addEventListener('click', () => openLightbox(img.src));
+  });
+  // Doc cards: click to reveal in file manager
+  collapsible.querySelectorAll('.attach-doc.attach-openable[data-path]').forEach(card => {
+    card.addEventListener('click', () => {
+      if (card.dataset.path) window.pywebview.api.open_file_location(card.dataset.path);
+    });
   });
   // Check if content exceeds collapse threshold after render
   requestAnimationFrame(() => {
@@ -564,13 +571,33 @@ function addUserBubble(text) {
 }
 
 function buildUserContent(text) {
-  // Parts are joined by \n\n in Python; each image block is "[图片: name]\ndescription"
-  // Split by double newline, render image blocks as thumbnails (hide verbose description)
+  // Python 用 \n\n 连接各部分。附件标记形如：
+  //   [图片: name 路径: abs]\n...提示语...
+  //   [附件: name 路径: abs]\n...正文...
+  // 图片渲染为缩略图卡片（点击放大），文档渲染为可点击卡片（在文件夹中定位）。
+  // 兼容旧格式 [图片: name] / [附件: name]（无路径）。
+  const docIcon = name => {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    return ({ pdf:'📕', doc:'📄', docx:'📄', xls:'📊', xlsx:'📊', csv:'📊',
+              ppt:'📑', pptx:'📑', txt:'📃', md:'📃', json:'🗂', zip:'🗜' })[ext] || '📎';
+  };
   return text.split(/\n\n/).map(seg => {
-    const m = seg.match(/^\[图片: ([^\]]+)\]([\s\S]*)$/);
-    if (m) {
-      const fname = m[1];
-      return `<img class="chat-img-thumb" data-filename="${escapeHtml(fname)}" src="" alt="${escapeHtml(fname)}" onclick="openLightbox(this.src)">`;
+    const mImg = seg.match(/^\[图片: (.+?)(?: 路径: ([^\]]*))?\]/);
+    if (mImg) {
+      const fname = mImg[1];
+      const fpath = mImg[2] || fname;
+      return `<span class="attach-card attach-image">`
+           + `<img class="chat-img-thumb" data-path="${escapeHtml(fpath)}" src="" alt="${escapeHtml(fname)}">`
+           + `<span class="attach-name">🖼 ${escapeHtml(fname)}</span></span>`;
+    }
+    const mDoc = seg.match(/^\[附件: (.+?)(?: 路径: ([^\]]*))?\]/);
+    if (mDoc) {
+      const fname = mDoc[1];
+      const fpath = mDoc[2] || '';
+      const openable = fpath ? ' attach-openable' : '';
+      return `<span class="attach-card attach-doc${openable}" data-path="${escapeHtml(fpath)}" title="${fpath ? '在文件夹中定位' : ''}">`
+           + `<span class="attach-icon">${docIcon(fname)}</span>`
+           + `<span class="attach-name">${escapeHtml(fname)}</span></span>`;
     }
     return escapeHtml(seg).replace(/\n/g, '<br>');
   }).join('<br>');

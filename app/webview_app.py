@@ -441,10 +441,18 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         return str(dest)
 
     def get_image_data(self, filename: str) -> str:
-        """Return base64 data URL for an uploaded image (by filename only)."""
+        """Return base64 data URL for an uploaded image.
+
+        Accepts either a bare filename (looked up in uploads dir) or an
+        absolute path (as embedded in the message marker after 路径:).
+        """
         import base64 as _b64
         from app.config import get_app_data_dir
-        path = get_app_data_dir() / 'uploads' / filename
+        cand = Path(filename)
+        if cand.is_absolute() and cand.exists():
+            path = cand
+        else:
+            path = get_app_data_dir() / 'uploads' / Path(filename).name
         if not path.exists():
             return ''
         ext = path.suffix.lower().lstrip('.')
@@ -503,16 +511,18 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                     # 无路径（如纯 base64 来源）时回退到已有描述
                     parts.append(f"[图片: {name}]\n{content}")
             else:
+                abs_path = str(Path(path).expanduser().resolve()) if path else ''
+                marker = f"[附件: {name} 路径: {abs_path}]" if abs_path else f"[附件: {name}]"
                 if content:
-                    parts.append(f"[附件: {name}]\n{content}")
+                    parts.append(f"{marker}\n{content}")
                 elif path:
                     # Fallback: read file content if JS didn't finish loading
                     try:
                         fallback_content = _read_file(path)
                         if fallback_content:
-                            parts.append(f"[附件: {name}]\n{fallback_content}")
+                            parts.append(f"{marker}\n{fallback_content}")
                     except Exception:
-                        parts.append(f"[附件: {name}]（读取失败）")
+                        parts.append(f"{marker}（读取失败）")
 
         full_text = '\n\n'.join(parts)
 

@@ -232,6 +232,30 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .chat-img-thumb:hover { opacity: 0.85; transform: scale(1.03); }
 .chat-img-thumb[src=""] { display: none; }
 
+/* ── 附件卡片（用户消息中回显上传的图片/文档）── */
+.attach-card {
+  display: inline-flex; flex-direction: column; gap: 4px;
+  vertical-align: top; margin: 4px 6px 4px 0;
+}
+.attach-card .attach-name {
+  font-size: 11px; color: var(--text-muted);
+  max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.attach-image .chat-img-thumb { cursor: zoom-in; }
+.attach-doc {
+  flex-direction: row; align-items: center; gap: 8px;
+  padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--surface);
+  transition: background 0.15s, border-color 0.15s;
+}
+.attach-doc .attach-icon { font-size: 18px; line-height: 1; }
+.attach-doc .attach-name { font-size: 12px; color: var(--text); }
+.attach-doc.attach-openable { cursor: pointer; }
+.attach-doc.attach-openable:hover {
+  background: var(--bg3);
+  border-color: var(--accent);
+}
+
 /* ── Lightbox ── */
 #lightbox-overlay {
   position: fixed; inset: 0; z-index: 9999;
