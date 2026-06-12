@@ -557,6 +557,18 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .modal-body { flex: 1; overflow-y: auto; padding: 14px 18px; }
 .tab-panel { display: none; flex-direction: column; gap: 10px; }
 .tab-panel.active { display: flex; }
+
+/* ── 子标签（图片工具内：图片理解 / 图片生成）── */
+.subtab-bar { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.subtab-btn {
+  background: none; border: none; cursor: pointer;
+  color: var(--text-muted); font-size: 12px; font-weight: 500;
+  padding: 6px 14px; border-radius: 6px 6px 0 0; border-bottom: 2px solid transparent;
+}
+.subtab-btn:hover { color: var(--text); }
+.subtab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.subtab-panel { display: none; flex-direction: column; gap: 10px; }
+.subtab-panel.active { display: flex; }
 .tab-panel label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-dim); }
 .tab-panel input, .tab-panel select, .tab-panel textarea {
   background: var(--bg3); color: var(--text);

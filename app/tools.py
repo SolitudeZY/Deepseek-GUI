@@ -201,6 +201,28 @@ def analyze_image(path: str, question: str = "", vision_config: dict = None) -> 
     )
 
 
+def generate_image_tool(prompt: str, size: str = "1024x1024", vision_config: dict = None) -> str:
+    """用外部生图模型（OpenAI 兼容中转）生成图片，保存到本地后返回路径标记。
+
+    返回的 [图片: 名称 路径: ...] 标记会被前端识别并显示缩略图卡片。
+    """
+    from app.vision import generate_image
+    vc = vision_config or {}
+    r = generate_image(
+        prompt=prompt,
+        api_key=vc.get("imagegen_api_key", ""),
+        base_url=vc.get("imagegen_base_url", ""),
+        model=vc.get("imagegen_model", "gpt-image-2"),
+        size=(size or "1024x1024").strip(),
+        save_dir=vc.get("imagegen_save_dir", ""),
+    )
+    if not r.get("ok"):
+        return f"[图片生成失败：{r.get('error', '未知错误')}]"
+    kb = r.get("size", 0) / 1024
+    return (f"[图片: {r['filename']} 路径: {r['path']}]\n"
+            f"已生成并保存（{kb:.0f} KB）：{r['path']}")
+
+
 def grep_files(pattern: str, path: str = ".", file_type: str = "",
                multiline: bool = False, max_results: int = 50) -> str:
     """Search file contents by regex pattern."""
@@ -848,6 +870,21 @@ TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "generate_image",
+            "description": "用外部生图模型生成图片（调用 OpenAI 兼容的图片生成接口）。当用户要求生成/绘制/画一张图、设计图标、做插画等时调用。生成的图片会保存到本地并在对话中显示。请把用户的需求转写成清晰、具体的英文或中文 prompt（描述主体、风格、配色、构图等）以获得更好效果。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {"type": "string", "description": "图片生成提示词，尽量具体（主体、风格、配色、构图、背景等）"},
+                    "size": {"type": "string", "description": "图片尺寸，如 1024x1024、1024x1536、1536x1024", "default": "1024x1024"},
+                },
+                "required": ["prompt"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "grep_files",
             "description": "在文件内容中搜索正则表达式。支持文件类型过滤和多行模式。返回匹配的文件路径、行号和内容。用于在代码库中查找特定函数、变量、字符串等。",
             "parameters": {
@@ -948,6 +985,8 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
         return read_file(args.get("path", ""))
     elif tool_name == "analyze_image":
         return analyze_image(args.get("path", ""), args.get("question", ""), vision_config=vision_config)
+    elif tool_name == "generate_image":
+        return generate_image_tool(args.get("prompt", ""), args.get("size", "1024x1024"), vision_config=vision_config)
     elif tool_name == "list_directory":
         return list_directory(args.get("path", ""))
     elif tool_name == "glob_files":

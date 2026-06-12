@@ -122,7 +122,7 @@
     <div class="modal-tabs">
       <button class="tab-btn active" data-tab="models">模型配置</button>
       <button class="tab-btn" data-tab="tools">工具设置</button>
-      <button class="tab-btn" data-tab="vision">图片理解</button>
+      <button class="tab-btn" data-tab="vision">图片工具</button>
       <button class="tab-btn" data-tab="allowlist">允许的指令</button>
       <button class="tab-btn" data-tab="sync">云同步</button>
       <button class="tab-btn" data-tab="update">检查更新</button>
@@ -209,13 +209,28 @@
         <label>命令超时（秒）<input type="number" id="cmd-timeout" value="30" min="5" max="300"></label>
         <label>工具调用最大轮次<input type="number" id="max-rounds" value="50" min="1" max="200"></label>
       </div>
-      <!-- 图片理解 -->
+      <!-- 图片工具 -->
       <div class="tab-panel" id="tab-vision">
-        <p class="hint">拖拽图片到输入框时，调用 Vision 模型解析图片内容。</p>
-        <label>Vision API Key<input type="password" id="vision-key" placeholder="sk-..."></label>
-        <label>Base URL<input type="text" id="vision-url" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"></label>
-        <label>模型名<input type="text" id="vision-model" placeholder="qwen-vl-max"></label>
-        <p class="hint">常用模型：qwen-vl-max / qwen-vl-plus / gpt-4o / glm-4v</p>
+        <div class="subtab-bar">
+          <button class="subtab-btn active" data-subtab="understand">图片理解</button>
+          <button class="subtab-btn" data-subtab="generate">图片生成</button>
+        </div>
+        <!-- 子页：图片理解 -->
+        <div class="subtab-panel active" id="subtab-understand">
+          <p class="hint">附加图片时，主模型可调用 analyze_image 工具按你的问题解析图片内容。</p>
+          <label>Vision API Key<input type="password" id="vision-key" placeholder="sk-..."></label>
+          <label>Base URL<input type="text" id="vision-url" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"></label>
+          <label>模型名<input type="text" id="vision-model" placeholder="qwen-vl-max"></label>
+          <p class="hint">常用模型：qwen-vl-max / qwen-vl-plus / gpt-4o / glm-4v</p>
+        </div>
+        <!-- 子页：图片生成 -->
+        <div class="subtab-panel" id="subtab-generate">
+          <p class="hint">配置生图模型后，主模型可调用 generate_image 工具按需生成图片（支持 New API / sub2api 等 OpenAI 兼容中转）。</p>
+          <label>生图 API Key<input type="password" id="imagegen-key" placeholder="sk-..."></label>
+          <label>Base URL<input type="text" id="imagegen-url" placeholder="https://your-relay.com/v1"></label>
+          <label>模型名<input type="text" id="imagegen-model" placeholder="gpt-image-2"></label>
+          <p class="hint">Base URL 填到 /v1 即可（自动补 /images/generations）。常用模型：gpt-image-2 / dall-e-3 / flux 等。生成的图片保存到 uploads 目录并在对话中显示。</p>
+        </div>
       </div>
       <!-- 允许的指令 -->
       <div class="tab-panel" id="tab-allowlist">

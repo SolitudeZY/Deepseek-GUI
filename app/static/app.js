@@ -1853,6 +1853,17 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   });
 });
 
+// Sub-tab switching (图片工具内：图片理解 / 图片生成)
+document.querySelectorAll('.subtab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const bar = btn.closest('.tab-panel');
+    bar.querySelectorAll('.subtab-btn').forEach(b => b.classList.remove('active'));
+    bar.querySelectorAll('.subtab-panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    bar.querySelector('#subtab-' + btn.dataset.subtab).classList.add('active');
+  });
+});
+
 async function openSettings() {
   const cfg = state.config;
   $('search-engine').value = cfg.search_engine || 'tavily';
@@ -1869,6 +1880,9 @@ async function openSettings() {
   $('vision-key').value = cfg.vision_api_key || '';
   $('vision-url').value = cfg.vision_base_url || '';
   $('vision-model').value = cfg.vision_model || '';
+  $('imagegen-key').value = cfg.imagegen_api_key || '';
+  $('imagegen-url').value = cfg.imagegen_base_url || '';
+  $('imagegen-model').value = cfg.imagegen_model || '';
   $('ui-theme').value = cfg.theme || 'dark';
   $('ui-fontsize').value = String(cfg.font_size || 14);
   // Sync tab
@@ -1906,6 +1920,9 @@ async function saveSettings() {
   state.config.vision_api_key = $('vision-key').value.trim();
   state.config.vision_base_url = $('vision-url').value.trim();
   state.config.vision_model = $('vision-model').value.trim();
+  state.config.imagegen_api_key = $('imagegen-key').value.trim();
+  state.config.imagegen_base_url = $('imagegen-url').value.trim();
+  state.config.imagegen_model = $('imagegen-model').value.trim();
   state.config.theme = $('ui-theme').value;
   state.config.font_size = parseInt($('ui-fontsize').value) || 14;
   state.config.sync_auto_upload = $('sync-auto-upload').checked;

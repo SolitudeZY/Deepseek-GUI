@@ -99,6 +99,9 @@ DEFAULT_CONFIG = {
     "vision_api_key": "",
     "vision_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     "vision_model": "qwen-vl-max",
+    "imagegen_api_key": "",
+    "imagegen_base_url": "",
+    "imagegen_model": "gpt-image-2",
     "thinking": "high",             # off | high | max
     "search_mode": "auto",         # auto | manual
     "search_enabled": True,        # manual mode: whether search tool is active

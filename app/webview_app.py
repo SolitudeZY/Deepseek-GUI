@@ -326,11 +326,18 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         }
 
     def _build_vision_config(self) -> dict:
-        """Assemble vision config dict from self._config for the analyze_image tool."""
+        """Assemble vision + image-generation config for analyze_image / generate_image tools."""
+        from app.config import get_app_data_dir
+        uploads_dir = get_app_data_dir() / 'uploads'
+        uploads_dir.mkdir(exist_ok=True)
         return {
             "vision_api_key": self._config.get("vision_api_key", ""),
             "vision_base_url": self._config.get("vision_base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
             "vision_model": self._config.get("vision_model", "qwen-vl-max"),
+            "imagegen_api_key": self._config.get("imagegen_api_key", ""),
+            "imagegen_base_url": self._config.get("imagegen_base_url", ""),
+            "imagegen_model": self._config.get("imagegen_model", "gpt-image-2"),
+            "imagegen_save_dir": str(uploads_dir),
         }
 
     # ── Skills ────────────────────────────────────────────────────
