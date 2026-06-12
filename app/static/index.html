@@ -220,7 +220,13 @@
           <p class="hint">附加图片时，主模型可调用 analyze_image 工具按你的问题解析图片内容。</p>
           <label>Vision API Key<input type="password" id="vision-key" placeholder="sk-..."></label>
           <label>Base URL<input type="text" id="vision-url" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"></label>
+          <p class="hint">拼接规则：填到 <code>/v1</code> 即可，系统自动补 <code>/chat/completions</code> 发起请求。<br>
+             示例：填 <code>https://dashscope.aliyuncs.com/compatible-mode/v1</code> → 实际请求 <code>.../v1/chat/completions</code>；中转站填 <code>https://your-relay.com/v1</code>。</p>
           <label>模型名<input type="text" id="vision-model" placeholder="qwen-vl-max"></label>
+          <div class="form-row">
+            <button id="btn-vision-models" class="btn-secondary">读取模型列表</button>
+          </div>
+          <div class="model-list-box" id="vision-models-box"></div>
           <p class="hint">常用模型：qwen-vl-max / qwen-vl-plus / gpt-4o / glm-4v</p>
         </div>
         <!-- 子页：图片生成 -->
@@ -228,8 +234,14 @@
           <p class="hint">配置生图模型后，主模型可调用 generate_image 工具按需生成图片（支持 New API / sub2api 等 OpenAI 兼容中转）。</p>
           <label>生图 API Key<input type="password" id="imagegen-key" placeholder="sk-..."></label>
           <label>Base URL<input type="text" id="imagegen-url" placeholder="https://your-relay.com/v1"></label>
+          <p class="hint">拼接规则：填到 <code>/v1</code> 即可，系统自动补 <code>/images/generations</code> 发起请求。<br>
+             示例：填 <code>https://ioll.pp.ua/v1</code> → 实际请求 <code>.../v1/images/generations</code>。也可填完整端点，系统会识别。</p>
           <label>模型名<input type="text" id="imagegen-model" placeholder="gpt-image-2"></label>
-          <p class="hint">Base URL 填到 /v1 即可（自动补 /images/generations）。常用模型：gpt-image-2 / dall-e-3 / flux 等。生成的图片保存到 uploads 目录并在对话中显示。</p>
+          <div class="form-row">
+            <button id="btn-imagegen-models" class="btn-secondary">读取模型列表</button>
+          </div>
+          <div class="model-list-box" id="imagegen-models-box"></div>
+          <p class="hint">常用模型：gpt-image-2 / dall-e-3 / flux 等。生成的图片保存到 uploads 目录并在对话中显示。</p>
         </div>
       </div>
       <!-- 允许的指令 -->

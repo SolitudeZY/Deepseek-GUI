@@ -482,6 +482,47 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             model=self._config.get('vision_model', 'qwen-vl-max'),
         )
 
+    def list_models(self, api_key: str, base_url: str) -> dict:
+        """拉取 OpenAI 兼容端点的模型列表（GET {base_url}/models）。
+
+        供设置面板"读取模型列表"按钮使用。返回 {ok, models:[...]} 或 {ok:False, error}。
+        """
+        import requests
+        key = (api_key or '').strip()
+        if key.lower().startswith('bearer '):
+            key = key[7:].strip()
+        url = (base_url or '').strip().rstrip('/')
+        if not key:
+            return {'ok': False, 'error': '请先填写 API Key'}
+        if not url:
+            return {'ok': False, 'error': '请先填写 Base URL'}
+        # 容错：去掉用户误填的具体端点后缀，统一拼到 /models
+        for suffix in ('/chat/completions', '/images/generations', '/completions', '/models'):
+            if url.endswith(suffix):
+                url = url[: -len(suffix)]
+                break
+        endpoint = url + '/models'
+        try:
+            resp = requests.get(endpoint, headers={'Authorization': f'Bearer {key}'}, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            items = data.get('data') if isinstance(data, dict) else data
+            ids = sorted(m.get('id', '') for m in (items or []) if m.get('id'))
+            if not ids:
+                return {'ok': False, 'error': f'返回中无模型：{str(data)[:200]}'}
+            return {'ok': True, 'models': ids}
+        except requests.exceptions.HTTPError as e:
+            status = getattr(getattr(e, 'response', None), 'status_code', None)
+            body = ''
+            try:
+                body = resp.text[:300]
+            except Exception:
+                pass
+            hint = '（401：检查 key 与 Base URL 是否配套）' if status == 401 else ''
+            return {'ok': False, 'error': f'HTTP {status}: {body or str(e)}{hint}'}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
     # ── Agent / send ──────────────────────────────────────────────
     def send_message(self, conv_id: str, text: str, files: list) -> None:
         if self._running:

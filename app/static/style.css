@@ -569,6 +569,24 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .subtab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 .subtab-panel { display: none; flex-direction: column; gap: 10px; }
 .subtab-panel.active { display: flex; }
+
+/* ── 模型列表（读取模型列表按钮的结果）── */
+.model-list-box:empty { display: none; }
+.model-list-box {
+  max-height: 160px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px; background: var(--bg2);
+}
+.model-list-head { font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+.model-list-loading, .model-list-err { font-size: 12px; color: var(--text-muted); }
+.model-list-err { color: var(--danger); }
+.model-list-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.model-chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 4px;
+  background: var(--bg3); color: var(--text); cursor: pointer;
+  border: 1px solid transparent; transition: border-color 0.15s, background 0.15s;
+}
+.model-chip:hover { border-color: var(--accent); background: var(--surface); }
 .tab-panel label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--text-dim); }
 .tab-panel input, .tab-panel select, .tab-panel textarea {
   background: var(--bg3); color: var(--text);

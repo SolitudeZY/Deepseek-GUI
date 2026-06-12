@@ -647,6 +647,14 @@ function addToolResultBubble(toolName, result) {
     if (nameEl && nameEl.textContent === toolName) {
       const resultEl = bubbles[i].querySelector('.tool-result-content');
       if (resultEl && resultEl.textContent === '等待中…') {
+        // 含图片标记（如 generate_image 的结果）→ 渲染缩略图卡片
+        if (/\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result)) {
+          resultEl.innerHTML = buildUserContent(result);
+          _hydrateImgThumbs(resultEl);
+          // 默认展开，让缩略图可见
+          bubbles[i].classList.add('tool-expanded');
+          return;
+        }
         const preview = result.replace(/\n/g,' ').trim().slice(0, 200) + (result.length > 200 ? '…' : '');
         resultEl.textContent = preview;
         // Add file link for write/patch tools
@@ -1863,6 +1871,41 @@ document.querySelectorAll('.subtab-btn').forEach(btn => {
     bar.querySelector('#subtab-' + btn.dataset.subtab).classList.add('active');
   });
 });
+
+// 读取模型列表（图片理解 / 图片生成共用）
+async function fetchModelList(keyId, urlId, modelId, boxId, btn) {
+  const box = $(boxId);
+  const key = $(keyId).value.trim();
+  const url = $(urlId).value.trim();
+  if (!key || !url) { box.innerHTML = '<span class="model-list-err">请先填写 API Key 和 Base URL</span>'; return; }
+  const oldLabel = btn.textContent;
+  btn.disabled = true; btn.textContent = '读取中...';
+  box.innerHTML = '<span class="model-list-loading">正在拉取模型列表...</span>';
+  try {
+    const r = await window.pywebview.api.list_models(key, url);
+    if (!r.ok) { box.innerHTML = `<span class="model-list-err">${escapeHtml(r.error || '读取失败')}</span>`; return; }
+    box.innerHTML = `<div class="model-list-head">共 ${r.models.length} 个模型（点击填入模型名）</div>`;
+    const wrap = document.createElement('div');
+    wrap.className = 'model-list-items';
+    r.models.forEach(id => {
+      const chip = document.createElement('span');
+      chip.className = 'model-chip';
+      chip.textContent = id;
+      chip.title = '点击填入模型名';
+      chip.addEventListener('click', () => { $(modelId).value = id; });
+      wrap.appendChild(chip);
+    });
+    box.appendChild(wrap);
+  } catch (e) {
+    box.innerHTML = `<span class="model-list-err">${escapeHtml(String(e))}</span>`;
+  } finally {
+    btn.disabled = false; btn.textContent = oldLabel;
+  }
+}
+$('btn-vision-models').addEventListener('click', e =>
+  fetchModelList('vision-key', 'vision-url', 'vision-model', 'vision-models-box', e.currentTarget));
+$('btn-imagegen-models').addEventListener('click', e =>
+  fetchModelList('imagegen-key', 'imagegen-url', 'imagegen-model', 'imagegen-models-box', e.currentTarget));
 
 async function openSettings() {
   const cfg = state.config;
