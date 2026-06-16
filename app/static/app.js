@@ -189,7 +189,7 @@ let state = {
   currentConvId: null,
   running: false,
   attachedFiles: [],   // [{name, path, content}]
-  dragSrcIdx: null,
+  dragSrcId: null,     // 拖拽中会话 id（id-based，重排序后仍稳定）
   selectedMcIdx: null,
   collapsedGroups: {},  // { [project_path]: true } 折叠状态
 };
@@ -307,20 +307,112 @@ function _makeConvLi(conv, idx) {
 
   li.addEventListener('click', () => openConversation(conv.id));
 
-  // Drag sort
+  // Drag sort（id-based：跨组重排后索引会变，必须用 id 追踪）
   li.draggable = true;
-  li.addEventListener('dragstart', e => { state.dragSrcIdx = idx; e.dataTransfer.effectAllowed = 'move'; });
-  li.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+  li.addEventListener('dragstart', e => {
+    state.dragSrcId = conv.id;
+    e.dataTransfer.effectAllowed = 'move';
+    li.classList.add('dragging');
+  });
+  li.addEventListener('dragend', () => {
+    li.classList.remove('dragging');
+    _clearDropIndicators();
+    state.dragSrcId = null;
+  });
+  li.addEventListener('dragover', e => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (!state.dragSrcId || state.dragSrcId === conv.id) return;
+    const r = li.getBoundingClientRect();
+    const before = (e.clientY - r.top) < r.height / 2;
+    _clearDropIndicators();
+    li.classList.add(before ? 'drop-before' : 'drop-after');
+  });
   li.addEventListener('drop', e => {
     e.preventDefault();
-    if (state.dragSrcIdx === null || state.dragSrcIdx === idx) return;
-    const moved = state.conversations.splice(state.dragSrcIdx, 1)[0];
-    state.conversations.splice(idx, 0, moved);
-    state.dragSrcIdx = null;
-    renderConvList(searchInput.value);
-    window.pywebview.api.reorder_conversations(state.conversations.map(c => c.id));
+    e.stopPropagation();  // 不冒泡到 document 的文件拖放处理
+    const r = li.getBoundingClientRect();
+    const before = (e.clientY - r.top) < r.height / 2;
+    _clearDropIndicators();
+    _handleConvDrop(conv.id, before);
   });
   return li;
+}
+
+// 清除所有拖拽插入指示
+function _clearDropIndicators() {
+  convList.querySelectorAll('.drop-before, .drop-after, .cg-drop-target')
+    .forEach(el => el.classList.remove('drop-before', 'drop-after', 'cg-drop-target'));
+}
+
+const _convById = id => state.conversations.find(c => c.id === id);
+
+// 当前分组顺序（按 state.conversations 首次出现）
+function _groupOrder() {
+  const order = [], seen = new Set();
+  state.conversations.forEach(c => {
+    const k = c.project_path || '';
+    if (!seen.has(k)) { seen.add(k); order.push(k); }
+  });
+  return order;
+}
+
+// 重排 state.conversations 为「按 groupOrder 连续分组」，组内保持相对顺序。
+// 保证持久化的 sort_order 也是分组连续的，下次启动 list_conversations 按 sort_order
+// 升序读取时分组顺序不被打乱（根治旧版「整组沉底」bug）。
+function _regroupContiguous(groupOrder) {
+  const buckets = new Map();
+  groupOrder.forEach(k => buckets.set(k, []));
+  state.conversations.forEach(c => {
+    const k = c.project_path || '';
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push(c);
+  });
+  const flat = [];
+  for (const arr of buckets.values()) flat.push(...arr);
+  state.conversations = flat;
+}
+
+// 拖到某会话前/后：跨组则改 project_path 归入目标组，再在组内定位
+async function _handleConvDrop(targetId, before) {
+  const srcId = state.dragSrcId;
+  state.dragSrcId = null;
+  if (!srcId || srcId === targetId) return;
+  const src = _convById(srcId), tgt = _convById(targetId);
+  if (!src || !tgt) return;
+  const targetGroup = tgt.project_path || '';
+  const groupOrder = _groupOrder();  // 改 project_path 前捕获组顺序
+
+  if ((src.project_path || '') !== targetGroup) {
+    src.project_path = targetGroup;
+    // 先 await 改组（整文件 load→改→save），再 reorder，避免字段互相覆盖
+    await window.pywebview.api.move_conversation_to_project(srcId, targetGroup);
+  }
+  state.conversations.splice(state.conversations.indexOf(src), 1);
+  const ti = state.conversations.indexOf(tgt);
+  state.conversations.splice(before ? ti : ti + 1, 0, src);
+  _regroupContiguous(groupOrder);
+  renderConvList(searchInput.value);
+  await window.pywebview.api.reorder_conversations(state.conversations.map(c => c.id));
+}
+
+// 拖到分组标题：归入该组并落到组末尾（折叠的组也可作为投放目标）
+async function _handleHeaderDrop(groupKey) {
+  const srcId = state.dragSrcId;
+  state.dragSrcId = null;
+  if (!srcId) return;
+  const src = _convById(srcId);
+  if (!src) return;
+  const groupOrder = _groupOrder();
+  if ((src.project_path || '') !== groupKey) {
+    src.project_path = groupKey;
+    await window.pywebview.api.move_conversation_to_project(srcId, groupKey);
+  }
+  state.conversations.splice(state.conversations.indexOf(src), 1);
+  state.conversations.push(src);  // 移到末尾，regroup 后即为该组组内末位
+  _regroupContiguous(groupOrder);
+  renderConvList(searchInput.value);
+  await window.pywebview.api.reorder_conversations(state.conversations.map(c => c.id));
 }
 
 function renderConvList(filter = '') {
@@ -358,6 +450,21 @@ function renderConvList(filter = '') {
     header.addEventListener('click', () => {
       state.collapsedGroups[path] = !state.collapsedGroups[path];
       renderConvList(searchInput.value);
+    });
+    // 组标题作为投放目标：拖会话到组头=归入该组（折叠组也可投放）
+    header.addEventListener('dragover', e => {
+      if (!state.dragSrcId) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      _clearDropIndicators();
+      header.classList.add('cg-drop-target');
+    });
+    header.addEventListener('dragleave', () => header.classList.remove('cg-drop-target'));
+    header.addEventListener('drop', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      _clearDropIndicators();
+      _handleHeaderDrop(path);
     });
     group.appendChild(header);
 
@@ -1667,7 +1774,7 @@ $('btn-skill-del').addEventListener('click', async () => {
   $('skill-content').value = '';
   await refreshSkillList();
 });
-document.addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('drag-over'); });
+document.addEventListener('dragover', e => { e.preventDefault(); if (state.dragSrcId) return; document.body.classList.add('drag-over'); });
 document.addEventListener('dragleave', e => { if (e.relatedTarget === null) document.body.classList.remove('drag-over'); });
 document.addEventListener('drop', async e => {
   e.preventDefault();

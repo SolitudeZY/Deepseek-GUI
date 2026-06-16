@@ -135,6 +135,21 @@ pre, code,
 }
 .conv-group-items { list-style: none; margin: 0; padding: 0; }
 
+/* ── 拖拽排序视觉反馈 ── */
+#conv-list li.dragging { opacity: 0.4; }
+#conv-list li.drop-before::before,
+#conv-list li.drop-after::after {
+  content: ''; position: absolute; left: 6px; right: 6px; height: 2px;
+  background: var(--accent); border-radius: 2px;
+  box-shadow: 0 0 6px var(--accent);
+}
+#conv-list li.drop-before::before { top: -1px; }
+#conv-list li.drop-after::after { bottom: -1px; }
+.conv-group-header.cg-drop-target {
+  background: var(--glow-accent); color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 /* ── 主页（项目选择）── */
 #home-view {
   position: absolute; inset: 0; z-index: 5;

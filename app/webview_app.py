@@ -262,6 +262,16 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         return {'path': path, 'name': name,
                 'exists': Path(path).expanduser().is_dir()}
 
+    def move_conversation_to_project(self, conv_id: str, project_path: str = '') -> None:
+        """拖拽跨组归类：直接写入会话 project_path（空串=未分类），**不弹文件夹对话框**。
+        区别于 set_conversation_project（空 path 会弹 FOLDER 对话框，用于失效重设）。
+        非空路径顺带加入 recent_projects。调用方须先 await 本方法再调
+        reorder_conversations（两者均做整文件 load→改→save，并发会相互覆盖字段）。"""
+        path = (project_path or '').strip()
+        set_conversation_project(conv_id, path)
+        if path:
+            self._add_recent_project(path, Path(path).name or path)
+
     def reorder_conversations(self, ids: list) -> None:
         update_sort_orders(ids)
 
