@@ -179,6 +179,9 @@ pre, code,
 .project-missing-banner code {
   background: var(--code-bg); padding: 1px 5px; border-radius: 3px; word-break: break-all;
 }
+.project-missing-banner .btn-reset-project {
+  margin-left: 10px; font-size: 12px; padding: 3px 10px; vertical-align: middle;
+}
 /* Search keyword highlight in chat */
 mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; border-radius: 2px; padding: 0 1px; }
 #sidebar-bottom { padding: 6px 8px 10px; }
