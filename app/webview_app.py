@@ -67,7 +67,27 @@ def get_static_dir() -> Path:
 
 
 def get_html_path() -> str:
-    return str(get_static_dir() / 'index.html')
+    """返回要加载的 index.html 路径。
+
+    为彻底规避 WebView2 对 app.js/style.css 的持久化缓存（private_mode=False），
+    每次启动用当前时间戳重写所有 `?v=...` 缓存破坏参数，写入同目录的临时
+    HTML 文件再加载。相对资源路径（vendor/、app.js）仍相对该目录解析，不受影响。
+    """
+    import re as _re
+    import time as _time
+    static = get_static_dir()
+    src = static / 'index.html'
+    try:
+        html = src.read_text(encoding='utf-8')
+        stamp = str(int(_time.time()))
+        # 把 ?v=xxxx 统一替换成启动时间戳；没有的资源不动
+        html = _re.sub(r'\?v=[0-9A-Za-z]+', f'?v={stamp}', html)
+        out = static / '_index.runtime.html'
+        out.write_text(html, encoding='utf-8')
+        return str(out)
+    except Exception:
+        # 任何异常都回退到原始文件，保证可启动
+        return str(src)
 
 
 class API:
