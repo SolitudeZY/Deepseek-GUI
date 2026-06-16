@@ -40,7 +40,7 @@ if __name__ == "__main__":
     patch_http_root()
 
     # macOS: pywebview uses WebKit (cocoa); no private_mode param needed
-    start_kwargs = {"debug": True}
+    start_kwargs = {"debug": False}
     if os.path.exists(icon_path):
         start_kwargs["icon"] = icon_path
     if platform.system() == "Windows":
