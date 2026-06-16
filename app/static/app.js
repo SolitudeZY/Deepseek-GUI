@@ -305,44 +305,164 @@ function _makeConvLi(conv, idx) {
   actions.appendChild(btnDel);
   li.appendChild(actions);
 
-  li.addEventListener('click', () => openConversation(conv.id));
+  li.addEventListener('click', () => {
+    // 刚结束一次拖拽时抑制点击（mouseup 与 click 会连续触发）
+    if (_drag.justDragged) { _drag.justDragged = false; return; }
+    openConversation(conv.id);
+  });
 
-  // Drag sort（id-based：跨组重排后索引会变，必须用 id 追踪）
-  li.draggable = true;
-  li.addEventListener('dragstart', e => {
-    state.dragSrcId = conv.id;
-    e.dataTransfer.effectAllowed = 'move';
-    li.classList.add('dragging');
-  });
-  li.addEventListener('dragend', () => {
-    li.classList.remove('dragging');
-    _clearDropIndicators();
-    state.dragSrcId = null;
-  });
-  li.addEventListener('dragover', e => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (!state.dragSrcId || state.dragSrcId === conv.id) return;
-    const r = li.getBoundingClientRect();
-    const before = (e.clientY - r.top) < r.height / 2;
-    _clearDropIndicators();
-    li.classList.add(before ? 'drop-before' : 'drop-after');
-  });
-  li.addEventListener('drop', e => {
-    e.preventDefault();
-    e.stopPropagation();  // 不冒泡到 document 的文件拖放处理
-    const r = li.getBoundingClientRect();
-    const before = (e.clientY - r.top) < r.height / 2;
-    _clearDropIndicators();
-    _handleConvDrop(conv.id, before);
+  // 手动拖拽排序：WebView2 对 HTML5 原生拖放（draggable/dragstart/drop）支持不可靠
+  // （与 CSS transition 失效同源，见 memory css-transition-bug），改用 mouse 事件实现。
+  li.draggable = false;
+  // ⚠ 关键：阻止 WebView2 启动原生拖放。否则 mousedown 后浏览器接管为原生 drag，
+  // mousemove 停止触发（变成 dragover），手动引擎收不到移动 → 只剩「禁止」光标+拖影。
+  // 注意不能在 mousedown 上 preventDefault（会连带阻止 click，单击就打不开会话了），
+  // 只在 dragstart 上挡；文本选中触发的拖放由 CSS user-select/-webkit-user-drag 兜底。
+  li.addEventListener('dragstart', e => e.preventDefault());
+  li.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;            // 仅左键
+    if (e.target.closest('.conv-actions')) return;  // 点重命名/删除按钮不触发拖拽
+    _beginDragCandidate(conv.id, li, e);
   });
   return li;
 }
 
-// 清除所有拖拽插入指示
+// ── 手动拖拽引擎（鼠标事件，不依赖原生 HTML5 拖放）─────────────────
+const _drag = {
+  active: false,      // 是否已越过阈值进入拖拽
+  srcId: null,        // 被拖会话 id
+  srcLi: null,        // 被拖会话原 DOM
+  startX: 0, startY: 0,
+  ghost: null,        // 跟随鼠标的浮动元素
+  offX: 0, offY: 0,   // 鼠标在 ghost 内的偏移
+  drop: null,         // 当前落点 {targetId, before} 或 {headerGroup}
+  justDragged: false, // 供 click 处理判断是否抑制
+};
+const _DRAG_THRESHOLD = 4;  // px，超过才算拖拽（区分点击）
+
+// 常驻拦截：拖拽候选/进行中时，一律阻止 WebView2 启动任何原生拖放（文本选区/元素），
+// 否则原生 drag 抢占后 mousemove 停发，手动引擎失效（表现为禁止光标+原生拖影、无幽灵块）。
+document.addEventListener('dragstart', e => {
+  if (_drag.srcId) e.preventDefault();
+}, true);
+
+let _dragPlaceholder = null;
+function _getPlaceholder() {
+  if (!_dragPlaceholder) {
+    _dragPlaceholder = document.createElement('li');
+    _dragPlaceholder.className = 'conv-placeholder';
+  }
+  const src = _convById(_drag.srcId);
+  _dragPlaceholder.textContent = src ? src.title : '';
+  return _dragPlaceholder;
+}
+
+// mousedown：记录候选，等待移动越过阈值
+function _beginDragCandidate(convId, li, e) {
+  _drag.justDragged = false;  // 复位，避免上次拖拽残留误抑制本次点击
+  _drag.srcId = convId;
+  _drag.srcLi = li;
+  _drag.startX = e.clientX;
+  _drag.startY = e.clientY;
+  _drag.active = false;
+  document.addEventListener('mousemove', _onDragMove);
+  document.addEventListener('mouseup', _onDragUp);
+}
+
+function _activateDrag(e) {
+  _drag.active = true;
+  state.dragSrcId = _drag.srcId;
+  _drag.srcLi.classList.add('dragging');
+  document.body.classList.add('conv-dragging');  // 全局禁选中
+  // 创建跟随鼠标的浮动幽灵
+  const r = _drag.srcLi.getBoundingClientRect();
+  const ghost = document.createElement('div');
+  ghost.className = 'conv-drag-ghost';
+  ghost.textContent = _drag.srcLi.textContent.replace(/[✏🗑]/g, '').trim();
+  ghost.style.width = r.width + 'px';
+  document.body.appendChild(ghost);
+  _drag.ghost = ghost;
+  _drag.offX = e.clientX - r.left;
+  _drag.offY = e.clientY - r.top;
+}
+
+function _onDragMove(e) {
+  if (!_drag.srcId) return;
+  if (!_drag.active) {
+    if (Math.abs(e.clientX - _drag.startX) < _DRAG_THRESHOLD &&
+        Math.abs(e.clientY - _drag.startY) < _DRAG_THRESHOLD) return;
+    _activateDrag(e);
+  }
+  e.preventDefault();
+  // 移动浮动幽灵
+  _drag.ghost.style.left = (e.clientX - _drag.offX) + 'px';
+  _drag.ghost.style.top  = (e.clientY - _drag.offY) + 'px';
+  _updateDropTarget(e.clientX, e.clientY);
+}
+
+// 根据鼠标位置决定落点并插入占位块（挤开其他会话）
+function _updateDropTarget(x, y) {
+  // 命中点下方的元素（ghost 设了 pointer-events:none 不会挡）
+  const el = document.elementFromPoint(x, y);
+  if (!el) return;
+  const header = el.closest('.conv-group-header');
+  if (header) {
+    const path = header._groupKey || '';
+    _drag.drop = { headerGroup: path };
+    convList.querySelectorAll('.cg-drop-target').forEach(h => h.classList.remove('cg-drop-target'));
+    header.classList.add('cg-drop-target');
+    if (_dragPlaceholder && _dragPlaceholder.parentNode) _dragPlaceholder.remove();
+    return;
+  }
+  const li = el.closest('#conv-list li:not(.conv-placeholder)');
+  if (li && li.dataset.id && li.dataset.id !== _drag.srcId) {
+    const r = li.getBoundingClientRect();
+    const before = (y - r.top) < r.height / 2;
+    _drag.drop = { targetId: li.dataset.id, before };
+    _showPlaceholderAt(li, before);
+  }
+}
+
+// 把占位块插到 li 之前/之后
+function _showPlaceholderAt(li, before) {
+  convList.querySelectorAll('.cg-drop-target')
+    .forEach(el => el.classList.remove('cg-drop-target'));
+  const ph = _getPlaceholder();
+  const ref = before ? li : li.nextSibling;
+  if (ref === ph) return;
+  if (li.nextSibling === ph && !before) return;
+  li.parentNode.insertBefore(ph, ref);
+}
+
+function _onDragUp() {
+  document.removeEventListener('mousemove', _onDragMove);
+  document.removeEventListener('mouseup', _onDragUp);
+  const wasActive = _drag.active;
+  const drop = _drag.drop;
+  // 复位拖拽态
+  if (_drag.srcLi) _drag.srcLi.classList.remove('dragging');
+  if (_drag.ghost) _drag.ghost.remove();
+  document.body.classList.remove('conv-dragging');
+  _clearDropIndicators();
+  _drag.active = false; _drag.ghost = null; _drag.drop = null;
+  _drag.srcId = null; _drag.srcLi = null;
+
+  if (!wasActive) { state.dragSrcId = null; return; }  // 未越阈值=普通点击，交给 click
+  _drag.justDragged = true;  // 抑制随后的 click
+  if (drop && drop.headerGroup !== undefined) {
+    _handleHeaderDrop(drop.headerGroup);
+  } else if (drop && drop.targetId) {
+    _handleConvDrop(drop.targetId, drop.before);
+  } else {
+    state.dragSrcId = null;
+  }
+}
+
+// 清除占位块与组标题高亮
 function _clearDropIndicators() {
-  convList.querySelectorAll('.drop-before, .drop-after, .cg-drop-target')
-    .forEach(el => el.classList.remove('drop-before', 'drop-after', 'cg-drop-target'));
+  if (_dragPlaceholder && _dragPlaceholder.parentNode) _dragPlaceholder.remove();
+  convList.querySelectorAll('.cg-drop-target')
+    .forEach(el => el.classList.remove('cg-drop-target'));
 }
 
 const _convById = id => state.conversations.find(c => c.id === id);
@@ -451,21 +571,8 @@ function renderConvList(filter = '') {
       state.collapsedGroups[path] = !state.collapsedGroups[path];
       renderConvList(searchInput.value);
     });
-    // 组标题作为投放目标：拖会话到组头=归入该组（折叠组也可投放）
-    header.addEventListener('dragover', e => {
-      if (!state.dragSrcId) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      _clearDropIndicators();
-      header.classList.add('cg-drop-target');
-    });
-    header.addEventListener('dragleave', () => header.classList.remove('cg-drop-target'));
-    header.addEventListener('drop', e => {
-      e.preventDefault();
-      e.stopPropagation();
-      _clearDropIndicators();
-      _handleHeaderDrop(path);
-    });
+    // 供手动拖拽 _updateDropTarget 命中组标题时读取目标组（拖到组头=归入该组）
+    header._groupKey = path;
     group.appendChild(header);
 
     if (!collapsed) {

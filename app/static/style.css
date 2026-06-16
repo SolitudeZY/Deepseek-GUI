@@ -93,6 +93,7 @@ pre, code,
   overflow: hidden;
   text-overflow: ellipsis;
   user-select: none;
+  -webkit-user-drag: none;  /* 阻止 WebView2 把会话项当原生可拖拽对象（否则手动拖拽失效，只剩禁止光标）*/
   position: relative;
   transform: translateX(0);
   border-left: 3px solid transparent;
@@ -136,18 +137,37 @@ pre, code,
 .conv-group-items { list-style: none; margin: 0; padding: 0; }
 
 /* ── 拖拽排序视觉反馈 ── */
-#conv-list li.dragging { opacity: 0.4; }
-#conv-list li.drop-before::before,
-#conv-list li.drop-after::after {
-  content: ''; position: absolute; left: 6px; right: 6px; height: 2px;
-  background: var(--accent); border-radius: 2px;
-  box-shadow: 0 0 6px var(--accent);
+#conv-list li.dragging { opacity: 0.35; }
+/* 占位幽灵块：显示被拖会话即将落入的位置，挤开其他会话腾出空间。
+   默认即为可见满高度——不依赖 .show / 过渡是否生效（WebView2 下二者都可能失效，
+   见 memory css-transition-bug），保证「插入即可见、即挤开」。 */
+#conv-list li.conv-placeholder {
+  cursor: grabbing;
+  color: var(--accent);
+  background: var(--glow-accent);
+  border: 1px dashed var(--accent);
+  border-left: 3px solid var(--accent);
+  box-shadow: inset 0 0 12px var(--glow-accent);
+  padding-top: 7px; padding-bottom: 7px;
+  opacity: 0.95;
+  overflow: hidden;
 }
-#conv-list li.drop-before::before { top: -1px; }
-#conv-list li.drop-after::after { bottom: -1px; }
 .conv-group-header.cg-drop-target {
   background: var(--glow-accent); color: var(--text);
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+/* 拖拽中：禁止文本选中（手动拖拽用鼠标事件，避免误选会话标题） */
+body.conv-dragging, body.conv-dragging * { user-select: none !important; cursor: grabbing !important; }
+/* 跟随鼠标的浮动幽灵：显示正在拖拽的会话 */
+.conv-drag-ghost {
+  position: fixed; z-index: 9999; pointer-events: none;
+  padding: 7px 10px; border-radius: var(--radius);
+  font-size: 13px; color: var(--text);
+  background: var(--bg3);
+  border-left: 3px solid var(--accent);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.45), 0 0 0 1px var(--accent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0.92;
 }
 
 /* ── 主页（项目选择）── */

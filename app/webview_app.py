@@ -66,12 +66,57 @@ def get_static_dir() -> Path:
     return base / 'static'
 
 
-def get_html_path() -> str:
-    """返回要加载的 index.html 路径。
+def patch_http_root() -> None:
+    """规避 pywebview 6.x 的一个 bug：内部 Bottle server 把 `asset(file)` 同时注册到
+    `/` 和 `/<file:path>`，但裸 `/` 请求不带 `file` 参数 → `TypeError: asset() missing
+    'file'` → 每次有人请求根路径（favicon 重定向、DevTools 探测等）都刷一条 500。
 
-    为彻底规避 WebView2 对 app.js/style.css 的持久化缓存（private_mode=False），
-    每次启动用当前时间戳重写所有 `?v=...` 缓存破坏参数，写入同目录的临时
-    HTML 文件再加载。相对资源路径（vendor/、app.js）仍相对该目录解析，不受影响。
+    不改 site-packages 库文件（升级即失效、污染其他项目）。改为 monkeypatch
+    `bottle.run`：在它真正启动 server 前，把传入 app 里 rule 为 `/` 的路由回调包一层，
+    给 `file` 默认值（指向首页），裸 `/` 即回退到首页而非 500。与 pywebview 版本无关。
+    """
+    try:
+        import bottle as _bottle
+    except Exception:
+        return
+    if getattr(_bottle, '_qm_root_patched', False):
+        return
+    _orig_run = _bottle.run
+
+    def _patched_run(*args, **kwargs):
+        app = kwargs.get('app') or (args[0] if args else None)
+        try:
+            routes = getattr(app, 'routes', None) or []
+            for r in routes:
+                if r.rule == '/' and not getattr(r, '_qm_fixed', False):
+                    _orig_cb = r.callback
+
+                    def _make(cb):
+                        def _wrapped(file='_index.runtime.html'):
+                            return cb(file)
+                        return _wrapped
+
+                    r.callback = _make(_orig_cb)
+                    r._qm_fixed = True
+                    if hasattr(r, 'reset'):
+                        r.reset()
+        except Exception:
+            pass  # 补丁失败不影响启动，最多保留原 500 噪音
+        return _orig_run(*args, **kwargs)
+
+    _bottle.run = _patched_run
+    _bottle._qm_root_patched = True
+
+
+def get_html_path() -> str:
+    """返回要加载的 index.html 路径（启动时生成 _index.runtime.html）。
+
+    **自动缓存破坏**：WebView2（private_mode=False）对本地 css/js 缓存很顽固。
+    本函数在启动时扫描 index.html 里所有本地 .css/.js 引用（app.js、style.css、
+    vendor/*），按各文件的修改时间（mtime）注入 `?v=<mtime>` 缓存破坏戳——
+    **无需在 HTML 里手动维护版本号**。mtime 仅在文件真正改动时变化，因此：
+    文件没改→戳不变→正常命中缓存；文件一改→戳变→自动拉新。找不到文件的引用
+    回退到启动时间戳。原 HTML 里写不写 `?v=...` 都行，一律被本函数覆盖。
     """
     import re as _re
     import time as _time
@@ -79,9 +124,28 @@ def get_html_path() -> str:
     src = static / 'index.html'
     try:
         html = src.read_text(encoding='utf-8')
-        stamp = str(int(_time.time()))
-        # 把 ?v=xxxx 统一替换成启动时间戳；没有的资源不动
-        html = _re.sub(r'\?v=[0-9A-Za-z]+', f'?v={stamp}', html)
+        startup_stamp = str(int(_time.time()))
+
+        def _stamp_for(rel_path: str) -> str:
+            # rel_path 形如 app.js / style.css / vendor/katex.min.js
+            try:
+                f = (static / rel_path).resolve()
+                if f.is_file():
+                    return str(int(f.stat().st_mtime))
+            except Exception:
+                pass
+            return startup_stamp
+
+        # 匹配 src="xxx.js" / href="xxx.css"，可带或不带已有的 ?v=...，统一改写
+        def _repl(m: 're.Match') -> str:
+            attr, path = m.group('attr'), m.group('path')
+            return f'{attr}="{path}?v={_stamp_for(path)}"'
+
+        pattern = _re.compile(
+            r'(?P<attr>\b(?:src|href))="(?P<path>[^":?]+\.(?:js|css))(?:\?v=[^"]*)?"'
+        )
+        html = pattern.sub(_repl, html)
+
         out = static / '_index.runtime.html'
         out.write_text(html, encoding='utf-8')
         return str(out)
