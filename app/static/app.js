@@ -443,6 +443,16 @@ async function openConversation(convId) {
   // Re-apply content search results so the list doesn't disappear
   if (kw) _runContentSearch(kw);
   loadHistory(conv.messages || []);
+  // 项目目录在本机不存在时提示（多为跨机器同步导致的绝对路径失效）
+  if (conv.project_path && conv.project_exists === false) {
+    const banner = document.createElement('div');
+    banner.className = 'project-missing-banner';
+    banner.innerHTML = `⚠ 该会话绑定的项目目录在本机不存在：<code>${escapeHtml(conv.project_path)}</code>`
+                     + `<br>模型读写文件/执行命令可能失败。`
+                     + `<button class="btn-reset-project btn-secondary">重设目录</button>`;
+    banner.querySelector('.btn-reset-project').addEventListener('click', () => resetConversationProject(convId));
+    chatMessages.insertBefore(banner, chatMessages.firstChild);
+  }
   // If this conversation is currently streaming, re-attach all stream nodes
   if (_streamingConvId === convId && _streamNodes.length > 0) {
     _streamNodes.forEach(node => chatMessages.appendChild(node));
@@ -457,6 +467,19 @@ async function openConversation(convId) {
   if (kw) {
     requestAnimationFrame(() => _highlightAndScrollTo(kw));
   }
+}
+
+// 重设会话绑定的项目目录（用于修复跨机器同步导致的失效路径）
+async function resetConversationProject(convId) {
+  if (!confirm('重新选择本机的项目目录？\n\n注意：项目目录在系统提示中，重设后下一条消息会重新计算一次上下文（一次性变慢/变贵），之后恢复正常缓存。')) return;
+  const r = await window.pywebview.api.set_conversation_project(convId, '');
+  if (!r || r.cancelled) return;
+  // 更新本地会话的 project_path，使侧边栏重新分组
+  const c = state.conversations.find(x => x.id === convId);
+  if (c) c.project_path = r.path;
+  renderConvList(searchInput.value);
+  // 若当前正打开此会话，重新加载以移除失效 banner
+  if (state.currentConvId === convId) await openConversation(convId);
 }
 
 function _highlightAndScrollTo(keyword) {

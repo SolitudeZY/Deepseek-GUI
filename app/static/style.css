@@ -167,6 +167,18 @@ pre, code,
   transition: background 0.15s;
 }
 .home-conv-item:hover { background: var(--bg3); }
+.home-project-card.hp-missing { opacity: 0.7; border-style: dashed; }
+.home-project-card .hp-warn {
+  font-size: 11px; color: var(--danger); margin-left: 8px; font-weight: normal;
+}
+.project-missing-banner {
+  margin: 0 16px 12px; padding: 10px 14px;
+  background: var(--error-bubble); border: 1px solid var(--danger);
+  border-radius: var(--radius); color: var(--text); font-size: 12px; line-height: 1.6;
+}
+.project-missing-banner code {
+  background: var(--code-bg); padding: 1px 5px; border-radius: 3px; word-break: break-all;
+}
 /* Search keyword highlight in chat */
 mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; border-radius: 2px; padding: 0 1px; }
 #sidebar-bottom { padding: 6px 8px 10px; }

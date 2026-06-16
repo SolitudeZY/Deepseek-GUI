@@ -15,7 +15,7 @@ from app.conversation import (
     new_conversation, save_conversation, load_conversation,
     delete_conversation, rename_conversation, list_conversations,
     update_sort_orders, auto_title_from_message, export_conversation_md,
-    import_conversation_from_file,
+    import_conversation_from_file, set_conversation_project,
 )
 from app.sync import (
     upload_conversation, upload_all_conversations,
@@ -242,6 +242,25 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def rename_conversation(self, conv_id: str, title: str) -> None:
         rename_conversation(conv_id, title)
+
+    def set_conversation_project(self, conv_id: str, project_path: str = '') -> dict:
+        """重设会话绑定的项目目录。project_path 为空则弹文件夹对话框选择。
+
+        返回 {path, name, exists}；用户取消选择时返回 {cancelled: True}。
+        注意：项目目录在系统提示词前缀中，改动会使该会话的 prompt 缓存失效一次
+        （下一条消息重算上下文），之后用新路径正常命中。
+        """
+        path = (project_path or '').strip()
+        if not path:
+            result = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+            if not result:
+                return {'cancelled': True}
+            path = result[0] if isinstance(result, (list, tuple)) else result
+        set_conversation_project(conv_id, path)
+        name = Path(path).name or path
+        self._add_recent_project(path, name)
+        return {'path': path, 'name': name,
+                'exists': Path(path).expanduser().is_dir()}
 
     def reorder_conversations(self, ids: list) -> None:
         update_sort_orders(ids)
