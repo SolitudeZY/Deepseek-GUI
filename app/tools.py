@@ -47,8 +47,25 @@ MAX_FILE_CHARS = 50_000
 
 # ── 工具实现 ──────────────────────────────────────────────────────────
 
-def read_file(path: str) -> str:
+def _resolve(path: str, cwd: str = "") -> Path:
+    """将路径解析为基于项目目录 cwd 的绝对路径。
+
+    - 绝对路径（含 Windows 盘符、~ 展开后）：原样使用，不受 cwd 影响。
+    - 相对路径 + 提供了 cwd：相对于 cwd 解析（项目目录）。
+    - 相对路径 + 无 cwd：回退进程默认目录（向后兼容）。
+    """
     p = Path(path).expanduser()
+    if p.is_absolute():
+        return p
+    if cwd:
+        base = Path(cwd).expanduser()
+        if base.is_dir():
+            return base / p
+    return p
+
+
+def read_file(path: str, cwd: str = "") -> str:
+    p = _resolve(path, cwd)
     if not p.exists():
         return f"错误：文件不存在 — {path}"
     if not p.is_file():
@@ -111,8 +128,8 @@ def _truncate(text: str, path: str) -> str:
     return text
 
 
-def list_directory(path: str) -> str:
-    p = Path(path).expanduser()
+def list_directory(path: str, cwd: str = "") -> str:
+    p = _resolve(path, cwd) if path else (Path(cwd).expanduser() if cwd else Path(path).expanduser())
     if not p.exists():
         return f"错误：路径不存在 — {path}"
     if not p.is_dir():
@@ -129,9 +146,11 @@ def list_directory(path: str) -> str:
         return f"错误：无权限访问 — {path}"
 
 
-def glob_files(pattern: str, path: str = ".") -> str:
+def glob_files(pattern: str, path: str = ".", cwd: str = "") -> str:
     """Match files by glob pattern, sorted by modification time (newest first)."""
     import glob as _glob
+    # path 为相对路径时以项目目录 cwd 为基准
+    path = str(_resolve(path, cwd))
     # 若 pattern 本身是绝对路径，拆出锚点目录作为 base，pattern 转成相对部分
     pat = (pattern or "").replace("\\", "/")
     pp = Path(pat)
@@ -224,10 +243,10 @@ def generate_image_tool(prompt: str, size: str = "1024x1024", vision_config: dic
 
 
 def grep_files(pattern: str, path: str = ".", file_type: str = "",
-               multiline: bool = False, max_results: int = 50) -> str:
+               multiline: bool = False, max_results: int = 50, cwd: str = "") -> str:
     """Search file contents by regex pattern."""
     import re as _re
-    base = Path(path).expanduser().resolve()
+    base = _resolve(path, cwd).resolve()
     if not base.exists():
         return f"错误：路径不存在 — {path}"
 
@@ -282,7 +301,7 @@ def grep_files(pattern: str, path: str = ".", file_type: str = "",
     return output
 
 
-def run_command(command: str, timeout: int = 30, stop_flag=None) -> str:
+def run_command(command: str, timeout: int = 30, stop_flag=None, cwd: str = "") -> str:
     import time, threading, platform
 
     try:
@@ -294,12 +313,19 @@ def run_command(command: str, timeout: int = 30, stop_flag=None) -> str:
             # macOS / Linux: use bash
             shell_cmd = ["/bin/bash", "-c", command]
 
+        run_cwd = None
+        if cwd:
+            _b = Path(cwd).expanduser()
+            if _b.is_dir():
+                run_cwd = str(_b)
+
         proc = subprocess.Popen(
             shell_cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
             creationflags=creationflags,
+            cwd=run_cwd,
         )
 
         result_holder = {}
@@ -685,9 +711,9 @@ def web_read(url: str, max_chars: int = 20000) -> str:
         return f"读取失败：{e}"
 
 
-def write_file(path: str, content: str) -> str:
+def write_file(path: str, content: str, cwd: str = "") -> str:
     try:
-        p = Path(path).expanduser().resolve()
+        p = _resolve(path, cwd).resolve()
         is_new = not p.exists()
         old_lines = 0
         if not is_new:
@@ -712,7 +738,7 @@ def write_file(path: str, content: str) -> str:
         return f"写入失败：{e}"
 
 
-def apply_patch(patch: str) -> str:
+def apply_patch(patch: str, cwd: str = "") -> str:
     """Apply a unified diff patch to one or more files."""
     import re as _re
 
@@ -745,7 +771,7 @@ def apply_patch(patch: str) -> str:
             results.append(f"跳过：无法解析文件路径")
             continue
 
-        target = Path(dst_path).expanduser()
+        target = _resolve(dst_path, cwd)
         if target.exists():
             original = target.read_text(encoding="utf-8", errors="replace").split('\n')
         else:
@@ -979,24 +1005,25 @@ TOOLS_SCHEMA = [
 CONFIRM_REQUIRED = {"run_command", "write_file", "apply_patch"}
 
 
-def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: int = 30, stop_flag=None, vision_config: dict = None) -> str:
-    """执行工具调用，返回字符串结果。"""
+def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: int = 30, stop_flag=None, vision_config: dict = None, cwd: str = "") -> str:
+    """执行工具调用，返回字符串结果。cwd 为项目目录，相对路径以此为基准。"""
     if tool_name == "read_file":
-        return read_file(args.get("path", ""))
+        return read_file(args.get("path", ""), cwd=cwd)
     elif tool_name == "analyze_image":
         return analyze_image(args.get("path", ""), args.get("question", ""), vision_config=vision_config)
     elif tool_name == "generate_image":
         return generate_image_tool(args.get("prompt", ""), args.get("size", "1024x1024"), vision_config=vision_config)
     elif tool_name == "list_directory":
-        return list_directory(args.get("path", ""))
+        return list_directory(args.get("path", ""), cwd=cwd)
     elif tool_name == "glob_files":
-        return glob_files(args.get("pattern", ""), args.get("path", "."))
+        return glob_files(args.get("pattern", ""), args.get("path", "."), cwd=cwd)
     elif tool_name == "grep_files":
         return grep_files(
             args.get("pattern", ""), args.get("path", "."),
             file_type=args.get("file_type", ""),
             multiline=args.get("multiline", False),
             max_results=args.get("max_results", 50),
+            cwd=cwd,
         )
     elif tool_name == "web_search":
         sc = search_config or {}
@@ -1009,10 +1036,10 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
     elif tool_name == "web_read":
         return web_read(args.get("url", ""))
     elif tool_name == "run_command":
-        return run_command(args.get("command", ""), args.get("timeout", timeout), stop_flag=stop_flag)
+        return run_command(args.get("command", ""), args.get("timeout", timeout), stop_flag=stop_flag, cwd=cwd)
     elif tool_name == "write_file":
-        return write_file(args.get("path", ""), args.get("content", ""))
+        return write_file(args.get("path", ""), args.get("content", ""), cwd=cwd)
     elif tool_name == "apply_patch":
-        return apply_patch(args.get("patch", ""))
+        return apply_patch(args.get("patch", ""), cwd=cwd)
     else:
         return f"未知工具：{tool_name}"

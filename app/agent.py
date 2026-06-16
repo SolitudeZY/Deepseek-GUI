@@ -77,10 +77,12 @@ class Agent:
         compact_threshold: int = 0,
         context_length: int = 0,
         vision_config: dict = None,
+        project_path: str = "",
     ):
         self.model = model
         self.search_config = search_config or {}
         self.vision_config = vision_config or {}
+        self.project_path = project_path or ""
         self.command_safety = command_safety
         self.command_timeout = command_timeout
         self.thinking = thinking  # "off" | "high" | "max"
@@ -101,24 +103,38 @@ class Agent:
 
         # Build stable system prompt with skill index (appended once, never changes
         # per-round, so the prefix stays cache-friendly).
-        self.system_prompt = self._build_system_prompt(system_prompt)
+        self.system_prompt = self._build_system_prompt(system_prompt, project_path)
 
         # Tool dispatch registry (replaces if-elif chain)
         self._tool_handlers = self._build_tool_handlers()
 
     @staticmethod
-    def _build_system_prompt(base_prompt: str) -> str:
+    def _build_system_prompt(base_prompt: str, project_path: str = "") -> str:
         """Append environment info and skill index to system prompt.
 
         The index is built once at agent creation. Because it's part of the system
         message (always the first message), it forms a stable prefix that DeepSeek
         can cache across rounds.
         """
+        import os
         import platform
         # Inject environment context so the model knows tools run on user's machine
+        if project_path:
+            cwd_line = (
+                f"当前项目目录：{project_path}\n"
+                "除非用户用绝对路径另行指定，read_file/write_file/run_command 等工具的相对路径"
+                "都以此项目目录为基准，命令也默认在此目录下执行。请将新文件写入该项目目录，"
+                "不要写到其他位置。\n"
+            )
+        else:
+            cwd_line = (
+                f"当前工作目录：{os.getcwd()}\n"
+                "本会话未绑定项目目录，相对路径以此工作目录为基准。\n"
+            )
         env_block = (
             "\n\n<environment>\n"
             f"操作系统：{platform.system()} {platform.release()}\n"
+            f"{cwd_line}"
             "你拥有的工具（如 run_command、read_file、write_file 等）直接在用户的本地电脑上执行，"
             "而非沙箱或远程环境。你可以直接操作用户的文件系统和运行命令。\n"
             "</environment>"
@@ -625,15 +641,15 @@ class Agent:
                     elif self.command_safety in ("confirm", "auto_countdown"):
                         if not is_command_allowed(args.get("command", "")):
                             allowed = cb.on_confirm(tool_name, args)
-                            result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config)
+                            result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config, cwd=self.project_path)
                                       if allowed else f"用户拒绝执行工具：{tool_name}")
                         else:
-                            result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config)
+                            result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config, cwd=self.project_path)
                     else:
                         # auto mode — execute directly
-                        result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config)
+                        result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config, cwd=self.project_path)
                 else:
-                    result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config)
+                    result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config, cwd=self.project_path)
 
             if tool_name == "todo_write":
                 used_todo = True

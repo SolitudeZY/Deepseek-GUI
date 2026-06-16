@@ -191,6 +191,7 @@ let state = {
   attachedFiles: [],   // [{name, path, content}]
   dragSrcIdx: null,
   selectedMcIdx: null,
+  collapsedGroups: {},  // { [project_path]: true } 折叠状态
 };
 
 // ── DOM refs ──────────────────────────────────────────────────────
@@ -275,57 +276,99 @@ modelSelect.addEventListener('change', async () => {
 });
 
 // ── Conversation list ─────────────────────────────────────────────
+function _makeConvLi(conv, idx) {
+  const li = document.createElement('li');
+  li.dataset.id = conv.id;
+  li.dataset.idx = idx;
+  if (conv.id === state.currentConvId) {
+    li.classList.add('active');
+    li.style.borderLeftColor = _randomConvColor();
+    li.style.boxShadow = `inset 4px 0 0 ${li.style.borderLeftColor}, 0 0 12px ${li.style.borderLeftColor}33`;
+  }
+
+  const titleSpan = document.createElement('span');
+  titleSpan.textContent = conv.title;
+  titleSpan.style.flex = '1';
+  li.appendChild(titleSpan);
+
+  const actions = document.createElement('div');
+  actions.className = 'conv-actions';
+  const btnRename = document.createElement('button');
+  btnRename.textContent = '✏';
+  btnRename.title = '重命名';
+  btnRename.addEventListener('click', e => { e.stopPropagation(); showRenameDialog(conv.id, conv.title); });
+  const btnDel = document.createElement('button');
+  btnDel.textContent = '🗑';
+  btnDel.title = '删除';
+  btnDel.addEventListener('click', e => { e.stopPropagation(); deleteConversation(conv.id); });
+  actions.appendChild(btnRename);
+  actions.appendChild(btnDel);
+  li.appendChild(actions);
+
+  li.addEventListener('click', () => openConversation(conv.id));
+
+  // Drag sort
+  li.draggable = true;
+  li.addEventListener('dragstart', e => { state.dragSrcIdx = idx; e.dataTransfer.effectAllowed = 'move'; });
+  li.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+  li.addEventListener('drop', e => {
+    e.preventDefault();
+    if (state.dragSrcIdx === null || state.dragSrcIdx === idx) return;
+    const moved = state.conversations.splice(state.dragSrcIdx, 1)[0];
+    state.conversations.splice(idx, 0, moved);
+    state.dragSrcIdx = null;
+    renderConvList(searchInput.value);
+    window.pywebview.api.reorder_conversations(state.conversations.map(c => c.id));
+  });
+  return li;
+}
+
 function renderConvList(filter = '') {
   convList.innerHTML = '';
   const kw = filter.toLowerCase();
+
+  // 按 project_path 分组（保持 state.conversations 的全局顺序）
+  const groups = new Map();  // path -> [{conv, idx}]
   state.conversations.forEach((conv, idx) => {
-    if (kw && !conv.title.toLowerCase().includes(kw)) return;
-    const li = document.createElement('li');
-    li.dataset.id = conv.id;
-    li.dataset.idx = idx;
-    if (conv.id === state.currentConvId) {
-      li.classList.add('active');
-      li.style.borderLeftColor = _randomConvColor();
-      li.style.boxShadow = `inset 4px 0 0 ${li.style.borderLeftColor}, 0 0 12px ${li.style.borderLeftColor}33`;
-    }
-
-    const titleSpan = document.createElement('span');
-    titleSpan.textContent = conv.title;
-    titleSpan.style.flex = '1';
-    li.appendChild(titleSpan);
-
-    const actions = document.createElement('div');
-    actions.className = 'conv-actions';
-    const btnRename = document.createElement('button');
-    btnRename.textContent = '✏';
-    btnRename.title = '重命名';
-    btnRename.addEventListener('click', e => { e.stopPropagation(); showRenameDialog(conv.id, conv.title); });
-    const btnDel = document.createElement('button');
-    btnDel.textContent = '🗑';
-    btnDel.title = '删除';
-    btnDel.addEventListener('click', e => { e.stopPropagation(); deleteConversation(conv.id); });
-    actions.appendChild(btnRename);
-    actions.appendChild(btnDel);
-    li.appendChild(actions);
-
-    li.addEventListener('click', () => openConversation(conv.id));
-
-    // Drag sort
-    li.draggable = true;
-    li.addEventListener('dragstart', e => { state.dragSrcIdx = idx; e.dataTransfer.effectAllowed = 'move'; });
-    li.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
-    li.addEventListener('drop', e => {
-      e.preventDefault();
-      if (state.dragSrcIdx === null || state.dragSrcIdx === idx) return;
-      const moved = state.conversations.splice(state.dragSrcIdx, 1)[0];
-      state.conversations.splice(idx, 0, moved);
-      state.dragSrcIdx = null;
-      renderConvList(searchInput.value);
-      window.pywebview.api.reorder_conversations(state.conversations.map(c => c.id));
-    });
-
-    convList.appendChild(li);
+    if (kw && !(conv.title || '').toLowerCase().includes(kw)) return;
+    const key = conv.project_path || '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({ conv, idx });
   });
+
+  if (groups.size === 0) return;
+
+  const projName = path => {
+    if (!path) return '未分类';
+    return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || path;
+  };
+
+  for (const [path, items] of groups) {
+    const group = document.createElement('div');
+    group.className = 'conv-group';
+    // 搜索时强制展开命中组
+    const collapsed = !kw && state.collapsedGroups[path];
+
+    const header = document.createElement('div');
+    header.className = 'conv-group-header';
+    header.title = path || '未绑定项目的会话';
+    header.innerHTML = `<span class="cg-arrow">${collapsed ? '▶' : '▼'}</span>`
+                     + `<span class="cg-name">${escapeHtml(projName(path))}</span>`
+                     + `<span class="cg-count">${items.length}</span>`;
+    header.addEventListener('click', () => {
+      state.collapsedGroups[path] = !state.collapsedGroups[path];
+      renderConvList(searchInput.value);
+    });
+    group.appendChild(header);
+
+    if (!collapsed) {
+      const ul = document.createElement('ul');
+      ul.className = 'conv-group-items';
+      items.forEach(({ conv, idx }) => ul.appendChild(_makeConvLi(conv, idx)));
+      group.appendChild(ul);
+    }
+    convList.appendChild(group);
+  }
 }
 
 searchInput.addEventListener('input', () => {
@@ -392,6 +435,7 @@ function _applyContentSearchResults(results, kw) {
 async function openConversation(convId) {
   const conv = await window.pywebview.api.open_conversation(convId);
   if (!conv) return;
+  hideHome();
   state.currentConvId = convId;
   convTitle.textContent = conv.title;
   const kw = searchInput.value.trim();
@@ -466,14 +510,80 @@ function _highlightAndScrollTo(keyword) {
   }
 }
 
+// 点击"+ 新对话"：先显示主页选择项目，而非直接建会话
 async function newConversation() {
-  const conv = await window.pywebview.api.new_conversation();
-  state.conversations.unshift({ id: conv.id, title: conv.title });
+  await showHome();
+}
+
+// 真正创建会话（绑定可选的项目目录）并进入
+async function startConvWithProject(projectPath = '') {
+  const conv = await window.pywebview.api.new_conversation(projectPath);
+  state.conversations.unshift({ id: conv.id, title: conv.title, project_path: conv.project_path || '' });
   state.currentConvId = conv.id;
   convTitle.textContent = conv.title;
+  hideHome();
   renderConvList(searchInput.value);
   chatMessages.innerHTML = '';
   updateContextBar(0, 80000);
+}
+
+// ── 主页（项目选择）────────────────────────────────────────────────
+function hideHome() {
+  $('home-view').classList.add('hidden');
+  chatMessages.style.display = '';
+}
+
+async function showHome() {
+  $('home-view').classList.remove('hidden');
+  chatMessages.style.display = 'none';
+  $('home-project-convs').classList.add('hidden');
+  await renderHomeProjects();
+}
+
+async function renderHomeProjects() {
+  const box = $('home-project-list');
+  box.innerHTML = '<span class="home-empty">加载中...</span>';
+  const projects = await window.pywebview.api.list_recent_projects();
+  box.innerHTML = '';
+  if (!projects.length) {
+    box.innerHTML = '<span class="home-empty">暂无最近项目，点击上方“添加新项目”。</span>';
+    return;
+  }
+  projects.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'home-project-card';
+    card.innerHTML = `<div class="hp-name">📁 ${escapeHtml(p.name || '')}</div>`
+                   + `<div class="hp-path">${escapeHtml(p.path || '')}</div>`;
+    // 单击：展示该项目历史会话；双击或“新建”按钮：直接以该项目开新会话
+    card.addEventListener('click', () => showProjectConvs(p.path, p.name));
+    const startBtn = document.createElement('button');
+    startBtn.className = 'hp-start btn-secondary';
+    startBtn.textContent = '+ 新对话';
+    startBtn.addEventListener('click', e => { e.stopPropagation(); startConvWithProject(p.path); });
+    card.appendChild(startBtn);
+    box.appendChild(card);
+  });
+}
+
+async function showProjectConvs(projectPath, projectName) {
+  const wrap = $('home-project-convs');
+  const list = $('home-conv-list');
+  $('home-convs-label').textContent = `“${projectName}” 的历史会话`;
+  wrap.classList.remove('hidden');
+  list.innerHTML = '<span class="home-empty">加载中...</span>';
+  const convs = await window.pywebview.api.get_project_conversations(projectPath);
+  list.innerHTML = '';
+  if (!convs.length) {
+    list.innerHTML = '<span class="home-empty">该项目暂无会话，点击右侧“+ 新对话”开始。</span>';
+    return;
+  }
+  convs.forEach(c => {
+    const item = document.createElement('div');
+    item.className = 'home-conv-item';
+    item.textContent = c.title || '新对话';
+    item.addEventListener('click', async () => { hideHome(); await openConversation(c.id); });
+    list.appendChild(item);
+  });
 }
 
 async function deleteConversation(convId) {
@@ -491,6 +601,11 @@ async function deleteConversation(convId) {
 }
 
 $('btn-new-conv').addEventListener('click', newConversation);
+$('btn-home-add').addEventListener('click', async () => {
+  const proj = await window.pywebview.api.choose_project_folder();
+  if (proj && proj.path) await startConvWithProject(proj.path);
+});
+$('btn-home-noproject').addEventListener('click', () => startConvWithProject(''));
 
 // ── Rename dialog ─────────────────────────────────────────────────
 let _renameConvId = null;
@@ -1925,7 +2040,23 @@ $('btn-imagegen-models').addEventListener('click', e =>
   fetchModelList('imagegen-key', 'imagegen-url', 'imagegen-model', 'imagegen-models-box', e.currentTarget));
 
 async function openSettings() {
-  const cfg = state.config;
+  fillSettingsFields(state.config);
+  $('sync-list').innerHTML = '';
+  $('sync-import-actions').style.display = 'none';
+  $('sync-status').textContent = state.config.sync_folder ? '' : '未配置同步文件夹';
+  renderModelConfigList();
+  // load allowlist
+  const cmds = await window.pywebview.api.get_allowed_commands();
+  $('allowlist-cmds').value = cmds.join('\n');
+  _updateAllowlistCount(cmds.length);
+  // load current version
+  const ver = await window.pywebview.api.get_app_version();
+  $('update-current-ver').textContent = ver || '-';
+  $('settings-overlay').classList.remove('hidden');
+}
+
+// 用 cfg 填充设置面板各输入框（openSettings 与导入配置后共用）
+function fillSettingsFields(cfg) {
   $('search-engine').value = cfg.search_engine || 'tavily';
   $('search-fallback').checked = cfg.search_fallback !== false;
   $('tavily-key').value = cfg.tavily_api_key || '';
@@ -1945,23 +2076,9 @@ async function openSettings() {
   $('imagegen-model').value = cfg.imagegen_model || '';
   $('ui-theme').value = cfg.theme || 'dark';
   $('ui-fontsize').value = String(cfg.font_size || 14);
-  // Sync tab
   $('sync-folder').value = cfg.sync_folder || '';
   $('sync-auto-upload').checked = cfg.sync_auto_upload !== false;
-  $('sync-list').innerHTML = '';
-  $('sync-import-actions').style.display = 'none';
-  $('sync-status').textContent = cfg.sync_folder ? '' : '未配置同步文件夹';
-  // Update tab
   $('github-token').value = cfg.github_token || '';
-  renderModelConfigList();
-  // load allowlist
-  const cmds = await window.pywebview.api.get_allowed_commands();
-  $('allowlist-cmds').value = cmds.join('\n');
-  _updateAllowlistCount(cmds.length);
-  // load current version
-  const ver = await window.pywebview.api.get_app_version();
-  $('update-current-ver').textContent = ver || '-';
-  $('settings-overlay').classList.remove('hidden');
 }
 
 async function saveSettings() {
@@ -2079,6 +2196,9 @@ $('btn-sync-import-all').addEventListener('click', async () => {
   if (result.config_imported.length) {
     state.config = await window.pywebview.api.get_config();
     populateModelSelect();
+    fillSettingsFields(state.config);  // 即时刷新设置面板输入框（vision/imagegen/github 等）
+    applyTheme(state.config.theme);
+    applyFontSize(state.config.font_size);
   }
 });
 

@@ -59,6 +59,25 @@
   <!-- 对话区 + Todo 面板 -->
   <div id="content-area">
     <div id="chat-area">
+      <!-- 主页（点击新对话时显示，选择项目后进入会话）-->
+      <div id="home-view" class="hidden">
+        <div id="home-inner">
+          <h1 id="home-title">选择一个项目开始</h1>
+          <p id="home-subtitle">为新对话绑定项目目录，模型会在该目录下读写文件、执行命令。</p>
+          <div id="home-actions">
+            <button id="btn-home-add" class="btn-primary">📁 添加新项目</button>
+            <button id="btn-home-noproject" class="btn-secondary">⚡ 不绑定项目，快速开始</button>
+          </div>
+          <div id="home-recent">
+            <div class="home-section-label">最近项目</div>
+            <div id="home-project-list"></div>
+          </div>
+          <div id="home-project-convs" class="hidden">
+            <div class="home-section-label" id="home-convs-label">该项目的历史会话</div>
+            <div id="home-conv-list"></div>
+          </div>
+        </div>
+      </div>
       <div id="chat-messages"></div>
       <div id="chat-nav">
         <button id="btn-nav-prev" class="btn-nav" title="上一条消息">↑</button>

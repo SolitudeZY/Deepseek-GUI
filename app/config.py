@@ -107,6 +107,7 @@ DEFAULT_CONFIG = {
     "search_enabled": True,        # manual mode: whether search tool is active
     "sync_folder": "",             # 云同步文件夹路径（如坚果云同步目录）
     "sync_auto_upload": True,      # 对话保存时自动上传到同步文件夹
+    "recent_projects": [],         # 最近使用的项目目录 [{path, name, last_used}]，倒序，上限 ~12
 }
 
 

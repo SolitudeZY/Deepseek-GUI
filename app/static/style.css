@@ -117,6 +117,56 @@ pre, code,
 #conv-list li .conv-actions button:hover { background: var(--border); color: var(--text); }
 #conv-list li .conv-snippet { font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; opacity: 0.8; }
 #conv-list li.search-content-match { border-left: 2px solid var(--accent); }
+
+/* ── 侧边栏项目分组 ── */
+.conv-group { margin-bottom: 2px; }
+.conv-group-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 8px; cursor: pointer; user-select: none;
+  font-size: 11px; color: var(--text-muted); font-weight: 600;
+  border-radius: var(--radius);
+}
+.conv-group-header:hover { background: var(--hover); color: var(--text); }
+.conv-group-header .cg-arrow { font-size: 9px; width: 10px; }
+.conv-group-header .cg-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-group-header .cg-count {
+  font-size: 10px; background: var(--bg3); color: var(--text-muted);
+  border-radius: 8px; padding: 0 6px; min-width: 16px; text-align: center;
+}
+.conv-group-items { list-style: none; margin: 0; padding: 0; }
+
+/* ── 主页（项目选择）── */
+#home-view {
+  position: absolute; inset: 0; z-index: 5;
+  background: var(--bg); overflow-y: auto;
+  display: flex; align-items: flex-start; justify-content: center;
+}
+#home-view.hidden { display: none; }
+#home-inner { max-width: 560px; width: 100%; padding: 48px 32px; }
+#home-title { font-size: 22px; color: var(--text); margin: 0 0 8px; }
+#home-subtitle { font-size: 13px; color: var(--text-muted); margin: 0 0 24px; }
+#home-actions { display: flex; gap: 10px; margin-bottom: 28px; flex-wrap: wrap; }
+.home-section-label { font-size: 12px; color: var(--text-muted); font-weight: 600; margin: 18px 0 10px; }
+.home-empty { font-size: 12px; color: var(--text-muted); }
+.home-project-card {
+  position: relative; padding: 12px 14px; margin-bottom: 8px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.home-project-card:hover { border-color: var(--accent); background: var(--bg3); }
+.home-project-card .hp-name { font-size: 14px; color: var(--text); font-weight: 500; }
+.home-project-card .hp-path { font-size: 11px; color: var(--text-muted); margin-top: 3px; word-break: break-all; }
+.home-project-card .hp-start {
+  position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+  font-size: 12px; padding: 4px 10px;
+}
+.home-conv-item {
+  padding: 8px 12px; margin-bottom: 4px; font-size: 13px; color: var(--text);
+  border-radius: var(--radius); background: var(--surface); cursor: pointer;
+  transition: background 0.15s;
+}
+.home-conv-item:hover { background: var(--bg3); }
 /* Search keyword highlight in chat */
 mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; border-radius: 2px; padding: 0 1px; }
 #sidebar-bottom { padding: 6px 8px 10px; }

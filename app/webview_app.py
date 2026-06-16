@@ -195,11 +195,13 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
     def list_conversations(self) -> list:
         return list_conversations()
 
-    def new_conversation(self) -> dict:
+    def new_conversation(self, project_path: str = '') -> dict:
         mc = get_active_model_config(self._config)
-        conv = new_conversation(mc['name'] if mc else '')
+        conv = new_conversation(mc['name'] if mc else '', project_path=project_path or '')
         save_conversation(conv)
-        return {'id': conv['id'], 'title': conv['title']}
+        if project_path:
+            self._add_recent_project(project_path)
+        return {'id': conv['id'], 'title': conv['title'], 'project_path': conv.get('project_path', '')}
 
     def open_conversation(self, conv_id: str) -> Optional[dict]:
         conv = load_conversation(conv_id)
@@ -604,6 +606,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             compact_threshold=mc.get('compact_threshold', 0),
             context_length=mc.get('context_length', 0),
             vision_config=self._build_vision_config(),
+            project_path=conv.get('project_path', ''),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
@@ -650,6 +653,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             compact_threshold=mc.get('compact_threshold', 0),
             context_length=mc.get('context_length', 0),
             vision_config=self._build_vision_config(),
+            project_path=conv.get('project_path', ''),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
@@ -1115,13 +1119,52 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         """上传配置文件到同步文件夹。"""
         return upload_config()
 
+    # ── 项目（项目分组功能）──────────────────────────────────────
+    def _add_recent_project(self, path: str, name: str = '') -> None:
+        """把项目加入 recent_projects（去重、置顶、上限 12）。"""
+        import time as _t
+        path = (path or '').strip()
+        if not path:
+            return
+        name = name or Path(path).name or path
+        recents = [p for p in self._config.get('recent_projects', [])
+                   if isinstance(p, dict) and p.get('path') != path]
+        recents.insert(0, {'path': path, 'name': name, 'last_used': _t.time()})
+        self._config['recent_projects'] = recents[:12]
+        save_config(self._config)
+
+    def list_recent_projects(self) -> list:
+        """返回最近使用的项目列表。"""
+        return [p for p in self._config.get('recent_projects', []) if isinstance(p, dict)]
+
+    def choose_project_folder(self) -> Optional[dict]:
+        """打开文件夹选择对话框，选择项目目录。返回 {path, name}。"""
+        result = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+        if result:
+            folder = result[0] if isinstance(result, (list, tuple)) else result
+            name = Path(folder).name or folder
+            self._add_recent_project(folder, name)
+            return {'path': folder, 'name': name}
+        return None
+
+    def get_project_conversations(self, project_path: str) -> list:
+        """返回指定项目下的会话摘要（project_path 为空时返回未分类会话）。"""
+        target = (project_path or '').strip()
+        return [c for c in list_conversations()
+                if (c.get('project_path', '') or '') == target]
+
     def sync_detect_config(self) -> dict:
         """检测同步文件夹中是否有更新的配置。"""
         return detect_config_updates()
 
     def sync_import_config(self, files: Optional[list] = None) -> dict:
         """从同步文件夹导入配置文件。"""
-        return import_config(files)
+        result = import_config(files)
+        # 导入会改写磁盘 config.json，必须刷新内存配置，
+        # 否则 get_config() 返回旧值、且后续 save_config 会用旧内存覆盖刚导入的配置。
+        if result.get("imported"):
+            self._config = load_config()
+        return result
 
     def sync_all(self) -> dict:
         """一键上传全部（对话 + 配置）。"""
@@ -1129,4 +1172,8 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def sync_import_all(self) -> dict:
         """一键导入全部（新对话 + 配置）。"""
-        return import_all()
+        result = import_all()
+        # 同上：导入配置后刷新内存，避免旧配置回写覆盖
+        if result.get("config_imported"):
+            self._config = load_config()
+        return result

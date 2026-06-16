@@ -12,7 +12,7 @@ def _conv_path(conv_id: str) -> Path:
     return get_conversations_dir() / f"{conv_id}.json"
 
 
-def new_conversation(model_config_name: str = "") -> dict:
+def new_conversation(model_config_name: str = "", project_path: str = "") -> dict:
     now = datetime.now()
     conv_id = f"conv_{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:4]}"
     return {
@@ -21,6 +21,7 @@ def new_conversation(model_config_name: str = "") -> dict:
         "created_at": now.isoformat(),
         "updated_at": now.isoformat(),
         "model_config": model_config_name,
+        "project_path": project_path or "",
         "sort_order": -1,
         "messages": [],
     }
@@ -53,6 +54,13 @@ def rename_conversation(conv_id: str, new_title: str) -> None:
         save_conversation(conv)
 
 
+def set_conversation_project(conv_id: str, project_path: str) -> None:
+    conv = load_conversation(conv_id)
+    if conv:
+        conv["project_path"] = project_path or ""
+        save_conversation(conv)
+
+
 def list_conversations() -> list[dict]:
     """返回所有对话摘要。
     排序规则：
@@ -71,6 +79,7 @@ def list_conversations() -> list[dict]:
                 "updated_at": data.get("updated_at", ""),
                 "sort_order": data.get("sort_order", -1),
                 "model_config": data.get("model_config", ""),
+                "project_path": data.get("project_path", ""),
             })
         except Exception:
             continue
