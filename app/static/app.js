@@ -552,9 +552,12 @@ async function renderHomeProjects() {
   projects.forEach(p => {
     const card = document.createElement('div');
     card.className = 'home-project-card';
-    card.innerHTML = `<div class="hp-name">📁 ${escapeHtml(p.name || '')}</div>`
+    const missing = p.exists === false;
+    if (missing) card.classList.add('hp-missing');
+    const warn = missing ? '<span class="hp-warn" title="该目录在本机不存在，可能是从其他机器同步而来">⚠ 路径不存在</span>' : '';
+    card.innerHTML = `<div class="hp-name">📁 ${escapeHtml(p.name || '')}${warn}</div>`
                    + `<div class="hp-path">${escapeHtml(p.path || '')}</div>`;
-    // 单击：展示该项目历史会话；双击或“新建”按钮：直接以该项目开新会话
+    // 单击：展示该项目历史会话；“新建”按钮：直接以该项目开新会话
     card.addEventListener('click', () => showProjectConvs(p.path, p.name));
     const startBtn = document.createElement('button');
     startBtn.className = 'hp-start btn-secondary';

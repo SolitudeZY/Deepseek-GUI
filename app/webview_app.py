@@ -227,11 +227,14 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         conv = load_conversation(conv_id)
         if not conv:
             return None
+        pp = conv.get('project_path', '') or ''
         return {
             'id': conv['id'],
             'title': conv.get('title', '对话'),
             'messages': conv.get('messages', []),
             'file_ops': conv.get('file_ops', []),
+            'project_path': pp,
+            'project_exists': (Path(pp).expanduser().is_dir() if pp else True),
         }
 
     def delete_conversation(self, conv_id: str) -> None:
@@ -1154,8 +1157,16 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         save_config(self._config)
 
     def list_recent_projects(self) -> list:
-        """返回最近使用的项目列表。"""
-        return [p for p in self._config.get('recent_projects', []) if isinstance(p, dict)]
+        """返回最近使用的项目列表（含路径是否仍存在）。"""
+        out = []
+        for p in self._config.get('recent_projects', []):
+            if not isinstance(p, dict):
+                continue
+            item = dict(p)
+            path = p.get('path', '')
+            item['exists'] = bool(path) and Path(path).expanduser().is_dir()
+            out.append(item)
+        return out
 
     def choose_project_folder(self) -> Optional[dict]:
         """打开文件夹选择对话框，选择项目目录。返回 {path, name}。"""
