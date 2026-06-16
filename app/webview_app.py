@@ -1106,7 +1106,15 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 )
                 subprocess.Popen(['cmd', '/c', str(script)], creationflags=0x00000008)  # DETACHED_PROCESS
             else:
-                # macOS: shell script
+                # macOS: shell script。frozen .app 时 sys.executable 是
+                # Foo.app/Contents/MacOS/Foo，重启要 `open` 整个 .app bundle 而非裸二进制，
+                # 否则不走 LaunchServices、Dock 图标/单实例等都不正常。
+                relaunch_target = current_exe
+                if getattr(sys, 'frozen', False):
+                    for ancestor in Path(current_exe).parents:
+                        if ancestor.suffix == '.app':
+                            relaunch_target = str(ancestor)
+                            break
                 script = current_dir / "_update.sh"
                 script.write_text(
                     f'#!/bin/bash\n'
@@ -1118,7 +1126,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                     f'else\n'
                     f'  cp -f "{dl_path}" "{current_dir}/{dl_path.name}"\n'
                     f'fi\n'
-                    f'open "{current_exe}"\n'
+                    f'open "{relaunch_target}"\n'
                     f'rm -- "$0"\n',
                     encoding='utf-8'
                 )
