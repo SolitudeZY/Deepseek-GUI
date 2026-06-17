@@ -8,7 +8,7 @@ OpenAI = None  # will be imported on first use
 from app.tools import TOOLS_SCHEMA, CONFIRM_REQUIRED, dispatch
 from app.advanced_tools import (
     ADVANCED_TOOLS_SCHEMA, TodoManager, TaskManager, BackgroundManager,
-    microcompact, auto_compact, estimate_tokens, run_subagent, run_rlm,
+    auto_compact, estimate_tokens, run_subagent, run_rlm,
 )
 from app.team import TEAM, WORKTREES, BUS
 from app.skills import skill_list, skill_list_str, skill_read, memory_read, memory_write
@@ -457,8 +457,13 @@ class Agent:
         return all_messages
 
     def _manage_context(self, all_messages: list[dict], threshold: int, cb) -> list[dict]:
-        """Apply microcompact and auto_compact, push context usage."""
-        microcompact(all_messages, self.CONTEXT_WINDOW)
+        """Apply auto_compact, push context usage.
+
+        曾在每轮调 microcompact 就地压缩滑出窗口的旧工具结果，但窗口边界随消息增长
+        右移，会反复改写位于前缀中间的历史消息内容 → 每次改写都从该点起截断 DeepSeek
+        prefix cache，工具调用越多命中率越低。已移除：大上下文由 auto_compact（低频、
+        一次性折叠中段、保持 system 前缀稳定）兜底，缓存命中更高。
+        """
         if estimate_tokens(all_messages) > threshold:
             all_messages = auto_compact(all_messages, self._client, self.model)
         if cb.on_context_update:

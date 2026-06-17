@@ -218,22 +218,6 @@ def estimate_tokens(messages: list) -> int:
     return len(json.dumps(messages, default=str)) // 4
 
 
-def microcompact(messages: list, window_size: int = 40) -> None:
-    """Clear old tool_result content that falls outside the sliding window.
-
-    Only compresses messages that won't be sent to the API (outside the window),
-    so messages within the window stay byte-for-byte identical across requests,
-    maximising DeepSeek prefix-cache hit rate.
-    """
-    non_system = [m for m in messages if m.get("role") != "system"]
-    if len(non_system) <= window_size:
-        return  # everything is within the window — nothing to compress
-    outside = non_system[:-window_size]
-    for msg in outside:
-        if msg.get("role") == "tool" and isinstance(msg.get("content"), str) and len(msg["content"]) > 200:
-            msg["content"] = "[已压缩]"
-
-
 def auto_compact(messages: list, client, model: str) -> list:
     """Summarize conversation when context is too large.
 
