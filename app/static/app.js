@@ -546,6 +546,7 @@ function addAssistantBubble(content) {
   div.className = 'bubble bubble-assistant';
   div.innerHTML = `<div class="bubble-label">Assistant</div><div class="bubble-content">${renderMarkdown(content)}</div>`;
   chatMessages.appendChild(div);
+  _hydrateImgThumbs(div);
   scrollToBottom();
   return div;
 }
@@ -734,6 +735,7 @@ window.Chat = {
   },
   finishMessage() {
     removeTypingIndicator();
+    if (_streamBubble) _hydrateImgThumbs(_streamBubble);
     _streamBubble = null;
     _streamContent = '';
     _streamingConvId = null;

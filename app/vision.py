@@ -89,10 +89,12 @@ def generate_image(
     model: str = "gpt-image-2",
     size: str = "1024x1024",
     save_dir: str = "",
+    fmt: str = "openai",
 ) -> dict:
-    """调用 OpenAI 兼容的 /v1/images/generations 生成图片并保存到本地。
+    """生成图片并保存到本地，默认 OpenAI 兼容格式，可选 DashScope 原生格式。
 
-    base_url 既可填到 .../v1（自动补 /images/generations），也可填完整端点。
+    fmt='openai'（默认）：OpenAI 兼容，base_url 填到 .../v1，自动补 /images/generations。
+    fmt='dashscope'：DashScope 原生，base_url 填完整端点，使用 input.messages 格式。
     返回 dict：成功 {ok, path, filename, size}；失败 {ok: False, error}。
     """
     import uuid
@@ -106,6 +108,7 @@ def generate_image(
     base_url = (base_url or "").strip().rstrip("/")
     model = (model or "gpt-image-2").strip()
     prompt = (prompt or "").strip()
+    fmt = (fmt or "openai").strip().lower()
 
     if not api_key:
         return {"ok": False, "error": "未配置图片生成 API Key（设置 → 图片工具 → 图片生成）"}
@@ -114,30 +117,73 @@ def generate_image(
     if not prompt:
         return {"ok": False, "error": "prompt 为空"}
 
-    # 组装端点：允许填 .../v1 或完整 .../v1/images/generations
-    url = base_url if base_url.endswith("/images/generations") else base_url + "/images/generations"
+    is_dashscope = (fmt == "dashscope")
+
+    # 组装端点
+    if is_dashscope:
+        url = base_url
+    else:
+        url = base_url if base_url.endswith("/images/generations") else base_url + "/images/generations"
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    payload = {"model": model, "prompt": prompt, "n": 1, "size": size,
-               "response_format": "b64_json"}
+
+    # 构建请求体
+    if is_dashscope:
+        dashscope_size = size.replace("x", "*")
+        payload = {
+            "model": model,
+            "input": {
+                "messages": [
+                    {"role": "user", "content": [{"text": prompt}]}
+                ]
+            },
+            "parameters": {
+                "size": dashscope_size,
+            },
+        }
+    else:
+        payload = {
+            "model": model, "prompt": prompt, "n": 1, "size": size,
+            "response_format": "b64_json",
+        }
+
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=180)
         resp.raise_for_status()
         data = resp.json()
-        items = data.get("data") or []
-        if not items:
-            return {"ok": False, "error": f"返回中无 data 字段：{str(data)[:300]}"}
-        item = items[0]
-        if item.get("b64_json"):
-            image_bytes = base64.b64decode(item["b64_json"])
-        elif item.get("url"):
-            img_resp = requests.get(item["url"], timeout=120)
+
+        image_bytes = None
+
+        if is_dashscope:
+            choices = (data.get("output") or {}).get("choices") or []
+            if not choices:
+                return {"ok": False, "error": f"返回中无 choices：{str(data)[:300]}"}
+            content = (choices[0].get("message") or {}).get("content") or []
+            if not content:
+                return {"ok": False, "error": f"返回中无 content：{str(choices[0])[:300]}"}
+            image_url = content[0].get("image") or ""
+            if not image_url:
+                return {"ok": False, "error": f"content 中无 image：{str(content[0])[:300]}"}
+            img_resp = requests.get(image_url, timeout=120)
             img_resp.raise_for_status()
             image_bytes = img_resp.content
         else:
-            return {"ok": False, "error": f"未知返回格式：{str(item)[:300]}"}
+            items = data.get("data") or []
+            if not items:
+                return {"ok": False, "error": f"返回中无 data 字段：{str(data)[:300]}"}
+            item = items[0]
+            if item.get("b64_json"):
+                image_bytes = base64.b64decode(item["b64_json"])
+            elif item.get("url"):
+                img_resp = requests.get(item["url"], timeout=120)
+                img_resp.raise_for_status()
+                image_bytes = img_resp.content
+            else:
+                return {"ok": False, "error": f"未知返回格式：{str(item)[:300]}"}
 
-        # 保存
+        if not image_bytes:
+            return {"ok": False, "error": "无法获取图片数据"}
+
         out_dir = Path(save_dir).expanduser() if save_dir else Path.cwd()
         out_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
