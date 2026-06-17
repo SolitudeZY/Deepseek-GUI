@@ -474,6 +474,24 @@
   <button id="lightbox-close" onclick="closeLightbox()">✕</button>
 </div>
 
+<!-- 文件改动 diff 模态框 -->
+<div id="diff-overlay" class="overlay hidden">
+  <div id="diff-modal">
+    <div id="diff-header">
+      <div class="diff-head-left">
+        <span id="diff-title">文件差异</span>
+        <span id="diff-stats"></span>
+      </div>
+      <div class="diff-head-right">
+        <button id="btn-diff-open-file" title="在资源管理器中定位">📁 打开位置</button>
+        <button id="btn-diff-close" title="关闭">✕</button>
+      </div>
+    </div>
+    <div id="diff-path"></div>
+    <div id="diff-body"></div>
+  </div>
+</div>
+
 <script src="vendor/marked.min.js"></script>
 <script src="vendor/katex.min.js"></script>
 <script src="vendor/highlight.min.js"></script>

@@ -2634,7 +2634,7 @@ function closeLightbox() {
   $('lightbox-img').src = '';
 }
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeLightbox();
+  if (e.key === 'Escape') { closeLightbox(); closeDiffModal(); }
 });
 $('lightbox-img').addEventListener('click', e => e.stopPropagation());
 
