@@ -66,6 +66,24 @@ def get_static_dir() -> Path:
     return base / 'static'
 
 
+def _diff_line_counts(old: str, new: str) -> tuple:
+    """用 difflib 计算 old→new 的增删行数，返回 (added, removed)。"""
+    import difflib
+    old_lines = old.splitlines()
+    new_lines = new.splitlines()
+    added = removed = 0
+    sm = difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == 'replace':
+            removed += (i2 - i1)
+            added += (j2 - j1)
+        elif tag == 'delete':
+            removed += (i2 - i1)
+        elif tag == 'insert':
+            added += (j2 - j1)
+    return added, removed
+
+
 def patch_http_root() -> None:
     """规避 pywebview 6.x 的一个 bug：内部 Bottle server 把 `asset(file)` 同时注册到
     `/` 和 `/<file:path>`，但裸 `/` 请求不带 `file` 参数 → `TypeError: asset() missing
@@ -429,6 +447,51 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 parent = p.parent
                 if parent.exists():
                     _sp.Popen(['explorer', str(parent)])
+
+    def get_file_diff(self, path: str) -> dict:
+        """返回某文件「首次改动前 baseline → 当前磁盘内容」的累计 diff，供前端渲染绿红视图。
+
+        返回 {ok, path, added, removed, lines:[{type, text, oldNo, newNo}]}；
+        type ∈ hunk/ctx/add/del。无 baseline（旧会话或大文件未存快照）或文件已删除时返回 {ok:False, reason}。"""
+        import difflib
+        conv = load_conversation(self._current_conv_id) if getattr(self, '_current_conv_id', None) else None
+        if not conv:
+            return {'ok': False, 'reason': '当前没有打开的会话'}
+        baselines = conv.get('file_baselines', {})
+        if path not in baselines:
+            return {'ok': False, 'reason': '该文件没有改动记录'}
+        baseline = baselines.get(path)
+        if baseline is None:
+            return {'ok': False, 'reason': '此文件过大或为旧会话记录，未保存改动前快照，无法显示差异详情'}
+        p = Path(path)
+        if not p.exists():
+            return {'ok': False, 'reason': '文件已不存在'}
+        try:
+            current = p.read_text(encoding='utf-8', errors='replace')
+        except Exception as e:
+            return {'ok': False, 'reason': f'读取失败：{e}'}
+
+        old_lines = baseline.splitlines()
+        new_lines = current.splitlines()
+        added, removed = _diff_line_counts(baseline, current)
+        lines = []
+        # n=3 上下文行；带行号便于前端展示
+        for grp in difflib.SequenceMatcher(a=old_lines, b=new_lines, autojunk=False).get_grouped_opcodes(3):
+            first = grp[0]
+            lines.append({'type': 'hunk',
+                          'text': f"@@ -{first[1] + 1},{grp[-1][2] - first[1]} +{first[3] + 1},{grp[-1][4] - first[3]} @@",
+                          'oldNo': None, 'newNo': None})
+            for tag, i1, i2, j1, j2 in grp:
+                if tag == 'equal':
+                    for k in range(i1, i2):
+                        lines.append({'type': 'ctx', 'text': old_lines[k],
+                                      'oldNo': k + 1, 'newNo': j1 + (k - i1) + 1})
+                else:
+                    for k in range(i1, i2):
+                        lines.append({'type': 'del', 'text': old_lines[k], 'oldNo': k + 1, 'newNo': None})
+                    for k in range(j1, j2):
+                        lines.append({'type': 'add', 'text': new_lines[k], 'oldNo': None, 'newNo': k + 1})
+        return {'ok': True, 'path': path, 'added': added, 'removed': removed, 'lines': lines}
 
     def _build_search_config(self) -> dict:
         """Assemble search config dict from self._config for Agent."""
@@ -918,25 +981,45 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             self._track_file_op(tool_name, result)
 
     def _track_file_op(self, tool_name: str, result: str):
-        """Extract file paths from tool result and store in current conversation."""
-        import re
-        paths = []
-        for line in result.split('\n'):
-            if '✅' in line:
-                matches = re.findall(r'[A-Z]:\\[^\n]+|/[^\n\s]+', line)
-                paths.extend(matches)
-        if not paths:
+        """记录文件改动到当前会话：按路径去重，存首次改动前的 baseline，算累计增删行数。
+
+        改动详情走 tools 的 thread-local 旁路（get_file_op_log），不从工具返回字符串解析，
+        也不进模型上下文。每个文件在 file_ops 里只保留一条；file_baselines 存首改前原始内容，
+        用于点开时生成「最终 vs 最初」的累计 diff。"""
+        ops = get_file_op_log()
+        if not ops:
             return
-        conv = load_conversation(self._current_conv_id) if hasattr(self, '_current_conv_id') and self._current_conv_id else None
+        conv = load_conversation(self._current_conv_id) if getattr(self, '_current_conv_id', None) else None
         if not conv:
             return
-        if 'file_ops' not in conv:
-            conv['file_ops'] = []
+        conv.setdefault('file_ops', [])
+        conv.setdefault('file_baselines', {})
+        BASELINE_MAX = 200_000  # 超大文件不存快照，避免会话 JSON 膨胀
+
         from datetime import datetime
-        for fp in paths:
-            entry = {'path': fp, 'tool': tool_name, 'time': datetime.now().isoformat()}
-            conv['file_ops'].append(entry)
-        # Keep last 50 entries
+        now = datetime.now().isoformat()
+        for op in ops:
+            path = op['path']
+            # 首次改动：把改动前内容存为 baseline（供累计 diff）
+            if path not in conv['file_baselines']:
+                old = op.get('old', '')
+                conv['file_baselines'][path] = old if len(old) <= BASELINE_MAX else None
+            baseline = conv['file_baselines'].get(path)
+            new = op.get('new', '')
+            # 累计增删：baseline vs 当前新内容
+            if baseline is None:
+                added = removed = None  # 无快照，行数未知
+            else:
+                added, removed = _diff_line_counts(baseline, new)
+            # upsert：同一路径只留一条
+            existing = next((e for e in conv['file_ops'] if e['path'] == path), None)
+            if existing:
+                existing.update(tool=tool_name, time=now, added=added, removed=removed)
+            else:
+                conv['file_ops'].append({
+                    'path': path, 'tool': tool_name, 'time': now,
+                    'added': added, 'removed': removed,
+                })
         conv['file_ops'] = conv['file_ops'][-50:]
         save_conversation(conv)
         self._js(f'Chat.updateFileOps({json.dumps(conv["file_ops"])})')
