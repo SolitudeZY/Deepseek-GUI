@@ -1226,6 +1226,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def _on_done(self, conv: dict, updated_messages: list):
         conv['messages'] = updated_messages
+        self._merge_disk_file_tracking(conv)
         save_conversation(conv)
         self._running = False
         self._js('Chat.finishMessage()')
@@ -1273,8 +1274,24 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         except Exception:
             pass
 
+    def _merge_disk_file_tracking(self, conv: dict) -> None:
+        """把磁盘上最新的 file_ops/file_baselines 合并回内存 conv（保存前调用）。
+
+        send_message 在 run 开始时加载 conv 并持有该对象引用；run 期间 _track_file_op
+        用 load_conversation 取**新副本**写入 file_ops/file_baselines 后存盘。若 _on_done/
+        _on_error 直接 save_conversation(这个旧引用)，会用不含这些字段的旧内存覆盖磁盘，
+        导致点开 diff 报「没有改动记录」（同 config-import stale-memory 通病）。这里在保存前
+        从磁盘回读这两个字段补回内存对象。"""
+        latest = load_conversation(conv.get('id', '')) if conv.get('id') else None
+        if latest:
+            if latest.get('file_ops'):
+                conv['file_ops'] = latest['file_ops']
+            if latest.get('file_baselines'):
+                conv['file_baselines'] = latest['file_baselines']
+
     def _on_error(self, conv: dict, error: str, messages: list):
         conv['messages'] = messages
+        self._merge_disk_file_tracking(conv)
         save_conversation(conv)
         self._running = False
         self._js(f'Chat.showError({json.dumps(error)})')
