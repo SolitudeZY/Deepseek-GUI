@@ -234,7 +234,7 @@ quick_model/
 │   ├── config.py        # Configuration loading/saving with defaults
 │   ├── conversation.py  # Conversation CRUD, import/export, sort ordering
 │   ├── compact.py       # Context compression and summarization
-│   ├── vision.py        # Image description via vision API
+│   ├── vision.py        # Image description & image generation via vision API
 │   └── static/          # HTML/CSS/JS frontend
 │       ├── index.html   # Main UI layout
 │       ├── app.js       # Frontend logic and event handling
@@ -245,7 +245,7 @@ quick_model/
 
 ## Tech Stack
 
-- **Frontend**: pywebview (WebView2), HTML/CSS/JS
+- **Frontend**: pywebview (WebView2 on Windows / WebKit on macOS), HTML/CSS/JS
 - **Backend**: Python 3.10+, OpenAI SDK
 - **Rendering**: marked.js, KaTeX, highlight.js (all local, offline)
 - **Concurrency**: threading + ThreadPoolExecutor (parallel search fetching, multi-agent teams)
