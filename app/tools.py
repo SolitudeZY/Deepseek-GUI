@@ -1,8 +1,39 @@
 import json
 import os
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
+
+# ── 文件改动旁路记录（thread-local，不污染模型上下文/prompt cache）────────
+# write_file / apply_patch 写盘时把 {path, old, new} 记到这里，由 webview_app 的
+# _on_tool_result 在同线程同步读取，用于去重展示与生成 diff。绝不进工具返回字符串。
+_file_op_local = threading.local()
+
+
+def _reset_file_op_log():
+    """工具入口调用：清空本线程上一次的改动记录。"""
+    _file_op_local.log = {}
+
+
+def _record_file_op(path: str, old_content: str, new_content: str):
+    """记录一次文件改动。同一文件多次改动时：保留最早的 old、最新的 new（累计本次工具调用内）。"""
+    log = getattr(_file_op_local, "log", None)
+    if log is None:
+        log = {}
+        _file_op_local.log = log
+    key = str(path)
+    if key in log:
+        log[key]["new"] = new_content  # 沿用最早的 old，仅更新 new
+    else:
+        log[key] = {"path": key, "old": old_content, "new": new_content}
+
+
+def get_file_op_log() -> list:
+    """返回本线程最近一次工具调用记录的文件改动列表 [{path, old, new}]。"""
+    log = getattr(_file_op_local, "log", None)
+    return list(log.values()) if log else []
+
 
 # ── 文档解析依赖（延迟加载，加快启动）──────────────────────────
 _PDF_OK = None
