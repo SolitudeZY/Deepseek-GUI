@@ -992,12 +992,12 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "glob_files",
-            "description": "按文件名模式匹配搜索文件（如 **/*.py、src/**/*.ts）。结果按修改时间排序（最新在前）。用于快速定位文件。",
+            "description": "按文件名模式匹配搜索文件（如 **/*.py、src/**/*.ts）。结果按修改时间排序（最新在前）。用于快速定位文件。\n性能提示：递归匹配（**）的耗时取决于起始目录下的文件总量。请尽量把 path 指定到具体的项目/子目录，避免用 C:\\Users\\<用户> 或盘符根这类超大目录作为起点（会遍历海量文件、且 Windows 用户目录下有自引用 junction 拖慢速度）。若已知大致位置，直接给精确 path。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "pattern": {"type": "string", "description": "glob 模式，如 **/*.py、*.md、src/**/*.ts"},
-                    "path": {"type": "string", "description": "搜索起始目录，默认当前目录", "default": "."},
+                    "path": {"type": "string", "description": "搜索起始目录，默认当前目录。尽量指定到具体目录而非盘符根/用户主目录，以加快递归匹配。", "default": "."},
                 },
                 "required": ["pattern"],
             },
