@@ -798,6 +798,7 @@ def apply_patch(edits=None, cwd: str = "", patch: str = "") -> str:
     if not isinstance(edits, list):
         return "apply_patch：edits 必须是对象或对象列表。"
 
+    _reset_file_op_log()
     results = []
     for i, ed in enumerate(edits):
         if not isinstance(ed, dict):
@@ -825,6 +826,7 @@ def apply_patch(edits=None, cwd: str = "", patch: str = "") -> str:
             try:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(new_string, encoding="utf-8")
+                _record_file_op(str(target.resolve()), "", new_string)
                 results.append(f"✅ {target.resolve()}\n   📁 目录：{target.resolve().parent}\n   📝 新建文件 | {len(new_string.splitlines())} 行")
             except Exception as e:
                 results.append(f"❌ {target}: 写入失败 - {e}")
@@ -860,6 +862,7 @@ def apply_patch(edits=None, cwd: str = "", patch: str = "") -> str:
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(new_content, encoding="utf-8")
+            _record_file_op(str(target.resolve()), content, new_content)
             n = count if replace_all else 1
             results.append(
                 f"✅ {target.resolve()}\n"
