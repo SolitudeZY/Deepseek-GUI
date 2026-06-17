@@ -743,17 +743,21 @@ def web_read(url: str, max_chars: int = 20000) -> str:
 
 
 def write_file(path: str, content: str, cwd: str = "") -> str:
+    _reset_file_op_log()
     try:
         p = _resolve(path, cwd).resolve()
         is_new = not p.exists()
+        old_content = ""
         old_lines = 0
         if not is_new:
             try:
-                old_lines = len(p.read_text(encoding="utf-8", errors="replace").splitlines())
+                old_content = p.read_text(encoding="utf-8", errors="replace")
+                old_lines = len(old_content.splitlines())
             except Exception:
                 pass
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
+        _record_file_op(str(p), old_content, content)
         new_lines = len(content.splitlines())
         if is_new:
             return (f"✅ 文件已创建：{p}\n"
