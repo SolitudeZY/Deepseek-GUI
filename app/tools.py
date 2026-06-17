@@ -738,98 +738,103 @@ def write_file(path: str, content: str, cwd: str = "") -> str:
         return f"写入失败：{e}"
 
 
-def apply_patch(patch: str, cwd: str = "") -> str:
-    """Apply a unified diff patch to one or more files."""
-    import re as _re
+def apply_patch(edits=None, cwd: str = "", patch: str = "") -> str:
+    """基于精确字符串替换修改文件（取代旧的 unified-diff 实现）。
+
+    旧实现按 diff 行号盲切片、不校验上下文，模型行号稍错就会静默写坏文件却返回成功，
+    逼得它整文件重写。新实现要求模型提供「原文片段 old_string → 新内容 new_string」，
+    做精确匹配替换：匹配不到、或多处匹配又没开 replace_all，都明确报错而非乱写。
+
+    参数：
+      edits: 列表，每项 {path, old_string, new_string, replace_all?}
+        - old_string 为空串 ⇒ 新建文件（或覆盖空文件），内容为 new_string。
+        - old_string 非空 ⇒ 必须在文件中唯一出现；多处出现需置 replace_all=True 才会全替。
+      patch: 兼容旧调用签名的占位参数，已不支持 diff，传入时返回明确提示。
+    """
+    if patch and not edits:
+        return ("apply_patch 已改为精确字符串替换，不再支持 unified diff。"
+                "请改用 edits 参数：[{path, old_string, new_string, replace_all?}]。"
+                "old_string 需与文件中的原文逐字符一致（含缩进），且唯一定位。")
+
+    if not edits:
+        return "apply_patch：未提供 edits，未做任何修改。"
+    if isinstance(edits, dict):
+        edits = [edits]
+    if not isinstance(edits, list):
+        return "apply_patch：edits 必须是对象或对象列表。"
 
     results = []
-    # Split into per-file patches
-    file_patches = _re.split(r'^(?=--- )', patch, flags=_re.MULTILINE)
+    for i, ed in enumerate(edits):
+        if not isinstance(ed, dict):
+            results.append(f"❌ 第 {i + 1} 项编辑格式错误（应为对象）")
+            continue
+        path = (ed.get("path") or "").strip()
+        old_string = ed.get("old_string", "")
+        new_string = ed.get("new_string", "")
+        replace_all = bool(ed.get("replace_all", False))
 
-    for fp in file_patches:
-        fp = fp.strip()
-        if not fp:
+        if not path:
+            results.append(f"❌ 第 {i + 1} 项缺少 path")
             continue
 
-        # Parse file headers
-        lines = fp.split('\n')
-        src_path = None
-        dst_path = None
-        for line in lines:
-            if line.startswith('--- '):
-                src_path = line[4:].strip()
-                # Strip a/ prefix
-                if src_path.startswith('a/'):
-                    src_path = src_path[2:]
-            elif line.startswith('+++ '):
-                dst_path = line[4:].strip()
-                if dst_path.startswith('b/'):
-                    dst_path = dst_path[2:]
-                break
+        target = _resolve(path, cwd)
 
-        if not dst_path:
-            results.append(f"跳过：无法解析文件路径")
+        # 新建文件：old_string 为空
+        if old_string == "":
+            if target.exists() and target.read_text(encoding="utf-8", errors="replace").strip():
+                results.append(
+                    f"❌ {target}: old_string 为空表示新建文件，但该文件已存在且非空。"
+                    f"若要修改已有文件，请提供要替换的原文片段作为 old_string。"
+                )
+                continue
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(new_string, encoding="utf-8")
+                results.append(f"✅ {target.resolve()}\n   📁 目录：{target.resolve().parent}\n   📝 新建文件 | {len(new_string.splitlines())} 行")
+            except Exception as e:
+                results.append(f"❌ {target}: 写入失败 - {e}")
             continue
 
-        target = _resolve(dst_path, cwd)
-        if target.exists():
-            original = target.read_text(encoding="utf-8", errors="replace").split('\n')
-        else:
-            original = []
-
-        # Parse and apply hunks
-        hunks = _re.findall(r'@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*?)(?=\n@@ |\Z)',
-                            fp, flags=_re.DOTALL)
-        if not hunks:
-            results.append(f"{dst_path}: 无有效 hunk")
+        # 修改已有文件
+        if not target.exists():
+            results.append(f"❌ {target}: 文件不存在，无法替换。新建文件请将 old_string 留空。")
             continue
 
-        # Apply hunks in reverse order to preserve line numbers
-        hunk_list = []
-        for h in hunks:
-            src_start = int(h[0]) - 1  # 0-indexed
-            src_count = int(h[1]) if h[1] else 1
-            hunk_body = h[4]
-            hunk_lines = hunk_body.split('\n')
-            # Skip first empty line from regex
-            if hunk_lines and hunk_lines[0] == '':
-                hunk_lines = hunk_lines[1:]
-            hunk_list.append((src_start, src_count, hunk_lines))
+        content = target.read_text(encoding="utf-8", errors="replace")
+        count = content.count(old_string)
+        if count == 0:
+            results.append(
+                f"❌ {target}: 未找到 old_string，未修改。"
+                f"old_string 必须与文件原文逐字符一致（含空格/缩进/换行）。"
+                f"建议先 read_file 复制准确原文再重试。"
+            )
+            continue
+        if count > 1 and not replace_all:
+            results.append(
+                f"❌ {target}: old_string 在文件中出现 {count} 次，定位不唯一，未修改。"
+                f"请扩充 old_string 上下文使其唯一，或设 replace_all=true 全部替换。"
+            )
+            continue
 
-        # Apply in reverse
-        output = list(original)
-        added_lines = 0
-        removed_lines = 0
-        for src_start, src_count, hunk_lines in reversed(hunk_list):
-            new_lines = []
-            remove_count = 0
-            for hl in hunk_lines:
-                if hl.startswith('+'):
-                    new_lines.append(hl[1:])
-                    added_lines += 1
-                elif hl.startswith('-'):
-                    remove_count += 1
-                    removed_lines += 1
-                elif hl.startswith(' ') or hl == '':
-                    new_lines.append(hl[1:] if hl.startswith(' ') else '')
-                    remove_count += 1
-                else:
-                    # Context line without prefix (tolerant parsing)
-                    new_lines.append(hl)
-                    remove_count += 1
-            output[src_start:src_start + remove_count] = new_lines
+        if old_string == new_string:
+            results.append(f"⚠ {target}: old_string 与 new_string 相同，未做改动。")
+            continue
 
-        # Write result
-        target_resolved = target.resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text('\n'.join(output), encoding="utf-8")
-        results.append(
-            f"✅ {target_resolved}\n"
-            f"   📁 目录：{target_resolved.parent}\n"
-            f"   📝 {len(hunk_list)} 个 hunk | +{added_lines} 行 / -{removed_lines} 行"
-        )
+        new_content = content.replace(old_string, new_string) if replace_all \
+            else content.replace(old_string, new_string, 1)
+        try:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(new_content, encoding="utf-8")
+            n = count if replace_all else 1
+            results.append(
+                f"✅ {target.resolve()}\n"
+                f"   📁 目录：{target.resolve().parent}\n"
+                f"   📝 替换 {n} 处"
+            )
+        except Exception as e:
+            results.append(f"❌ {target}: 写入失败 - {e}")
 
-    return '\n'.join(results) if results else "补丁为空，未做任何修改"
+    return '\n'.join(results) if results else "apply_patch：未做任何修改。"
 
 
 # ── 工具 Schema（供 OpenAI Function Calling 使用）────────────────────
@@ -989,13 +994,26 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "apply_patch",
-            "description": "用 unified diff 格式精准修改文件。比 write_file 更安全，只修改指定的行。支持多文件补丁。",
+            "description": "精确修改文件：用「原文片段 old_string → 新内容 new_string」做字符串替换，比 write_file 安全（只改指定片段，不覆盖整文件），比行号 diff 可靠（不会因行号算错而写坏文件）。修改前务必先 read_file 拿到准确原文。支持一次多处编辑、多文件。",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "patch": {"type": "string", "description": "unified diff 格式的补丁内容（--- a/path, +++ b/path, @@ hunks）"},
+                    "edits": {
+                        "type": "array",
+                        "description": "编辑列表，按顺序应用。",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "path": {"type": "string", "description": "目标文件路径（相对路径以项目目录为基准）"},
+                                "old_string": {"type": "string", "description": "要被替换的原文片段，必须与文件中逐字符一致（含空格、缩进、换行），并能唯一定位。留空串表示新建文件。"},
+                                "new_string": {"type": "string", "description": "替换后的新内容。"},
+                                "replace_all": {"type": "boolean", "description": "old_string 在文件中多处出现时，是否全部替换。默认 false（要求唯一匹配）。"},
+                            },
+                            "required": ["path", "old_string", "new_string"],
+                        },
+                    },
                 },
-                "required": ["patch"],
+                "required": ["edits"],
             },
         },
     },
@@ -1040,6 +1058,6 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
     elif tool_name == "write_file":
         return write_file(args.get("path", ""), args.get("content", ""), cwd=cwd)
     elif tool_name == "apply_patch":
-        return apply_patch(args.get("patch", ""), cwd=cwd)
+        return apply_patch(edits=args.get("edits"), cwd=cwd, patch=args.get("patch", ""))
     else:
         return f"未知工具：{tool_name}"
