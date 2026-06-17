@@ -204,11 +204,18 @@ def glob_files(pattern: str, path: str = ".", cwd: str = "") -> str:
         base = Path(path).expanduser().resolve()
     if not base.exists():
         return f"错误：路径不存在 — {base}"
+    # 用对坏目录健壮的遍历替代 list(base.glob(...))：
+    # Windows 下 C:\Users\<用户>\AppData\Local\Application Data 等是自引用 junction，
+    # Path.glob('**/...') 会无限深入直到超 MAX_PATH 抛 OSError(WinError 3)，
+    # 而 list() 一次性耗尽迭代器会让整个工具崩掉。这里捕获 OSError 跳过坏目录、
+    # 用 followlinks=False + 深度上限避免 junction 死循环。
+    recursive = pattern.startswith("**")
+    # 取末段作为文件名匹配模式（** / *.py → *.py；具体名 → 该名）
+    leaf = pattern.split("/")[-1] if pattern else "*"
     try:
-        matches = list(base.glob(pattern))
-        if not matches and not pattern.startswith("**"):
-            # Try recursive if pattern doesn't start with **
-            matches = list(base.glob("**/" + pattern))
+        matches = _safe_glob(base, leaf, recursive)
+        if not matches and not recursive:
+            matches = _safe_glob(base, leaf, True)
     except ValueError as e:
         return (f"错误：无效的 glob 模式 '{pattern}' — {e}。"
                 f"提示：pattern 应为相对模式（如 '**/*.py'），绝对目录请放到 path 参数。")
@@ -219,11 +226,74 @@ def glob_files(pattern: str, path: str = ".", cwd: str = "") -> str:
     # Limit output
     total = len(matches)
     shown = matches[:100]
-    lines = [str(m.relative_to(base)) for m in shown]
+    lines = []
+    for m in shown:
+        try:
+            lines.append(str(m.relative_to(base)))
+        except ValueError:
+            lines.append(str(m))
     result = "\n".join(lines)
     if total > 100:
         result += f"\n\n[共 {total} 个匹配，仅显示前 100 个]"
     return result
+
+
+def _safe_glob(base: Path, leaf_pattern: str, recursive: bool, max_depth: int = 25, cap: int = 5000):
+    """对坏目录/自引用 junction 健壮的文件匹配。
+
+    非递归：只匹配 base 直接子项。递归：手动用 os.scandir 下行，并用 realpath 的
+    visited 集打破循环——Windows 的 junction 不是普通 symlink，os.walk(followlinks=False)
+    并不会跳过它，自引用 junction（如 AppData\\Local\\Application Data）会无限深入直至
+    超 MAX_PATH 抛 OSError。这里：① 跳过抛 OSError 的目录（无权限/超长）② 记录每个目录
+    的 realpath，重复出现即剪枝（断环）③ max_depth + cap 双重兜底。"""
+    import fnmatch
+    from pathlib import Path as _P
+    results = []
+    try:
+        if not recursive:
+            for entry in os.scandir(base):
+                if fnmatch.fnmatch(entry.name, leaf_pattern):
+                    results.append(_P(entry.path))
+            return results
+    except OSError:
+        return results
+
+    visited = set()
+    stack = [(str(base), 0)]
+    while stack:
+        if len(results) >= cap:
+            break
+        cur, depth = stack.pop()
+        if depth > max_depth:
+            continue
+        try:
+            with os.scandir(cur) as it:
+                for entry in it:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            # 只对 junction/symlink 解析 realpath 去重（断环）；普通目录
+                            # 不可能成环，跳过昂贵的 realpath 调用以保持速度。
+                            is_reparse = False
+                            try:
+                                is_reparse = bool(entry.stat(follow_symlinks=False).st_reparse_tag)
+                            except (OSError, AttributeError):
+                                is_reparse = entry.is_symlink()
+                            if is_reparse:
+                                try:
+                                    real = os.path.realpath(entry.path)
+                                except OSError:
+                                    continue
+                                if real in visited:
+                                    continue   # 断环：junction 自引用在此剪掉
+                                visited.add(real)
+                            stack.append((entry.path, depth + 1))
+                        elif fnmatch.fnmatch(entry.name, leaf_pattern):
+                            results.append(_P(entry.path))
+                    except OSError:
+                        continue
+        except OSError:
+            continue  # 跳过无权限/超长路径的目录
+    return results
 
 
 def analyze_image(path: str, question: str = "", vision_config: dict = None) -> str:
@@ -412,6 +482,18 @@ def run_command(command: str, timeout: int = 30, stop_flag=None, cwd: str = "") 
             output += f"\n[stderr]\n{stderr}"
         if proc.returncode != 0:
             output += f"\n[退出码: {proc.returncode}]"
+        # conda activate 在此环境用不了：run_command 用 powershell -NoProfile，
+        # 不加载 conda 的 shell 钩子（钩子在 profile 里注册）。提示模型改用环境
+        # python 绝对路径，而非 conda activate。
+        if "conda" in command and ("不是内部或外部命令" in stderr
+                                   or "无法将" in stderr
+                                   or "not recognized" in stderr
+                                   or "CommandNotFoundError" in stderr
+                                   or "conda activate" in command):
+            output += ("\n[提示] 本环境的非交互 shell 未加载 conda 钩子，无法用 "
+                       "`conda activate`。请直接用目标环境的 python 绝对路径执行，"
+                       "例如 `D:/miniconda/envs/<env>/python.exe your_script.py`，"
+                       "或 `D:/miniconda/envs/<env>/python.exe -m pip install ...`。")
         return output.strip() or f"（命令执行完毕，退出码 {proc.returncode}，无输出）"
     except Exception as e:
         return f"执行失败：{e}"
