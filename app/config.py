@@ -102,6 +102,7 @@ DEFAULT_CONFIG = {
     "imagegen_api_key": "",
     "imagegen_base_url": "",
     "imagegen_model": "gpt-image-2",
+    "imagegen_format": "openai",  # openai | dashscope
     "thinking": "high",             # off | high | max
     "search_mode": "auto",         # auto | manual
     "search_enabled": True,        # manual mode: whether search tool is active

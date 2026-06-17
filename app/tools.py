@@ -335,6 +335,7 @@ def generate_image_tool(prompt: str, size: str = "1024x1024", vision_config: dic
         model=vc.get("imagegen_model", "gpt-image-2"),
         size=(size or "1024x1024").strip(),
         save_dir=vc.get("imagegen_save_dir", ""),
+        fmt=vc.get("imagegen_format", "openai"),
     )
     if not r.get("ok"):
         return f"[图片生成失败：{r.get('error', '未知错误')}]"

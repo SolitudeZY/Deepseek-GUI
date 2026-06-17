@@ -217,6 +217,7 @@ function fillSettingsFields(cfg) {
   $('imagegen-key').value = cfg.imagegen_api_key || '';
   $('imagegen-url').value = cfg.imagegen_base_url || '';
   $('imagegen-model').value = cfg.imagegen_model || '';
+  $('imagegen-format').value = cfg.imagegen_format || 'openai';
   $('ui-theme').value = cfg.theme || 'dark';
   $('ui-fontsize').value = String(cfg.font_size || 14);
   $('sync-folder').value = cfg.sync_folder || '';
@@ -243,6 +244,7 @@ async function saveSettings() {
   state.config.imagegen_api_key = $('imagegen-key').value.trim();
   state.config.imagegen_base_url = $('imagegen-url').value.trim();
   state.config.imagegen_model = $('imagegen-model').value.trim();
+  state.config.imagegen_format = $('imagegen-format').value;
   state.config.theme = $('ui-theme').value;
   state.config.font_size = parseInt($('ui-fontsize').value) || 14;
   state.config.sync_auto_upload = $('sync-auto-upload').checked;
