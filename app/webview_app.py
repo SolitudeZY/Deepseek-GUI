@@ -23,7 +23,7 @@ from app.sync import (
     upload_config, detect_config_updates, import_config,
     sync_all, import_all,
 )
-from app.tools import read_file as _read_file
+from app.tools import read_file as _read_file, get_file_op_log
 from app.vision import is_image, describe_image
 from app.skills import skill_list, skill_save, skill_delete, skill_read, memory_list, memory_read, memory_write, skill_import_from_path
 
