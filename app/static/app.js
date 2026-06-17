@@ -431,12 +431,33 @@ $('btn-home-noproject').addEventListener('click', () => startConvWithProject('')
 function loadHistory(messages) {
   chatMessages.classList.add('no-animate');
   chatMessages.innerHTML = '';
+  // tool_call_id → 工具名映射：tool 结果消息只带 id，需借此还原真实工具名，
+  // 这样回放能复用实时的 addToolCallBubble/addToolResultBubble（按名字匹配），
+  // 渲染出和实时一致的「调用气泡（参数+结果可折叠）」。
+  const tcNameById = {};
   messages.forEach(msg => {
     const role = msg.role;
     const content = msg.content || '';
-    if (role === 'user') addUserBubble(content);
-    else if (role === 'assistant' && content) addAssistantBubble(content);
-    else if (role === 'tool') addToolResultBubble('tool', content);
+    if (role === 'user') {
+      addUserBubble(content);
+    } else if (role === 'assistant') {
+      if (content) addAssistantBubble(content);
+      // 还原该轮的工具调用气泡（含参数、占位「等待中…」）
+      if (Array.isArray(msg.tool_calls)) {
+        msg.tool_calls.forEach(tc => {
+          const name = tc.function && tc.function.name || 'tool';
+          let args = {};
+          try { args = JSON.parse((tc.function && tc.function.arguments) || '{}'); }
+          catch { args = {}; }
+          if (tc.id) tcNameById[tc.id] = name;
+          addToolCallBubble(name, args);
+        });
+      }
+    } else if (role === 'tool') {
+      // 用真实工具名匹配上面的占位气泡并填入结果
+      const name = tcNameById[msg.tool_call_id] || 'tool';
+      addToolResultBubble(name, content);
+    }
   });
   scrollToBottom();
   // Re-enable animations after history is rendered
