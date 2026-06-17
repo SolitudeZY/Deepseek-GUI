@@ -37,16 +37,29 @@ def describe_image(
         from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url=base_url)
         b64, mime = _encode_image(path)
+        # 反幻觉系统约束：视觉模型每次调用都是无状态的，且容易"脑补"图中没有的内容。
+        # 强制它只报告实际可见信息、区分观察与推测、不确定就明说，降低错误结论风险。
+        system_prompt = (
+            "你是严谨的图像分析助手。请遵守：\n"
+            "1. 只描述图片中确实可见的内容，绝不编造、补全或猜测图中没有的细节。\n"
+            "2. 区分『观察到的事实』与『据此的推测』——推测必须明确标注（如『可能』『看起来像』）。\n"
+            "3. 文字、数字、代码、图表数值必须逐字符照实读取；看不清或被遮挡就说『此处不清晰/无法辨认』，不要猜测填充。\n"
+            "4. 若提问超出图片所能提供的信息，直接说明『图中无法确定这一点』，而不是强行给结论。\n"
+            "5. 宁可少答、保守答，也不要给出不确定的断言。"
+        )
         resp = client.chat.completions.create(
             model=model,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image_url",
-                     "image_url": {"url": f"data:{mime};base64,{b64}"}},
-                    {"type": "text", "text": prompt},
-                ],
-            }],
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url",
+                         "image_url": {"url": f"data:{mime};base64,{b64}"}},
+                        {"type": "text", "text": prompt},
+                    ],
+                },
+            ],
         )
         return resp.choices[0].message.content or "（无返回内容）"
     except Exception as e:
