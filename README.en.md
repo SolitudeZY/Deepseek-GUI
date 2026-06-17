@@ -1,8 +1,8 @@
 # QuickModel
 
-A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-compatible API. Built with pywebview (WebView2) + Python backend.
+A desktop AI assistant for Windows and macOS supporting multiple LLM vendors via OpenAI-compatible API. Built with pywebview (WebView2 / WebKit) + Python backend.
 
-![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -16,7 +16,8 @@ A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-co
 - **Multiple model configs** — Configure and switch between multiple model backends; each model has independent context length and compact threshold settings
 - **Reasoning intensity (off / high / max)** — Three-level thinking mode cycled via toolbar button; persisted across sessions
 - **Auto-Compact** — Context auto-summarizes when exceeding threshold (default 600K, customizable); manual `/compact` command; prefix-cache-aware compression preserves DeepSeek cache hits
-- **Image understanding** — Paste or drop images into chat; described via Qwen-VL or any vision API
+- **Image understanding (targeted analysis)** — Paste or drop images into chat. Only the image path is attached on send; the main model calls the `analyze_image` tool with a question tailored to the current conversation (rather than a pre-generated generic description). Built-in anti-hallucination constraints make the vision model report only what is actually visible and distinguish observation from speculation. Uses Qwen-VL or any vision API by default
+- **Image generation** — When asked to generate/draw an image, the main model calls the `generate_image` tool via an OpenAI-compatible endpoint (supports relays like New API / sub2api), saves it locally, and shows a thumbnail inline (click to enlarge)
 - **Real-time cost tracking** — Per-round and per-session token usage with cache hit/miss breakdown
 
 ### Built-in Tools
@@ -25,9 +26,11 @@ A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-co
 |------|-------------|
 | `read_file` | Read local files (txt, md, py, json, csv, pdf, docx, xlsx, etc.) |
 | `write_file` | Write or overwrite files on disk |
-| `apply_patch` | Apply unified diff patches to precisely modify specific lines |
+| `apply_patch` | Edit files via exact string replacement (old snippet → new content); supports multiple edits/files; errors out instead of corrupting the file when no/ambiguous match |
 | `list_directory` | List directory contents |
-| `run_command` | Execute PowerShell commands (with confirmation dialog) |
+| `run_command` | Execute shell commands (PowerShell on Windows, bash on macOS/Linux) with confirmation dialog and an allow-list to auto-run remembered commands |
+| `analyze_image` | Analyze a local image with the vision model for a specific question |
+| `generate_image` | Generate an image with an image model and save it locally |
 | `web_search` | Search the internet via multiple engines with auto-fallback |
 | `web_read` | Fetch and read full webpage content (HTML to plain text) |
 | `rlm_query` | Dispatch 1-16 sub-tasks to a low-cost model in parallel |
@@ -46,6 +49,27 @@ A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-co
 - **Parallel fetching** — Search result pages fetched concurrently (up to 5 threads), significantly reducing wait time
 - **Soft limit** — After 5 searches in one turn, the agent is nudged to consolidate results
 - **Manual / Auto modes** — Auto lets the model decide; manual gives you a toolbar toggle
+
+### Image Tools
+
+- **Targeted image analysis** — Only the absolute path is attached on send; the main model writes a context-aware `question` and calls `analyze_image` to get focused results (facial expressions, chart values, text in code screenshots, specific regions) instead of a generic full-scene description
+- **Anti-hallucination constraints** — The vision model is forced to report only what is actually visible, distinguish observation from speculation, read text/numbers verbatim, and say so when something is unclear — reducing wrong conclusions
+- **Image generation** — `generate_image` calls an OpenAI-compatible `/v1/images/generations` endpoint (supports relays like New API / sub2api), saves locally, and renders a thumbnail card inline
+- **Fetch model list** — One click in settings pulls the available model list from your vision/image-gen provider; click to fill it in
+- **Separate config** — Independent `api_key` / `base_url` / `model` for vision and image-gen, configured under the "Image Tools" tab in settings
+
+### Command Execution & Safety
+
+- **Cross-platform shell** — PowerShell on Windows, bash on macOS/Linux; output encoding auto-detected (GBK-tolerant on Windows)
+- **Confirmation & allow-list** — Confirmation dialog before running commands; commands can be added to an allow-list for subsequent auto-execution; smart wildcard pattern suggestions
+- **Timeout & interrupt** — Commands run with timeout protection and can be stopped anytime
+
+### Project Grouping & Working Directory
+
+- **Conversation-bound project dir** — Each conversation can bind a project folder; tool relative paths resolve against it, fixing the model writing files to the wrong directory
+- **Sidebar grouping by project** — Conversation list grouped into collapsible project sections; supports cross-group drag-to-reclassify and drag-to-reorder (with placeholder visual feedback)
+- **Project picker home** — When starting a new conversation, choose a recent project, add a new one, or start with no project
+- **Stale path warning** — When a project dir doesn't exist on this machine after cross-device sync, a banner offers one-click reset
 
 ### Cloud Sync & Import/Export
 
@@ -140,7 +164,7 @@ A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-co
 
 ## Requirements
 
-- Windows 10/11 with [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (pre-installed on Win11)
+- Windows 10/11 with [WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (pre-installed on Win11); or macOS (uses the built-in WebKit, no extra runtime)
 - Python 3.10+
 - At least one LLM provider API key
 
@@ -152,19 +176,28 @@ A desktop AI assistant for Windows supporting multiple LLM vendors via OpenAI-co
 git clone https://github.com/SolitudeZY/Deepseek-GUI.git
 cd Deepseek-GUI
 
+# Windows
 pip install openai pywebview tavily-python duckduckgo-search firecrawl-py
+
+# macOS (also needs pyobjc for the cocoa/WebKit backend)
+pip install -r requirements.txt
 
 python main.py
 ```
 
-### Build as EXE
+### Build
 
 ```bash
 pip install pyinstaller
-pyinstaller main.spec
+
+# Windows
+pyinstaller --onefile --windowed --name QuickModel --icon=icon.ico --add-data "app/static;app/static" --add-data "icon.ico;." main.py
+
+# macOS (note the : separator in --add-data, produces a .app)
+pyinstaller --windowed --name QuickModel --icon=icon.icns --add-data "app/static:app/static" --add-data "icon.png:." main.py
 ```
 
-The generated `dist/QuickModel/` folder is ready to distribute.
+On Windows the generated `dist/QuickModel/` folder (or single exe) is ready to distribute; on macOS it produces `dist/QuickModel.app`.
 
 ## Quick Start
 
