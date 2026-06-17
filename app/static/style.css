@@ -1000,5 +1000,46 @@ body.drag-over #input-area { border-top-color: var(--accent); background: var(--
 .fileops-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: background 0.1s; }
 .fileops-item:hover { background: var(--hover); }
 .fileops-icon { flex-shrink: 0; }
-.fileops-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fileops-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.fileops-stats { flex-shrink: 0; display: flex; gap: 4px; font-size: 11px; font-family: 'SF Mono', Menlo, Consolas, monospace; }
+.fo-add { color: #41a65b; }
+.fo-del { color: var(--danger); }
+.fo-none { color: var(--text-muted); }
+
+/* ── 文件改动 diff 模态框 ── */
+#diff-modal {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); width: 80vw; max-width: 1000px;
+  max-height: 82vh; display: flex; flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5); overflow: hidden;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+}
+.overlay.hidden #diff-modal { transform: scale(0.9) translateY(20px); opacity: 0; }
+#diff-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--border); gap: 12px;
+}
+.diff-head-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+#diff-title { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#diff-stats { font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; flex-shrink: 0; }
+.diff-head-right { display: flex; gap: 6px; flex-shrink: 0; }
+.diff-head-right button {
+  background: var(--bg3); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 5px; padding: 4px 8px; cursor: pointer; font-size: 12px;
+}
+.diff-head-right button:hover { background: var(--hover); color: var(--text); }
+#diff-path { padding: 5px 14px; font-size: 11px; color: var(--text-muted); border-bottom: 1px solid var(--border); word-break: break-all; }
+#diff-body { overflow: auto; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.5; }
+.diff-loading, .diff-empty { padding: 24px; text-align: center; color: var(--text-muted); }
+.diff-row { display: flex; white-space: pre; }
+.diff-gutter { flex-shrink: 0; width: 42px; text-align: right; padding: 0 6px; color: var(--text-muted); user-select: none; opacity: 0.6; }
+.diff-sign { flex-shrink: 0; width: 14px; text-align: center; user-select: none; }
+.diff-text { flex: 1; padding-right: 12px; }
+.diff-ctx { color: var(--text-dim); }
+.diff-add { background: rgba(65, 166, 91, 0.16); color: var(--text); }
+.diff-add .diff-sign { color: #41a65b; }
+.diff-del { background: rgba(247, 118, 142, 0.14); color: var(--text); }
+.diff-del .diff-sign { color: var(--danger); }
+.diff-hunk { background: var(--bg3); color: var(--accent); }
+.diff-hunk .diff-text { padding-left: 8px; }
 #plan-overlay .modal { max-width: 600px; }
