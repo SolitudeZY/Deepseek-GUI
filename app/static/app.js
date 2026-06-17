@@ -1181,10 +1181,20 @@ window.Chat = {
       li.className = 'fileops-item';
       const fname = op.path.split(/[/\\]/).pop();
       const icon = op.tool === 'apply_patch' ? '🩹' : '✏️';
-      li.innerHTML = `<span class="fileops-icon">${icon}</span><span class="fileops-name" title="${escapeHtml(op.path)}">${escapeHtml(fname)}</span>`;
-      li.addEventListener('click', () => {
-        window.pywebview.api.open_file_location(op.path);
-      });
+      // 增删行数（绿/红），无快照时不显示
+      let stats = '';
+      if (typeof op.added === 'number' || typeof op.removed === 'number') {
+        const a = op.added || 0, r = op.removed || 0;
+        stats = `<span class="fileops-stats">`
+              + (a ? `<span class="fo-add">+${a}</span>` : '')
+              + (r ? `<span class="fo-del">-${r}</span>` : '')
+              + (!a && !r ? `<span class="fo-none">±0</span>` : '')
+              + `</span>`;
+      }
+      li.innerHTML = `<span class="fileops-icon">${icon}</span>`
+                   + `<span class="fileops-name" title="${escapeHtml(op.path)}">${escapeHtml(fname)}</span>`
+                   + stats;
+      li.addEventListener('click', () => openDiffModal(op.path, fname));
       list.appendChild(li);
     });
   },
@@ -1949,6 +1959,12 @@ $('btn-todo-close').addEventListener('click', () => $('todo-panel').classList.ad
 // ── Worktree panel ──────────────────────────────────────────────────
 $('btn-wt-close').addEventListener('click', () => $('wt-panel').classList.add('hidden'));
 $('btn-fileops-close').addEventListener('click', () => $('fileops-panel').classList.add('hidden'));
+$('btn-diff-close').addEventListener('click', closeDiffModal);
+$('diff-overlay').addEventListener('click', e => { if (e.target === $('diff-overlay')) closeDiffModal(); });
+$('btn-diff-open-file').addEventListener('click', () => {
+  const p = $('diff-path').textContent;
+  if (p) window.pywebview.api.open_file_location(p);
+});
 
 async function refreshWorktreePanel() {
   try {
@@ -2621,3 +2637,45 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') closeLightbox();
 });
 $('lightbox-img').addEventListener('click', e => e.stopPropagation());
+
+// ── 文件改动 diff 模态框 ──────────────────────────────────────────
+async function openDiffModal(path, fname) {
+  const overlay = $('diff-overlay');
+  $('diff-title').textContent = fname || path;
+  $('diff-stats').innerHTML = '';
+  $('diff-body').innerHTML = '<div class="diff-loading">加载差异中…</div>';
+  $('diff-path').textContent = path;
+  overlay.classList.remove('hidden');
+  let res;
+  try {
+    res = await window.pywebview.api.get_file_diff(path);
+  } catch (e) {
+    $('diff-body').innerHTML = `<div class="diff-empty">读取差异失败：${escapeHtml(String(e))}</div>`;
+    return;
+  }
+  if (!res || !res.ok) {
+    $('diff-body').innerHTML = `<div class="diff-empty">${escapeHtml(res && res.reason || '无法显示差异')}</div>`;
+    return;
+  }
+  const a = res.added || 0, r = res.removed || 0;
+  $('diff-stats').innerHTML = `<span class="fo-add">+${a}</span> <span class="fo-del">-${r}</span>`;
+  if (!res.lines || res.lines.length === 0) {
+    $('diff-body').innerHTML = '<div class="diff-empty">无内容差异</div>';
+    return;
+  }
+  const rows = res.lines.map(ln => {
+    if (ln.type === 'hunk') {
+      return `<div class="diff-row diff-hunk"><span class="diff-gutter"></span>`
+           + `<span class="diff-gutter"></span><span class="diff-text">${escapeHtml(ln.text)}</span></div>`;
+    }
+    const cls = ln.type === 'add' ? 'diff-add' : ln.type === 'del' ? 'diff-del' : 'diff-ctx';
+    const sign = ln.type === 'add' ? '+' : ln.type === 'del' ? '-' : ' ';
+    return `<div class="diff-row ${cls}">`
+         + `<span class="diff-gutter">${ln.oldNo || ''}</span>`
+         + `<span class="diff-gutter">${ln.newNo || ''}</span>`
+         + `<span class="diff-sign">${sign}</span>`
+         + `<span class="diff-text">${escapeHtml(ln.text) || '&nbsp;'}</span></div>`;
+  }).join('');
+  $('diff-body').innerHTML = rows;
+}
+function closeDiffModal() { $('diff-overlay').classList.add('hidden'); }
