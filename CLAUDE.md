@@ -1,0 +1,182 @@
+# QuickModel — 项目说明（供 Claude Code 使用）
+
+桌面 AI 助手（Windows .exe）：pywebview（WebView2）前端 + Python 后端，多厂商 LLM、工具调用、文件读取、图片理解、Markdown/LaTeX 渲染。由 CustomTkinter 迁移到 pywebview 以获得原生级 Web 渲染质量。
+
+## 运行 / 构建
+
+- Conda 环境：`ai_api`，解释器 `D:/miniconda/envs/ai_api/python.exe`
+  - 注意：直接 `python main.py` 会用到 base 环境（`D:/miniconda/python.exe`），那里**没装 pywebview**，会报 `ModuleNotFoundError: No module named 'webview'`。必须用 `ai_api` 解释器。
+- 入口：`D:/miniconda/envs/ai_api/python.exe E:/quick_model/main.py`
+- 配置/数据：
+  - Windows：`%APPDATA%/AIDesktopAssistant/`（config.json、conversations/、allowed_commands.json、uploads/、skills/）
+  - macOS：`~/Library/Application Support/AIDesktopAssistant/`（`config.py get_app_data_dir()` 按 `IS_MAC` 分支）
+- 构建：
+  - Windows：`pyinstaller --onefile --windowed --name QuickModel --icon=icon.ico --add-data "app/static;app/static" --add-data "icon.ico;." main.py`
+  - macOS：`pyinstaller --windowed --name QuickModel --icon=icon.icns --add-data "app/static:app/static" --add-data "icon.png:." main.py`（注意 macOS `--add-data` 分隔符是 `:` 不是 `;`；产出 `.app` bundle，不用 `--onefile`）。
+    - 需先把 `icon.png` 转成 `icon.icns`（仅 macOS 有 `iconutil`）：`mkdir icon.iconset && sips -z 512 512 icon.png --out icon.iconset/icon_512x512.png && iconutil -c icns icon.iconset -o icon.icns`（或用在线/Pillow 工具批量生成各尺寸）。当前仓库**只有 `icon.ico`/`icon.png`，无 `.icns`**；缺 `.icns` 时 `main.py` 运行期自动回退用 `icon.png`，app 能跑，只是打包 `.app` 时图标需 `.icns`。
+  - macOS 依赖见 `requirements.txt`（已带 `pyobjc-*; sys_platform=="darwin"` 标记，cocoa/WebKit 后端）。
+
+## macOS 自动编译（GitHub Actions）
+
+`.github/workflows/build-mac.yml` 在 `macos-latest` 上自动打包 `.app`。**Windows/Mac 共用同一份源码**——日常改代码（前端 `app/static/*`、后端 `app/*.py`）只要 push 到仓库，Mac 编译 `actions/checkout` 自动拉最新代码、`pyinstaller main_mac.spec` 自动包含，**无需手动同步两套代码**。`app/static/` 整目录由 spec `datas` 打包（改前端文件不用动 spec）。
+
+- **触发方式**：①打 tag `v*`（`git tag v1.5.1 && git push origin v1.5.1`）→ 编译 + 自动上传到 GitHub Release；②Actions 页手动 `workflow_dispatch` → 仅产出 artifact 不发 Release。**普通 push 到 main 不触发编译**（省 CI 时间，想出 Mac 版时才打 tag）。
+- **依赖单一来源（重要）**：workflow `Install dependencies` 步骤已改为 `pip install -r requirements.txt`（不再硬编码包名）。**新增任何第三方依赖，只改 `requirements.txt` 一处**即可，Win/Mac/CI 三处统一，不会再漏装。⚠ 教训：`requests` 被 `vision.py`/`webview_app.py` 用却一度不在 `requirements.txt`（旧 workflow 硬编码包列表也没列它，靠 firecrawl/tavily 传递依赖侥幸装上）——已显式补入。
+- **版本号自动从 tag 读**：`main_mac.spec` 的 `CFBundleVersion`/`CFBundleShortVersionString` 取 `os.environ['GITHUB_REF_NAME'].lstrip('v')`（tag `v1.5.1`→`1.5.1`），本地构建无此环境变量时回退默认 `1.5.0`。**打 tag 即版本号，不用再手改 spec**。
+- **发布前检查清单**：①`main.py` `webview.start(debug=...)` 必须为 `False`（`debug=True` 会让 .app 带 DevTools、可右键检查暴露内部，见「静态资源缓存破坏」）；②spec 默认版本号 `1.5.0` 仅本地回退用，正式发布走 tag。
+
+## 版本号管理与发版（bump_version.py）
+
+版本号散落 3 处，曾因人肉维护脱节导致「检查更新」算错（装的是 1.5.2 却一直提示有新版）。现统一由根目录 `bump_version.py` 一条命令同步。
+
+- **3 处版本号及其同步方式**：
+  - `app/config.py` `APP_VERSION`（**唯一真源**，运行时被 `get_app_version()` / `check_for_updates()` 读取，作「检查更新」里的本地当前版本）——由 `bump_version.py` 改写。
+  - `main_mac.spec` 的 `CFBundleVersion` —— CI 打包时从 git tag（`GITHUB_REF_NAME`）读，与 tag 同源。
+  - GitHub Release tag —— 你打 tag 时给定，触发 CI。
+- **为什么 `APP_VERSION` 不能像 spec 那样运行时读 tag**：打包后的 .exe/.app 里没有 git、也无 `GITHUB_REF_NAME`，只能在**打包前把版本号烤进代码**。`bump_version.py` 在打 tag 前改写 `config.py`，使「装进用户机的代码」携带正确版本号。
+- **发版流程（发一次版只动一处）**：`python bump_version.py 1.5.3` → 自动改 `config.py` 的 `APP_VERSION` + commit + 打 tag `v1.5.3` + push 代码与 tag → 触发 GitHub Actions 编译并发 Release。加 `--no-push` 只改本地与打 tag 供确认；`--show` 只看当前版本。脚本带格式校验（X.Y.Z）、同版本/重名 tag 拦截。
+- **「检查更新」逻辑**（`webview_app.py check_for_updates` + `settings.js`）：取 `APP_VERSION` 当本地版本，拉 `GITHUB_REPO`（`config.py` = `SolitudeZY/Deepseek-GUI`）最新 Release tag 比大小。所以**发版务必走 `bump_version.py`**，手动只改 tag 不改 `APP_VERSION` 会让本地版本号对不上。
+
+## 架构
+
+- `main.py` — pywebview 窗口入口
+- `app/webview_app.py` — Python↔JS 桥（`API` 类），消息构建、Agent 生命周期
+- `app/agent.py` — `Agent` 类，工具循环、上下文压缩、调用 `dispatch`
+- `app/tools.py` — 工具实现 + `TOOLS_SCHEMA` + `dispatch` 分发
+- `app/vision.py` — 视觉模型调用（`describe_image`）
+- `app/config.py` — 配置默认值与读写
+- `app/static/` — 全部前端（HTML/CSS/JS）；UI 改动都在这里。**JS 已按功能拆分为多个普通 `<script>`（无打包器/模块），加载顺序见下「前端 JS 模块拆分」**。
+- `app/gui.py` — **遗留** CustomTkinter 界面，当前未被任何地方 import，pywebview 入口不走它。改动前先确认是否仍在引用。
+- 厂商 JS 库（marked、katex、highlight.js）本地放在 `app/static/vendor/`，无 CDN
+
+## 前端 JS 模块拆分（普通 `<script>` 共享全局作用域，无打包器）
+
+`app.js` 曾达 2681 行，已按功能拆分。**全部文件共享同一全局作用域**（非 ES module），靠 `index.html` 里的加载顺序保证可用：
+
+```
+vendor/* → core.js → render.js → drag.js → dialogs.js → settings.js → app.js
+```
+
+- `core.js`（~38 行）：`state`、`$`、DOM 引用（convList/chatMessages/msgInput/…）、`_convColors`/`_randomConvColor`。**必须最先加载**——其它文件顶层的 `$('btn-…').addEventListener` 在 load 时即执行，依赖 `$`/DOM 引用。
+- `render.js`：marked/KaTeX 配置、`renderMarkdown`、`renderLatexInDom`、`copyCode`、`escapeHtml`、`scrollToBottom`。
+- `drag.js`：侧边栏会话手动拖拽引擎（`_drag` 状态机、`_handleConvDrop`/`_handleHeaderDrop` 等）。
+- `dialogs.js`：重命名/命令确认/ask_user_question/计划批准/图片灯箱/文件 diff 模态框，及各自顶层按钮绑定。
+- `settings.js`：设置面板/命令白名单/更新检查/云同步/模型配置，及顶层按钮绑定。
+- `app.js`：其余主逻辑——会话列表渲染、消息气泡、流式、send、slash 菜单、侧边面板、工具栏按钮、`Chat` 对象（后端 `evaluate_js('Chat.xxx()')` 的回调入口）、init。
+
+**改动铁律（避免 ReferenceError / 重复声明崩溃）**：
+- 顶层 `const`/`let`/`function` 同名只能在**一个文件**出现（全局作用域重复声明 = SyntaxError）。
+- 跨文件互相调用**函数/读写变量**没问题——都在运行时（点击/回调）解析，与文件顺序无关。
+- 只有**顶层 load 时执行的语句**（DOM 引用、`addEventListener` 绑定）受顺序约束：它们引用的 `const`/DOM 必须在更早加载的文件里定义；`core.js` 最先，故 `$`/`state`/DOM 引用随处可用。
+- 新增前端文件时在 `index.html` 按依赖插入 `<script>`，缓存破坏戳由 mtime 机制自动注入（见「静态资源缓存破坏」），无需手动版本号。
+
+## 关键约定
+
+- 改后端 Python 后需**重启 app** 才生效。改 `app/static/` 前端文件后：**也建议重启 app**，不能只靠刷新窗口。原因见下「静态资源缓存破坏」——刷新窗口会复用同一个 `_index.runtime.html`，而缓存破坏戳在启动时才重算；WebView2（`private_mode=False`）对相同 URL 缓存极顽固，刷新常命中旧 js/css。重启才会按文件 mtime 重算戳、强制拉新。
+
+## 静态资源缓存破坏（自动，勿手动维护版本号）
+
+- WebView2 对 `app.js`/`style.css` 等本地资源缓存顽固。`webview_app.py` `get_html_path()` 在**启动时**读 `index.html`，扫描所有本地 `.js`/`.css` 引用（含 `vendor/*`），按各文件 **mtime** 注入 `?v=<mtime>` 缓存破坏戳，写出 `_index.runtime.html` 再加载。
+- **不要在 `index.html` 里手写 `?v=...`**——会被自动覆盖；源文件保持裸引用即可（如 `<script src="app.js">`）。CDN/含 `:` 的 URL 不被改写。
+- mtime 机制好处：文件没改→戳不变→正常命中缓存；一改→戳变→自动失效。改完前端**重启 app** 即生效，无需手动 bump。
+- ⚠ **`debug=False` 下缓存戳也可能压不住，DevTools 才是可靠旁路（实测坑）**：`main.py` `webview.start(debug=...)`。Windows 设了 `private_mode=False`（持久化 user data 目录），WebView2 对**本地 file 资源**的缓存极顽固——即使带了 `?v=<mtime>` query 戳，`debug=False` 时仍可能命中旧 `style.css`/`app.js`，表现为「改了前端、重启了也没效果」。一旦打开 DevTools（F12 / 右键检查），Chromium 内核默认「DevTools 打开时禁用缓存」即刻旁路缓存 → 改动立现；`debug=True` 等于常驻开 DevTools，故开发期设 `debug=True` 可保「改前端即生效」。**排查「改了没效果」时：先 F12 在 Console 用 `getComputedStyle` 实测目标元素，若新值已生效说明纯属缓存（开 DevTools 已旁路），非代码问题。** 打包发布前务必把 `debug` 改回 `False`（否则用户 .exe 带 DevTools、可右键检查暴露内部结构）。
+- `patch_http_root()`（`main.py` 在 `webview.start` 前调用）：monkeypatch `bottle.run` 修复 pywebview 6.x 的 bug——其内部 Bottle server 把 `asset(file)` 同时挂在 `/` 和 `/<file:path>`，裸 `/` 请求缺 `file` 参数 → 每次刷一条 500。补丁给 `/` 路由回调加 `file` 默认值（回退首页），不改 site-packages、与 pywebview 版本无关。
+
+## 跨平台（Windows / macOS）
+
+后端 Python 侧已按 `config.IS_WIN` / `IS_MAC`（`platform.system()`）分支适配，新增平台相关逻辑务必同步两端：
+- **数据目录** `config.py get_app_data_dir()`：Win=`%APPDATA%`，Mac=`~/Library/Application Support`。
+- **文件管理器定位** `webview_app.py open_file_location()`：Mac=`open`/`open -R`，Win=`explorer`/`explorer /select,`。
+- **系统通知** `_do_notify()`：Win=PowerShell WinRT Toast，Mac=`osascript display notification`。
+- **执行命令** `tools.py run_command()`：Win=`powershell` + `CREATE_NO_WINDOW`，Mac/Linux=`/bin/bash -c`；输出解码 Win 试 GBK/cp936、Mac 只 UTF-8。
+- **自动更新** `apply_update_and_restart()`：Win=`.bat`（taskkill+copy/Expand-Archive+start），Mac=`.sh`（kill+cp/unzip+open）。⚠ frozen `.app` 时 `sys.executable` 是 `Foo.app/Contents/MacOS/Foo`，重启已修正为 `open` 整个 `.app` bundle（沿 parents 找 `.suffix=='.app'`）而非裸二进制。
+- **启动参数** `main.py`：`private_mode=False` 仅 Windows（WebView2 缓存）；图标 Mac 优先 `.icns` 回退 `.png`，Win 用 `.ico`。
+- **前端字体** `style.css`：正文 `'Segoe UI', -apple-system, BlinkMacSystemFont, 'PingFang SC', ...`；等宽补 `'SF Mono', Menlo`。WebView2(Win)=Edge Chromium、cocoa(Mac)=WebKit，CSS 注意 WebKit 差异（见 memory `css-transition-bug`：transition/HTML5 拖放在 Win WebView2 失效，拖拽已改鼠标事件实现）。
+- **依赖** `requirements.txt`：`pyobjc-core`/`pyobjc-framework-Cocoa`/`pyobjc-framework-WebKit` 带 `; sys_platform=="darwin"` 标记。
+- **缓存破坏/`patch_http_root`** 在所有平台无害运行（bottle 为 pywebview 跨平台共用）。
+- 工具配置通过 `dispatch(tool_name, args, search_config=..., vision_config=...)` 的 dict 通道传入，不要在工具函数里直接读全局 config。
+- `Agent.__init__` 接收 `search_config` / `vision_config`；`webview_app.py` 用 `_build_search_config()` / `_build_vision_config()` 组装。两处 Agent 构造（`send_message`、`_start_agent`）都要保持同步。
+- 缓存优化：大块数据（如图片 base64）**绝不进入主模型上下文**；`TOOLS_SCHEMA`、system prompt 作为稳定前缀以命中 prompt cache。
+- **prompt cache 前缀稳定铁律（重要）**：DeepSeek 等 prompt cache 从头逐 token 比对前缀，遇到第一个不同 token 即从该点起全部 miss 重算。因此**绝不就地改写任何已发送过的历史消息内容**——一旦某条消息以某形态发给过 API，之后必须保持该形态。压缩历史只能用 `auto_compact`（超阈值时一次性折叠中段为摘要、保留 system 头 + 近期尾，低频、一次性失效后前缀重新稳定）。
+  - ⚠ **已移除 microcompact**（曾在 `_manage_context` 每轮调用）：它按"距末尾 N 条"的滑动窗口就地把窗口外旧工具结果改写成 `[已压缩]`，但窗口边界随消息增长右移，导致位于前缀中间的历史消息被反复改写 → 每次都从该点截断缓存前缀。表现为**工具调用越多、缓存命中率越低**。教训：任何"随轮次移动的就地改写"都与 prompt cache 冲突，宁可多花上下文 token 也要保前缀稳定（DeepSeek 缓存 token 仅为 miss 的约 1/10）。
+
+## 图片理解（针对性分析，工具化）
+
+设计：**不在发送时预生成通用描述**，而是发送图片时只附**绝对路径**，由主模型按当前问题调用 `analyze_image(path, question)` 工具做针对性分析。
+
+- `webview_app.py` `send_message`：图片附 `[图片: 名称 路径: 绝对路径]`，提示主模型用 analyze_image。
+- `tools.py` `analyze_image(path, question, vision_config)`：把贴合问题的 `question` 透传给 `describe_image`；带路径/格式校验，无 key 优雅降级。
+- **视觉模型无状态、无记忆（关键约定）**：每次 `describe_image` 都是独立单次 `chat.completions.create`，只含当轮 user 消息（图 + prompt），不带对话历史、调用间互不相通。上下文由**主模型**持有，视觉模型职责仅是"就这一个 question 看这一张图"。因此：①`analyze_image` 的 schema 引导主模型把**对话背景补进 question**（背景+聚焦区域+具体问题），不要只问"描述图片"；②同一张图多个问题应**合并进一次调用**（question 内 ①②③ 编号），而非拆成多次失忆调用——也省 token（图片 base64 大，且按缓存约定绝不进主上下文）。
+- **反幻觉约束**：`describe_image` 给视觉模型加了 system prompt，强制只报实际可见内容、区分观察与推测、文字/数值逐字符读取、看不清就说不清、宁可保守少答。`webview_app.py`/`gui.py` 的 `describe_image` 调用自动继承此约束。
+- `app.js`：拖拽图片后不再预调 `describe_image`，仅标记 🖼。
+- vision 配置：`vision_api_key` / `vision_base_url`（默认 dashscope compatible-mode）/ `vision_model`（默认 qwen-vl-max）。
+- 401 排查：key 必须与 base_url 配套（dashscope compatible-mode 需阿里云百炼 key）；`describe_image` 会清洗 `Bearer `/空白并暴露原始 HTTP 状态码与响应体。
+
+## 图片生成（工具化）
+
+主模型在用户要求生成/绘制图片时调用 `generate_image(prompt, size)` 工具，仿 analyze_image 模式。
+
+- `vision.py` `generate_image()`：调 OpenAI 兼容 `/v1/images/generations`（用 `requests`），支持 `b64_json`/`url` 返回；base_url 填到 `/v1` 自动补 `/images/generations`；保存到本地返回 `{ok, path, filename, size}`；清洗 key、暴露 HTTP 错误、401 提示。
+- `tools.py` `generate_image_tool(prompt, size, vision_config)`：返回 `[图片: 名称 路径: ...]` 标记，**复用附件卡片机制**在对话显示缩略图（点击放大）。其结果出现在**工具结果气泡**里：`addToolResultBubble` 检测图片标记后用 `buildUserContent` 渲染缩略图并自动展开（实时和历史回放 fallback 两条路径都处理）。缩略图加载逻辑抽成共享函数 `_hydrateImgThumbs(container)`，用户气泡与工具结果共用。失败结果 `[图片生成失败：...]` 不匹配标记，保持文本显示。
+- 生成图存进 uploads（`_build_vision_config` 注入 `imagegen_save_dir=uploads`），`get_image_data` 兼容绝对路径。
+- 配置：`imagegen_api_key` / `imagegen_base_url` / `imagegen_model`（默认 gpt-image-2），支持 New API / sub2api 等中转。设置面板"图片工具" tab 内"图片生成"子标签。
+
+## 读取模型列表（设置面板）
+
+"图片工具"两个子页各有"读取模型列表"按钮：`webview_app.py` `list_models(api_key, base_url)` 调 OpenAI 标准 `GET {base_url}/models`，容错去掉误填的端点后缀（`/chat/completions`、`/images/generations` 等）再拼 `/models`，返回排序的模型 id。前端 `fetchModelList()`（app.js）渲染成可点击的 `.model-chip`，点击直接填入模型名输入框。URL 提示已写明拼接规则：vision 填到 `/v1` 自动补 `/chat/completions`，生图自动补 `/images/generations`。
+
+## 云同步配置导入（关键约定）
+
+`sync.py` `import_config` 只改写磁盘 config.json，**调用方必须在导入后 `self._config = load_config()` 刷新内存**——否则 `get_config()` 返回旧内存，且后续 `save_config` 会用旧内存覆盖刚导入的配置（imagegen/github_token 等新字段最易中招，因新机器初始为空）。已在 `sync_import_config` / `sync_import_all` 修复。前端导入配置后用 `fillSettingsFields(cfg)` 即时重填设置面板（与 `openSettings` 共用）。`import_config` 会保留本机 `sync_folder`，不被远端覆盖。新增任何顶层 config 字段时，确保 `fillSettingsFields` 和 saveSettings 同步处理。
+
+## 工具开发模式
+
+新增工具的三步：①在 `tools.py` 写函数 ②加进 `TOOLS_SCHEMA` ③在 `dispatch` 加分支。需要外部配置时通过 dispatch 的 dict 参数传入并在 `Agent` 的 dispatch 调用处带上。`glob_files` 的 `pattern` 支持绝对路径模式（自动拆 base+相对模式），非法模式会兜底为可读错误而非抛 `ValueError`。
+
+- **`glob_files` 递归对坏目录/junction 健壮（关键）**：递归匹配走 `_safe_glob`（手动 `os.scandir` 下行），**不要退回 `list(base.glob('**/...'))`**——Windows 的 `C:\Users\<用户>\AppData\Local\Application Data` 等是自引用 junction（`os.walk(followlinks=False)` 在 Win 不跳 junction），`Path.glob` 会无限深入直至超 MAX_PATH 抛 `WinError 3`，`list()` 一次性耗尽迭代器使整个工具崩溃。`_safe_glob` 用 `st_reparse_tag` 识别 junction/symlink 并以 realpath visited 集断环（普通目录不算 realpath 以保速），跳过抛 `OSError` 的目录，`max_depth`/`cap` 双兜底。`_safe_glob` 只按**末段文件名**匹配（`**/x` 与 `dir/x` 等价于找 `x`）。
+- **`run_command` 无法用 `conda activate`**：Windows 下用 `powershell -NoProfile -NonInteractive`，不加载 conda 的 shell 钩子（钩子在 profile 注册）。检测到命令含 `conda` 且 stderr 报未识别时，结果尾部追加 `[提示]` 引导改用环境 python 绝对路径（如 `D:/miniconda/envs/ai_api/python.exe ...`）而非 `conda activate`。
+
+### apply_patch（精确字符串替换，已弃用 unified diff）
+
+`apply_patch` 旧实现按 diff 行号盲切片（`output[start:start+n]=...`）、不校验上下文，模型行号稍错就**静默写坏文件却返回 ✅**，逼模型整文件重写（也是工具调用死循环的诱因之一）。现已改为「`old_string → new_string` 精确替换」（仿 Claude Code 的 Edit）：
+- 签名 `apply_patch(edits=[{path, old_string, new_string, replace_all?}], cwd=)`；schema `required: ["edits"]`。
+- `old_string` 必须与原文逐字符一致并唯一定位；**找不到/多处匹配未开 replace_all → 明确报错且不动文件**（不再静默损坏）。空 `old_string` = 新建文件。
+- 直接 `content.replace(...)` 不做 split/join，**CRLF 与行尾完整保留**（旧实现这里会破坏 `\r\n`）。
+- 兼容旧 `patch=` 参数：传入时返回提示让模型改用 `edits`，不再尝试解析 diff。
+- **输出格式保持 `✅ <绝对路径>` + `📁 目录：` 行不变**——前端 `_appendFileLinks`/`webview_app.py _track_file_op` 靠这两行抽路径、做文件链接与持久化，改输出格式前务必同步两处。
+
+## 项目分组与工作目录（cwd 根治写错目录）
+
+每个会话可绑定一个项目目录，根治 LLM 把文件写到 app 默认目录的问题。
+
+- 会话 JSON 加 `project_path` 字段（`conversation.py` `new_conversation(model, project_path)`、`list_conversations` 摘要、`set_conversation_project`）。`config.py` 加 `recent_projects`（`[{path,name,last_used}]`，上限 12）。
+- **cwd 贯通（核心）**：`Agent.__init__(project_path)` → 4 处 dispatch 调用传 `cwd=self.project_path` → `tools.py` `dispatch(..., cwd=)`。工具用共享 `_resolve(path, cwd)`：相对路径以 cwd（项目目录）解析，绝对路径不受影响，cwd 空则回退进程目录（向后兼容）。覆盖 read_file/write_file/run_command(subprocess cwd)/list_directory/glob_files/grep_files/apply_patch。
+- `agent.py` `_build_system_prompt(base, project_path)` 在 `<environment>` 注入"当前项目目录"，告知模型相对路径基准；无项目时注入进程 cwd。
+- 后端 API（`webview_app.py`）：`new_conversation(project_path)`、`list_recent_projects`、`choose_project_folder`（复用 `create_file_dialog(FOLDER)`）、`get_project_conversations`、`_add_recent_project`。两处 Agent 构造传 `project_path=conv.get('project_path','')`。
+- 前端：点"+ 新对话"先显示主页 `#home-view`（覆盖 `#chat-area`），选最近项目/添加新项目/无项目快速开始/查看项目历史会话 → `startConvWithProject(path)` 才真正建会话。侧边栏 `renderConvList` 按 `project_path` 分组折叠（`.conv-group*`，折叠态存 `state.collapsedGroups`，搜索命中强制展开），会话项构建抽成 `_makeConvLi`。
+- **路径失效与重设**：project_path 存绝对路径，跨机器同步后本机可能不存在。`open_conversation` 返回 `project_exists`（无 project_path 时为 True，不误报）；失效时 chatMessages 顶部插 `.project-missing-banner` + "重设目录"按钮 → `resetConversationProject` → 后端 `set_conversation_project(conv_id, path='')`（空则弹文件夹对话框）。`list_recent_projects` 每项带 `exists`，主页失效卡片标 `.hp-missing`。**重设会让该会话 prompt 缓存失效一次**（项目目录在系统提示前缀，改动使其后缓存失效，下条消息重算，之后恢复）——确认弹窗已告知用户此权衡。
+- **缓存影响通则**：项目目录注入系统提示词（上下文位置 0），任何改动 project_path 的操作都会一次性失效该会话整个缓存前缀。
+- **跨组拖拽排序（已修复，手动鼠标拖拽）**：侧边栏会话支持跨项目分组拖拽。**⚠ 关键：不能用 HTML5 原生拖放**（draggable/dragstart/dragover/drop）——本 WebView2 环境对其支持不可靠（与 CSS transition 失效同源，见 memory `css-transition-bug`），实测占位块与 drop 完全不触发。改用 **`mousedown`/`mousemove`/`mouseup` 手动实现**（`_drag` 状态机 + `_DRAG_THRESHOLD=4px` 区分点击与拖拽）。流程：`mousedown` 记候选 → 移动越阈值 `_activateDrag` 创建跟随鼠标的浮动幽灵 `.conv-drag-ghost`（`position:fixed; pointer-events:none`）+ 给 `body` 加 `.conv-dragging` 禁选中 → `mousemove` 用 `document.elementFromPoint` 命中目标，会话项→`_showPlaceholderAt` 插入**占位块 `.conv-placeholder`**（真实 DOM，挤开后续会话腾出落点、显示被拖标题），组标题→`.cg-drop-target` 高亮（拖到组头=归入该组）→ `mouseup` 按 `_drag.drop` 落点调 `_handleConvDrop`/`_handleHeaderDrop`。`justDragged` 标志抑制拖拽后的误触 click（每次 mousedown 复位）。组标题存 `header._groupKey` 供命中读取。id-based 追踪（`state.dragSrcId`）避免重排后索引失效。跨组 drop 先 `await move_conversation_to_project(id, targetGroupPath)` 改 `project_path`（空串=未分类，**不弹对话框**，区别于会弹对话框的 `set_conversation_project`），再 `_regroupContiguous` 把 `state.conversations` 重排成「分组连续」后 `reorder_conversations` 持久化——保证落盘 sort_order 也分组连续，根治旧版「整组沉底」（旧 bug：全量 0-based sort_order + 扁平 splice 让分组顺序随被拖项首次出现位置漂移）。两个后端写操作须 await 串行（都做整文件 load→改→save，并发互相覆盖字段）。
+
+## 文件改动追踪与 diff 查看（fileops 面板）
+
+`write_file`/`apply_patch` 改文件后，右侧「文件操作」面板按文件去重列出，每条显示累计 `+增/-删` 行数（绿/红），点击弹出 Claude Code 风格 diff 模态框（绿增红删）。
+
+- **改动详情旁路（关键，不污染缓存）**：`tools.py` 用 thread-local `_file_op_local` 记录 `{path, old, new}`——`write_file`/`apply_patch` 入口 `_reset_file_op_log()`、写盘时 `_record_file_op()`（同文件多次改动保留**最早 old + 最新 new**）。`webview_app._on_tool_result` 同线程调 `get_file_op_log()` 读取。**绝不从工具返回字符串解析、绝不进模型上下文**（工具返回串仍只含 `✅ 路径` 摘要）。
+- **去重 + 累计**：`_track_file_op` 按 path upsert（`conv['file_ops']` 每文件一条）；首次改动把改动前内容存进 `conv['file_baselines'][path]`（>200KB 大文件存 `None` 跳过快照）。累计 `added/removed` = `_diff_line_counts(baseline, 当前新内容)`（`difflib.SequenceMatcher` opcodes）。
+- **diff API**：`get_file_diff(path)` 用 baseline vs **磁盘当前内容** 经 `get_grouped_opcodes(3)` 生成带行号的 `[{type:hunk|ctx|add|del, text, oldNo, newNo}]`；无 baseline（旧会话/大文件 None）或文件已删 → `{ok:False, reason}`。
+- **会话 JSON 新增字段**：`file_ops`（去重条目，带 added/removed）、`file_baselines`（path→首改前原文）。旧会话无 baseline，只提示「未保存快照」不报错。
+- **⚠ stale-memory 覆盖坑（已修）**：`send_message` 在 run 开始时加载 `conv` 并持有引用；run 期间 `_track_file_op` 用 `load_conversation` 取**新副本**写入 file_ops/file_baselines 存盘。若 `_on_done`/`_on_error` 直接 `save_conversation(那个旧引用)`，会用不含这两字段的旧内存覆盖磁盘 → 点开 diff 报「没有改动记录」（面板仍显示 +N 是因为来自 run 中途的 `updateFileOps` 实时推送，内存态）。修复：`_on_done`/`_on_error` 保存前调 `_merge_disk_file_tracking(conv)` 从磁盘回读 file_ops/file_baselines 补回内存对象。同 [[config-import-memory-reload]] 通病——**任何 run 期间经旁路写盘的会话字段，结束时用 stale conv 保存都会被覆盖**。
+- **前端**：`app.js` `updateFileOps` 显示绿红计数；点击 `openDiffModal(path)` → `get_file_diff` → 渲染 `#diff-overlay` 模态框（`.diff-add/.diff-del/.diff-ctx/.diff-hunk`），含「打开位置」按钮复用 `open_file_location`。Esc/点遮罩关闭。
+- **缓存戳**：前端文件改动靠 mtime 自动 `?v=` 破坏，重启 app 生效（见「静态资源缓存破坏」）。
+
+## 上传文件回显（附件卡片）
+
+用户消息里的附件以**文本标记**形式存在消息内容中，前端解析后渲染成卡片——不额外存储，刷新/重开对话自动恢复。
+
+- 标记格式（`webview_app.py` `send_message` 生成）：`[图片: 名称 路径: 绝对路径]` / `[附件: 名称 路径: 绝对路径]`。无路径时回退为 `[图片: 名称]` / `[附件: 名称]`（兼容旧数据）。
+- 前端 `app.js` `buildUserContent` 用正则解析两种标记：图片→缩略图卡片（点击 `openLightbox` 放大），文档→图标卡片（点击 `open_file_location` 在资源管理器定位 temp 文件）。其余文本原样显示。
+- `addUserBubble` 里按 `data-path` 异步调 `get_image_data` 填缩略图，并用 `addEventListener` 绑定点击事件——**不要用内联 onclick**，Windows 反斜杠路径会被转义出错。
+- `get_image_data(filename)` 兼容绝对路径与 uploads 裸文件名两种查找。
+- 样式 `.attach-card` / `.attach-image` / `.attach-doc` 在 `style.css`，用主题变量 `--surface`/`--text-muted`/`--bg3`/`--accent`。
+

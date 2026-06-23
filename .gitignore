@@ -36,7 +36,6 @@ __pycache__/
 
 # AI Agent
 .claude/
-CLAUDE.md
 
 # WebView2 缓存破坏用的运行时 HTML（自动生成）
 app/static/_index.runtime.html
