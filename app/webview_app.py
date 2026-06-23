@@ -520,6 +520,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             "imagegen_base_url": self._config.get("imagegen_base_url", ""),
             "imagegen_model": self._config.get("imagegen_model", "gpt-image-2"),
             "imagegen_format": self._config.get("imagegen_format", "openai"),
+            "imagegen_use_full_url": self._config.get("imagegen_use_full_url", False),
             "imagegen_save_dir": str(uploads_dir),
         }
 

@@ -44,6 +44,6 @@ if __name__ == "__main__":
     if os.path.exists(icon_path):
         start_kwargs["icon"] = icon_path
     if platform.system() == "Windows":
-        start_kwargs["private_mode"] = False
+        start_kwargs["private_mode"] = True
 
     webview.start(**start_kwargs)

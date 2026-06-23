@@ -706,13 +706,13 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 }
 
 /* ── Settings model list ── */
-#settings-modal { max-width: 680px; }
+#settings-modal { max-width: 780px; max-height: 90vh; min-width: 400px; }
 /* ── Sync list ── */
 #sync-list div { border-bottom: 1px solid var(--border); }
 #sync-list div:last-child { border-bottom: none; }
 .checkbox-label { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); cursor: pointer; }
 .checkbox-label input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
-.model-layout { display: flex; gap: 12px; height: 340px; }
+.model-layout { display: flex; gap: 12px; height: 380px; }
 .model-list-col { width: 150px; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
 #model-config-list { list-style: none; flex: 1; overflow-y: auto; }
 #model-config-list li {

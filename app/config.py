@@ -106,6 +106,7 @@ DEFAULT_CONFIG = {
     "vision_model": "qwen-vl-max",
     "imagegen_api_key": "",
     "imagegen_base_url": "",
+    "imagegen_use_full_url": False,
     "imagegen_model": "gpt-image-2",
     "imagegen_format": "openai",  # openai | dashscope
     "thinking": "high",             # off | high | max

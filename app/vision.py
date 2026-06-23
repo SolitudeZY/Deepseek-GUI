@@ -90,10 +90,12 @@ def generate_image(
     size: str = "1024x1024",
     save_dir: str = "",
     fmt: str = "openai",
+    use_full_url: bool = False,
 ) -> dict:
     """生成图片并保存到本地，默认 OpenAI 兼容格式，可选 DashScope 原生格式。
 
     fmt='openai'（默认）：OpenAI 兼容，base_url 填到 .../v1，自动补 /images/generations。
+    use_full_url=True 时，base_url 原样使用不做拼接。
     fmt='dashscope'：DashScope 原生，base_url 填完整端点，使用 input.messages 格式。
     返回 dict：成功 {ok, path, filename, size}；失败 {ok: False, error}。
     """
@@ -120,7 +122,7 @@ def generate_image(
     is_dashscope = (fmt == "dashscope")
 
     # 组装端点
-    if is_dashscope:
+    if is_dashscope or use_full_url:
         url = base_url
     else:
         url = base_url if base_url.endswith("/images/generations") else base_url + "/images/generations"
