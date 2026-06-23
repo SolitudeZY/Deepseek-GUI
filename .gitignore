@@ -5,6 +5,7 @@ build/
 build_v1/
 *.spec
 !main_mac.spec
+!QuickModel.spec
 
 # App data
 conversations/

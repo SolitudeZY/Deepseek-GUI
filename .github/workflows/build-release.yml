@@ -1,0 +1,122 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # 提取发版说明：从 annotated tag 的消息取 markdown 正文，供两个平台的 Release 共用。
+  # ⚠ actions/checkout 在 tag 触发时会把 annotated tag 替换成 lightweight tag（issue #882），
+  # 导致 git for-each-ref 取到 commit 信息而非 tag 注释。故这里用 GitHub API 直接读 tag。
+  release-notes:
+    runs-on: ubuntu-latest
+    outputs:
+      body: ${{ steps.notes.outputs.body }}
+    steps:
+      - name: Fetch tag annotation via API
+        if: startsWith(github.ref, 'refs/tags/')
+        id: notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # 取 tag 对象 SHA，再读 tag 对象的 message（annotated tag 才有）
+          OBJ=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" --jq '.object.sha')
+          TYPE=$(gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" --jq '.object.type')
+          if [ "$TYPE" = "tag" ]; then
+            BODY=$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${OBJ}" --jq '.message')
+          else
+            BODY=""
+          fi
+          if [ -z "$BODY" ]; then
+            BODY="${TAG} 发布。"
+          fi
+          {
+            echo "body<<RELEASE_NOTES_EOF"
+            echo "$BODY"
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  build-macos:
+    needs: release-notes
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Ensure skills directory exists
+        run: mkdir -p app/skills
+
+      - name: Build .app bundle
+        run: pyinstaller main_mac.spec --clean
+
+      - name: Create ZIP
+        run: |
+          cd dist
+          zip -r ../QuickModel-mac-arm64.zip QuickModel.app
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuickModel-mac
+          path: QuickModel-mac-arm64.zip
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: QuickModel-mac-arm64.zip
+          body: ${{ needs.release-notes.outputs.body }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-windows:
+    needs: release-notes
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build .exe
+        run: pyinstaller QuickModel.spec --clean
+
+      - name: Rename artifact
+        run: Rename-Item dist/QuickModel.exe QuickModel-windows-x64.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuickModel-windows
+          path: dist/QuickModel-windows-x64.exe
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/QuickModel-windows-x64.exe
+          body: ${{ needs.release-notes.outputs.body }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
