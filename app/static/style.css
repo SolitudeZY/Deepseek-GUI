@@ -673,7 +673,7 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 /* ── 模型列表（读取模型列表按钮的结果）── */
 .model-list-box:empty { display: none; }
 .model-list-box {
-  max-height: 160px; overflow-y: auto;
+  max-height: 160px; overflow-y: auto; flex-shrink: 0;
   border: 1px solid var(--border); border-radius: 6px;
   padding: 8px; background: var(--bg2);
 }
