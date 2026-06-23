@@ -393,12 +393,27 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .bubble-tool-call.tool-expanded .tool-chevron { transform: rotate(90deg); }
 .tool-body { display: none; padding: 6px 10px 8px; border-top: 1px solid var(--border); }
 .bubble-tool-call.tool-expanded .tool-body { display: block; }
+/* 展开后限制结果区高度，超出内部滚动，避免长结果（read_file/run_command）铺满页面 */
+.tool-body .tool-pre,
+.tool-body .tool-result-content { max-height: 280px; overflow-y: auto; }
 /* Hide tool call bubbles when toggled off */
 #chat-messages.hide-tools .bubble-tool-call { display: none; }
 .tool-section-label { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 2px; }
 .tool-result-label { margin-top: 8px; }
 .tool-pre { font-size: 11px; white-space: pre-wrap; margin: 0; color: var(--text-dim); }
 .tool-result-content { font-size: 11px; color: var(--text-dim); white-space: pre-wrap; word-break: break-all; }
+
+/* ── 连续工具调用折叠块 ── */
+.tool-fold { margin: 4px 0; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--tool-bubble); overflow: hidden; }
+.tool-fold-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; user-select: none; font-size: 11px; color: var(--text-muted); }
+.tool-fold-header:hover { background: var(--glow-accent); color: var(--text); }
+.tool-fold-chevron { font-size: 10px; transition: transform .2s; }
+.tool-fold:not(.collapsed) .tool-fold-chevron { transform: rotate(90deg); }
+.tool-fold-label b { color: var(--accent); }
+.tool-fold-body { padding: 0 6px 4px; display: flex; flex-direction: column; gap: 6px; }
+.tool-fold.collapsed .tool-fold-body { display: none; }
+.tool-fold-body .bubble-tool-call { margin: 0; }
+#chat-messages.hide-tools .tool-fold { display: none; }
 .bubble-error { background: var(--error-bubble); border: 1px solid var(--danger); color: var(--danger); user-select: text; cursor: text; }
 .bubble-label { font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; }
 .bubble-content { line-height: 1.65; }

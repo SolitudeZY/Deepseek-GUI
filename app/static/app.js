@@ -431,6 +431,7 @@ $('btn-home-noproject').addEventListener('click', () => startConvWithProject('')
 function loadHistory(messages) {
   chatMessages.classList.add('no-animate');
   chatMessages.innerHTML = '';
+  _resetToolStreak();
   // tool_call_id → 工具名映射：tool 结果消息只带 id，需借此还原真实工具名，
   // 这样回放能复用实时的 addToolCallBubble/addToolResultBubble（按名字匹配），
   // 渲染出和实时一致的「调用气泡（参数+结果可折叠）」。
@@ -465,6 +466,7 @@ function loadHistory(messages) {
 }
 
 function addUserBubble(text) {
+  _resetToolStreak();
   const div = document.createElement('div');
   div.className = 'bubble bubble-user';
   const collapsible = document.createElement('div');
@@ -542,6 +544,7 @@ function _hydrateImgThumbs(container) {
 }
 
 function addAssistantBubble(content) {
+  _resetToolStreak();
   const div = document.createElement('div');
   div.className = 'bubble bubble-assistant';
   div.innerHTML = `<div class="bubble-label">Assistant</div><div class="bubble-content">${renderMarkdown(content)}</div>`;
@@ -549,6 +552,48 @@ function addAssistantBubble(content) {
   _hydrateImgThumbs(div);
   scrollToBottom();
   return div;
+}
+
+// ── 连续工具调用折叠 ──────────────────────────────────────────────
+// 同一段连续工具调用超过阈值后，后续气泡收进可展开的折叠块（被 assistant
+// 文本气泡打断则重置计数，见各文本气泡入口的 _resetToolStreak 调用）。
+const _TOOL_FOLD_THRESHOLD = 5;
+let _toolStreak = 0;          // 当前连续工具调用数
+let _toolFoldContainer = null; // 当前折叠容器（超阈值后创建）
+
+function _resetToolStreak() {
+  _toolStreak = 0;
+  _toolFoldContainer = null;
+}
+
+function _ensureFoldContainer() {
+  if (_toolFoldContainer && _toolFoldContainer.parentNode) return _toolFoldContainer;
+  const wrap = document.createElement('div');
+  wrap.className = 'tool-fold collapsed';
+  wrap.innerHTML =
+    `<div class="tool-fold-header">`
+    + `<span class="tool-fold-chevron">▶</span>`
+    + `<span class="tool-fold-label">已折叠 <b class="tool-fold-count">0</b> 个工具调用</span>`
+    + `</div>`
+    + `<div class="tool-fold-body"></div>`;
+  wrap.querySelector('.tool-fold-header').addEventListener('click', () => {
+    wrap.classList.toggle('collapsed');
+  });
+  chatMessages.appendChild(wrap);
+  _toolFoldContainer = wrap;
+  return wrap;
+}
+
+function _placeToolBubble(div) {
+  _toolStreak += 1;
+  if (_toolStreak <= _TOOL_FOLD_THRESHOLD) {
+    chatMessages.appendChild(div);
+    return;
+  }
+  const wrap = _ensureFoldContainer();
+  wrap.querySelector('.tool-fold-body').appendChild(div);
+  const cnt = _toolStreak - _TOOL_FOLD_THRESHOLD;
+  wrap.querySelector('.tool-fold-count').textContent = cnt;
 }
 
 function addToolCallBubble(toolName, args) {
@@ -570,10 +615,14 @@ function addToolCallBubble(toolName, args) {
       <div class="tool-section-label tool-result-label">结果</div>
       <div class="tool-result-content">等待中…</div>
     </div>`;
-  chatMessages.appendChild(div);
+  _placeToolBubble(div);
   scrollToBottom();
   return div;
 }
+
+// 只有这些工具的结果按图片缩略图渲染（其余工具结果即便文本里含 "[图片: ...]"
+// 也按普通文本截断折叠，避免 read_file 读到讲解附件格式的文档时铺开整个文件）。
+const _IMAGE_TOOLS = new Set(['generate_image']);
 
 function addToolResultBubble(toolName, result) {
   // find the last tool-call bubble for this tool and update its result inline
@@ -586,8 +635,9 @@ function addToolResultBubble(toolName, result) {
     if (nameEl && nameEl.textContent === toolName) {
       const resultEl = bubbles[i].querySelector('.tool-result-content');
       if (resultEl && resultEl.textContent === '等待中…') {
-        // 含图片标记（如 generate_image 的结果）→ 渲染缩略图卡片
-        if (/\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result)) {
+        // 仅图片生成类工具的结果按缩略图渲染；其他工具（如 read_file 读到含
+        // "[图片: ...]" 文本的文件）一律走截断文本路径，避免误判铺开整个文件。
+        if (_IMAGE_TOOLS.has(toolName) && /\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result)) {
           resultEl.innerHTML = buildUserContent(result);
           _hydrateImgThumbs(resultEl);
           // 默认展开，让缩略图可见
@@ -609,8 +659,8 @@ function addToolResultBubble(toolName, result) {
   div.className = 'bubble bubble-tool-call';
   const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', write_file:'✏️', apply_patch:'🩹', list_directory:'📁', glob_files:'🔎', grep_files:'🔎' };
   const icon = icons[toolName] || '🔧';
-  // 含图片标记（如历史回放中的 generate_image 结果）→ 展开并渲染缩略图
-  if (/\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result || '')) {
+  // 含图片标记且是图片生成工具 → 展开并渲染缩略图
+  if (_IMAGE_TOOLS.has(toolName) && /\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result || '')) {
     div.classList.add('tool-expanded');
     div.innerHTML = `<div class="tool-header"><span class="tool-icon">🖼</span><span class="tool-name">${escapeHtml(toolName)}</span><span class="tool-chevron">▶</span></div>`
       + `<div class="tool-body"><div class="tool-result-content"></div></div>`;
@@ -694,6 +744,8 @@ function startAssistantStream() {
 window.Chat = {
   appendToken(token) {
     removeTypingIndicator();
+    // 本轮首个文本 token 到达 → 模型开口说话，打断连续工具调用，重置折叠计数
+    if (!_streamContent && token) _resetToolStreak();
     _streamContent += token;
     if (_streamBubble) {
       _streamBubble.querySelector('.bubble-content').innerHTML = renderMarkdown(_streamContent);
