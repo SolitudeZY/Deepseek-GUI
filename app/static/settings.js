@@ -133,7 +133,65 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     btn.classList.add('active');
     $('tab-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'memory') renderMemoryList();
   });
+});
+
+// ── 跨会话记忆管理 ────────────────────────────────────────────────
+async function renderMemoryList() {
+  const ul = $('memory-list');
+  ul.innerHTML = '<li class="memory-empty">加载中…</li>';
+  const items = await window.pywebview.api.list_memory();
+  if (!items || items.length === 0) {
+    ul.innerHTML = '<li class="memory-empty">暂无记忆。模型在完成任务后会询问是否记入，或点「+ 新增记忆」手动添加。</li>';
+    return;
+  }
+  ul.innerHTML = '';
+  items.forEach(it => {
+    const li = document.createElement('li');
+    li.className = 'memory-item';
+    const info = document.createElement('div');
+    info.className = 'memory-info';
+    info.innerHTML = `<div class="memory-key">${escapeHtml(it.key)}</div>`
+                   + `<div class="memory-preview">${escapeHtml(it.preview || '')}</div>`;
+    const actions = document.createElement('div');
+    actions.className = 'memory-actions';
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-secondary'; editBtn.textContent = '编辑';
+    editBtn.addEventListener('click', () => openMemoryEditor(it.key));
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-danger'; delBtn.textContent = '删除';
+    delBtn.addEventListener('click', async () => {
+      if (!confirm(`确定删除记忆「${it.key}」？新会话将不再带上它。`)) return;
+      await window.pywebview.api.delete_memory(it.key);
+      renderMemoryList();
+    });
+    actions.appendChild(editBtn);
+    actions.appendChild(delBtn);
+    li.appendChild(info);
+    li.appendChild(actions);
+    ul.appendChild(li);
+  });
+}
+
+async function openMemoryEditor(key) {
+  const editor = $('memory-editor');
+  editor.classList.remove('hidden');
+  $('memory-key').value = key || '';
+  $('memory-key').readOnly = !!key;  // 编辑已有条目时 key 不可改（改名等于新建）
+  $('memory-content').value = key ? await window.pywebview.api.read_memory(key) : '';
+  $('memory-content').focus();
+}
+
+$('btn-memory-new').addEventListener('click', () => openMemoryEditor(''));
+$('btn-memory-cancel').addEventListener('click', () => $('memory-editor').classList.add('hidden'));
+$('btn-memory-save').addEventListener('click', async () => {
+  const key = $('memory-key').value.trim();
+  const content = $('memory-content').value;
+  if (!key) { alert('请填写记忆名称'); return; }
+  await window.pywebview.api.write_memory(key, content);
+  $('memory-editor').classList.add('hidden');
+  renderMemoryList();
 });
 
 // Sub-tab switching (图片工具内：图片理解 / 图片生成)

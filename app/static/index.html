@@ -143,6 +143,7 @@
       <button class="tab-btn" data-tab="tools">工具设置</button>
       <button class="tab-btn" data-tab="vision">图片工具</button>
       <button class="tab-btn" data-tab="allowlist">允许的指令</button>
+      <button class="tab-btn" data-tab="memory">记忆</button>
       <button class="tab-btn" data-tab="sync">云同步</button>
       <button class="tab-btn" data-tab="update">检查更新</button>
       <button class="tab-btn" data-tab="ui">界面设置</button>
@@ -286,6 +287,22 @@
         <div class="form-row" style="margin-top:8px">
           <button id="btn-allowlist-save" class="btn-primary">保存</button>
           <button id="btn-allowlist-clear" class="btn-danger">清空全部</button>
+        </div>
+      </div>
+      <!-- 记忆 -->
+      <div class="tab-panel" id="tab-memory">
+        <p class="hint">跨会话长期记忆。新会话会自动带上这些记忆，模型据此了解你的偏好与项目背景。模型在完成任务后会主动询问是否记入；你也可在此手动增删改。错误或过时的记忆请及时删除。</p>
+        <div class="form-row" style="margin-bottom:8px">
+          <button id="btn-memory-new" class="btn-secondary">+ 新增记忆</button>
+        </div>
+        <ul id="memory-list" class="memory-list"></ul>
+        <div id="memory-editor" class="memory-editor hidden">
+          <label>名称<input type="text" id="memory-key" placeholder="记忆条目名（如 user-preferences）"></label>
+          <label>内容<textarea id="memory-content" rows="8" placeholder="精炼的事实或可复用经验"></textarea></label>
+          <div class="form-row">
+            <button id="btn-memory-save" class="btn-primary">保存</button>
+            <button id="btn-memory-cancel" class="btn-secondary">取消</button>
+          </div>
         </div>
       </div>
       <!-- 云同步 -->

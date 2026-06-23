@@ -213,6 +213,18 @@ def memory_list() -> list[dict]:
     return result
 
 
+def memory_delete(key: str) -> str:
+    """Delete a memory file by key."""
+    if not key.strip():
+        return "错误：key 不能为空"
+    for ext in (".md", ".txt"):
+        p = _memory_dir() / f"{key.strip()}{ext}"
+        if p.exists():
+            p.unlink()
+            return f"记忆 '{key}' 已删除"
+    return f"错误：记忆 '{key}' 不存在"
+
+
 # ── Tool schemas ──────────────────────────────────────────────────────
 
 SKILL_TOOLS_SCHEMA = [

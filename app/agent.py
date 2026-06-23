@@ -11,7 +11,7 @@ from app.advanced_tools import (
     auto_compact, estimate_tokens, run_subagent, run_rlm,
 )
 from app.team import TEAM, WORKTREES, BUS
-from app.skills import skill_list, skill_list_str, skill_read, memory_read, memory_write
+from app.skills import skill_list, skill_list_str, skill_read, memory_read, memory_write, memory_list
 
 
 def _get_openai():
@@ -147,17 +147,52 @@ class Agent:
         prompt = base_prompt + env_block
 
         skills = skill_list()
-        if not skills:
-            return prompt
-        lines = [f"- {s['name']}: {s['description']}" for s in skills]
-        skill_block = (
-            "\n\n<available_skills>\n"
-            "你有以下技能可用。当用户的请求明确匹配某个技能的描述时，"
-            "请先调用 skill_read 获取该技能的完整指令，然后严格按照指令执行。\n"
-            + "\n".join(lines)
-            + "\n</available_skills>"
+        if skills:
+            lines = [f"- {s['name']}: {s['description']}" for s in skills]
+            skill_block = (
+                "\n\n<available_skills>\n"
+                "你有以下技能可用。当用户的请求明确匹配某个技能的描述时，"
+                "请先调用 skill_read 获取该技能的完整指令，然后严格按照指令执行。\n"
+                + "\n".join(lines)
+                + "\n</available_skills>"
+            )
+            prompt += skill_block
+
+        # 跨会话记忆：把用户长期记忆注入系统提示前缀（位置稳定，符合 prompt cache 铁律；
+        # 记忆变动由用户主动触发、低频，失效一次可接受）。无记忆则不注入该块。
+        try:
+            mem_items = memory_list()
+        except Exception:
+            mem_items = []
+        if mem_items:
+            mem_parts = []
+            for it in mem_items:
+                try:
+                    mem_parts.append(f"### {it['key']}\n{memory_read(it['key'])}")
+                except Exception:
+                    pass
+            if mem_parts:
+                prompt += (
+                    "\n\n<persistent_memory>\n"
+                    "以下是关于用户与本项目的长期记忆（由用户确认后保存）。"
+                    "请将其作为背景知识，但若与当前观察冲突，以当前实际情况为准。\n\n"
+                    + "\n\n".join(mem_parts)
+                    + "\n</persistent_memory>"
+                )
+
+        # 引导：完成开发任务或解决 bug 后，主动询问用户是否记入长期记忆——
+        # 由用户拍板，不擅自写入，避免存入错误/过时信息。
+        prompt += (
+            "\n\n<memory_policy>\n"
+            "你有 memory_write 工具可把信息存为跨会话长期记忆。重要约束：\n"
+            "- 不要擅自写入记忆。仅在用户明确要求、或在你完成一个开发任务/解决一个 bug 后，"
+            "先用 ask_user_question 工具询问用户「是否将这段经验/解决方案记入长期记忆」，"
+            "用户确认后再调用 memory_write。\n"
+            "- 记忆应是精炼的事实或可复用的经验（如用户偏好、项目约定、某类问题的解决思路），"
+            "不要存入冗长的原始对话或一次性的临时内容。\n"
+            "</memory_policy>"
         )
-        return prompt + skill_block
+        return prompt
 
     def _provider(self) -> str:
         """Detect provider from base_url."""

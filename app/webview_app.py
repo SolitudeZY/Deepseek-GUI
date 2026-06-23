@@ -25,7 +25,7 @@ from app.sync import (
 )
 from app.tools import read_file as _read_file, get_file_op_log
 from app.vision import is_image, describe_image
-from app.skills import skill_list, skill_save, skill_delete, skill_read, memory_list, memory_read, memory_write, skill_import_from_path
+from app.skills import skill_list, skill_save, skill_delete, skill_read, memory_list, memory_read, memory_write, memory_delete, skill_import_from_path
 
 # Lazy-loaded heavy modules (deferred to first use for faster startup)
 _agent_module = None
@@ -557,6 +557,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def write_memory(self, key: str, content: str) -> str:
         return memory_write(key, content)
+
+    def delete_memory(self, key: str) -> str:
+        return memory_delete(key)
 
     def get_memory_summary(self) -> str:
         """Return all memory content concatenated, for injection on /new."""
