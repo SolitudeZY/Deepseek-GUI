@@ -39,6 +39,7 @@ DEFAULT_MODEL_CONFIGS = [
         "system_prompt": "You are a helpful assistant.",
         "context_length": 1000000,
         "compact_threshold": 600000,
+        "use_full_url": False,
     },
     {
         "name": "DeepSeek V4 Flash",
@@ -48,6 +49,7 @@ DEFAULT_MODEL_CONFIGS = [
         "system_prompt": "You are a helpful assistant.",
         "context_length": 1000000,
         "compact_threshold": 600000,
+        "use_full_url": False,
     },
     {
         "name": "DeepSeek V3.2",
@@ -57,6 +59,7 @@ DEFAULT_MODEL_CONFIGS = [
         "system_prompt": "You are a helpful assistant.",
         "context_length": 128000,
         "compact_threshold": 80000,
+        "use_full_url": False,
     },
     {
         "name": "OpenAI",
@@ -66,15 +69,17 @@ DEFAULT_MODEL_CONFIGS = [
         "system_prompt": "You are a helpful assistant.",
         "context_length": 128000,
         "compact_threshold": 80000,
+        "use_full_url": False,
     },
     {
         "name": "本地 Ollama",
         "api_key": "ollama",
-        "base_url": "http://localhost:11434/v1",
+        "base_url": "https://ollama.api.com/v1",
         "model": "llama3",
         "system_prompt": "You are a helpful assistant.",
         "context_length": 128000,
         "compact_threshold": 80000,
+        "use_full_url": False,
     },
 ]
 

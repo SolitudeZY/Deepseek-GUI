@@ -323,6 +323,7 @@ class App(ctk.CTk):
             tavily_key=self._config.get("tavily_api_key", ""),
             command_safety=self._config.get("command_safety", "confirm"),
             command_timeout=self._config.get("command_timeout", 30),
+            use_full_url=mc.get("use_full_url", False),
         )
 
         messages = list(self._current_conv["messages"])

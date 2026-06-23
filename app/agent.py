@@ -78,6 +78,7 @@ class Agent:
         context_length: int = 0,
         vision_config: dict = None,
         project_path: str = "",
+        use_full_url: bool = False,
     ):
         self.model = model
         self.search_config = search_config or {}
@@ -93,8 +94,10 @@ class Agent:
         self.compact_threshold = compact_threshold or AUTO_COMPACT_THRESHOLD
         self.search_enabled = search_enabled
         self._model_configs: list = []
-        self._client = _get_openai()(api_key=api_key, base_url=base_url)
-        self._base_url = (base_url or "").rstrip("/")
+        # Normalize base_url before passing to SDK
+        normalized_url = self._normalize_base_url(base_url or "", use_full_url)
+        self._client = _get_openai()(api_key=api_key, base_url=normalized_url)
+        self._base_url = normalized_url.rstrip("/")
         self._stop_flag = threading.Event()
         self._todo = todo_manager or TodoManager()
         self._tasks = task_manager or TaskManager()
@@ -218,6 +221,30 @@ class Agent:
                 kwargs["messages"] = self._strip_tool_messages(kwargs["messages"])
                 return self._client.chat.completions.create(**kwargs), provider
             raise
+
+    @staticmethod
+    def _normalize_base_url(base_url: str, use_full_url: bool = False) -> str:
+        """Normalize base_url for OpenAI SDK.
+
+        If use_full_url is True, the URL is used as-is (user has a complete endpoint
+        like https://xxx.com/v1/chat/completions). The SDK will still append its own
+        path, but some proxy services need this.
+
+        If use_full_url is False (default), we strip trailing API paths that the SDK
+        would otherwise double-append (e.g. /chat/completions, /images/generations).
+        This ensures the SDK's own path concatenation works correctly.
+        """
+        url = base_url.strip().rstrip("/")
+        if not url:
+            return url
+        if use_full_url:
+            return url
+        # Strip known API endpoint suffixes so SDK can append cleanly
+        for suffix in ("/chat/completions", "/images/generations", "/completions", "/models"):
+            if url.endswith(suffix):
+                url = url[: -len(suffix)]
+                break
+        return url
 
     @staticmethod
     def _strip_tool_messages(messages: list[dict]) -> list[dict]:

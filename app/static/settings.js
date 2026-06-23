@@ -396,6 +396,7 @@ function selectMc(idx) {
   $('mc-url').value = mc.base_url || '';
   $('mc-model').value = mc.model || '';
   $('mc-system').value = mc.system_prompt || '';
+  $('mc-use-full-url').checked = mc.use_full_url || false;
   // 上下文长度和压缩阈值（自动选择 K/M 单位）
   const ctxLen = mc.context_length || 600000;
   if (ctxLen >= 1000000 && ctxLen % 1000000 === 0) {
@@ -424,6 +425,7 @@ function saveCurrentMc() {
   mc.base_url = $('mc-url').value.trim();
   mc.model = $('mc-model').value.trim();
   mc.system_prompt = $('mc-system').value.trim();
+  mc.use_full_url = $('mc-use-full-url').checked;
   // 上下文长度和压缩阈值
   const ctxVal = parseFloat($('mc-context-length').value) || 600;
   const ctxUnit = $('mc-context-unit').value;
@@ -437,7 +439,7 @@ function saveCurrentMc() {
 $('btn-save-mc').addEventListener('click', saveCurrentMc);
 $('btn-add-model').addEventListener('click', () => {
   const configs = state.config.model_configs || [];
-  configs.push({ name: `新配置 ${configs.length + 1}`, api_key: '', base_url: '', model: '', system_prompt: 'You are a helpful assistant.', context_length: 1000000, compact_threshold: 600000 });
+  configs.push({ name: `新配置 ${configs.length + 1}`, api_key: '', base_url: '', model: '', system_prompt: 'You are a helpful assistant.', context_length: 1000000, compact_threshold: 600000, use_full_url: false });
   state.config.model_configs = configs;
   selectMc(configs.length - 1);
 });

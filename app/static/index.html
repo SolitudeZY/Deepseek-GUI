@@ -159,6 +159,8 @@
             <label>名称<input type="text" id="mc-name" placeholder="配置名称"></label>
             <label>API Key<input type="password" id="mc-key" placeholder="sk-..."></label>
             <label>Base URL<input type="text" id="mc-url" placeholder="https://api.xxx.com/v1"></label>
+            <label class="checkbox-label" style="margin-bottom:8px"><input type="checkbox" id="mc-use-full-url"> 使用完整 URL（不自动拼接路径）</label>
+            <p class="hint">默认：填入 <code>/v1</code> 结尾的地址，SDK 自动拼接 <code>/chat/completions</code>。勾选后 URL 原样传给 SDK，适用于需要完整端点的中转服务。</p>
             <label>模型名<input type="text" id="mc-model" placeholder="model-name"></label>
             <div class="form-row">
               <button id="btn-mc-models" class="btn-secondary">读取模型列表</button>

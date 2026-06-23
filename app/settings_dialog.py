@@ -76,6 +76,15 @@ class SettingsDialog(ctk.CTkToplevel):
         self._mc_url = row("Base URL", lambda p: ctk.CTkEntry(p, placeholder_text="https://api.xxx.com/v1"))
         self._mc_model = row("模型名", lambda p: ctk.CTkEntry(p, placeholder_text="model-name"))
 
+        self._mc_use_full_url_var = tk.BooleanVar(value=False)
+        cb_f = ctk.CTkFrame(right, fg_color="transparent")
+        cb_f.pack(fill="x", pady=3)
+        ctk.CTkLabel(cb_f, text="", width=90).pack(side="left")
+        self._mc_use_full_url_cb = ctk.CTkCheckBox(
+            cb_f, text="使用完整 URL（不自动拼接 /chat/completions）",
+            variable=self._mc_use_full_url_var)
+        self._mc_use_full_url_cb.pack(side="left")
+
         ctk.CTkLabel(right, text="系统提示词", anchor="w").pack(fill="x", pady=(6, 2))
         self._mc_system = ctk.CTkTextbox(right, height=80)
         self._mc_system.pack(fill="x")
@@ -110,6 +119,7 @@ class SettingsDialog(ctk.CTkToplevel):
         self._mc_key.delete(0, "end"); self._mc_key.insert(0, mc.get("api_key", ""))
         self._mc_url.delete(0, "end"); self._mc_url.insert(0, mc.get("base_url", ""))
         self._mc_model.delete(0, "end"); self._mc_model.insert(0, mc.get("model", ""))
+        self._mc_use_full_url_var.set(mc.get("use_full_url", False))
         self._mc_system.delete("1.0", "end")
         self._mc_system.insert("1.0", mc.get("system_prompt", ""))
         self._refresh_model_list()
@@ -121,6 +131,9 @@ class SettingsDialog(ctk.CTkToplevel):
             "base_url": "",
             "model": "",
             "system_prompt": "You are a helpful assistant.",
+            "context_length": 1000000,
+            "compact_threshold": 600000,
+            "use_full_url": False,
         }
         self._model_configs.append(new_mc)
         self._select_mc(len(self._model_configs) - 1)
@@ -133,6 +146,7 @@ class SettingsDialog(ctk.CTkToplevel):
         mc["api_key"] = self._mc_key.get().strip()
         mc["base_url"] = self._mc_url.get().strip()
         mc["model"] = self._mc_model.get().strip()
+        mc["use_full_url"] = self._mc_use_full_url_var.get()
         mc["system_prompt"] = self._mc_system.get("1.0", "end").strip()
         self._refresh_model_list()
 

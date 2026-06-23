@@ -1,0 +1,42 @@
+# Build output
+dist/
+dist_v1/
+build/
+build_v1/
+*.spec
+!main_mac.spec
+
+# App data
+conversations/
+uploads/
+
+# Images (放行 image/ 下的素材)
+*.jpg
+*.png
+*.ico
+*.pdf
+!image/**
+
+# Test / temp files
+test_*
+*_test.*
+tests/
+*_generated_*.png
+矩阵运算*.md
+newton_bisection.tex
+
+# Python
+__pycache__/
+*.py[cod]
+/app/__pycache__/
+
+# IDE
+.vscode/
+.idea/
+
+# AI Agent
+.claude/
+CLAUDE.md
+
+# WebView2 缓存破坏用的运行时 HTML（自动生成）
+app/static/_index.runtime.html

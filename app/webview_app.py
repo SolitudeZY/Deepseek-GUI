@@ -166,7 +166,8 @@ def get_html_path() -> str:
 
         out = static / '_index.runtime.html'
         out.write_text(html, encoding='utf-8')
-        return str(out)
+        # 给 HTML 本身也加缓存破坏参数，避免 WebView2 缓存整个页面
+        return f"{str(out)}?v={startup_stamp}"
     except Exception:
         # 任何异常都回退到原始文件，保证可启动
         return str(src)
@@ -787,6 +788,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             context_length=mc.get('context_length', 0),
             vision_config=self._build_vision_config(),
             project_path=conv.get('project_path', ''),
+            use_full_url=mc.get('use_full_url', False),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
@@ -834,6 +836,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             context_length=mc.get('context_length', 0),
             vision_config=self._build_vision_config(),
             project_path=conv.get('project_path', ''),
+            use_full_url=mc.get('use_full_url', False),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
