@@ -128,6 +128,8 @@ class Agent:
                 "除非用户用绝对路径另行指定，read_file/write_file/run_command 等工具的相对路径"
                 "都以此项目目录为基准，命令也默认在此目录下执行。请将新文件写入该项目目录，"
                 "不要写到其他位置。\n"
+                "若项目目录下存在 CLAUDE.md 或 AGENTS.md，在开始开发任务前应先用 read_file 阅读它，"
+                "了解本项目的架构、约定与构建流程，再动手。\n"
             )
         else:
             cwd_line = (
