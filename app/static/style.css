@@ -120,12 +120,15 @@ pre, code,
 #conv-list li.search-content-match { border-left: 2px solid var(--accent); }
 
 /* ── 侧边栏项目分组 ── */
-.conv-group { margin-bottom: 2px; }
+.conv-group { margin-bottom: 6px; }
 .conv-group-header {
   display: flex; align-items: center; gap: 6px;
-  padding: 5px 8px; cursor: pointer; user-select: none;
-  font-size: 11px; color: var(--text-muted); font-weight: 600;
+  padding: 8px 10px; cursor: pointer; user-select: none;
+  font-size: 11px; color: var(--text-dim); font-weight: 700;
   border-radius: var(--radius);
+  background: var(--bg3);
+  border-left: 3px solid var(--accent);
+  letter-spacing: 0.3px;
 }
 .conv-group-header:hover { background: var(--hover); color: var(--text); }
 .conv-group-header .cg-arrow { font-size: 9px; width: 10px; }
