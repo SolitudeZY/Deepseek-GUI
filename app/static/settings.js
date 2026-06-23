@@ -181,6 +181,8 @@ $('btn-vision-models').addEventListener('click', e =>
   fetchModelList('vision-key', 'vision-url', 'vision-model', 'vision-models-box', e.currentTarget));
 $('btn-imagegen-models').addEventListener('click', e =>
   fetchModelList('imagegen-key', 'imagegen-url', 'imagegen-model', 'imagegen-models-box', e.currentTarget));
+$('btn-mc-models').addEventListener('click', e =>
+  fetchModelList('mc-key', 'mc-url', 'mc-model', 'mc-models-box', e.currentTarget));
 
 async function openSettings() {
   fillSettingsFields(state.config);

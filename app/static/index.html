@@ -161,6 +161,10 @@
             <label>Base URL<input type="text" id="mc-url" placeholder="https://api.xxx.com/v1"></label>
             <label>模型名<input type="text" id="mc-model" placeholder="model-name"></label>
             <div class="form-row">
+              <button id="btn-mc-models" class="btn-secondary">读取模型列表</button>
+            </div>
+            <div class="model-list-box" id="mc-models-box"></div>
+            <div class="form-row">
               <label style="flex:1">上下文长度
                 <div class="form-row">
                   <input type="number" id="mc-context-length" placeholder="1000" min="1" style="flex:1">
