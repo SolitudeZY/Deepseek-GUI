@@ -68,6 +68,10 @@ coll = COLLECT(
 # Icon: use icon.icns if it exists, otherwise None
 _icon = 'icon.icns' if os.path.exists('icon.icns') else None
 
+# Version: read from CI tag (GITHUB_REF_NAME, e.g. "v1.5.1") when present,
+# strip leading "v"; fall back to a default for local builds.
+_version = os.environ.get('GITHUB_REF_NAME', '').lstrip('v') or '1.5.0'
+
 app = BUNDLE(
     coll,
     name='QuickModel.app',
@@ -76,8 +80,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'QuickModel',
         'CFBundleDisplayName': 'QuickModel',
-        'CFBundleVersion': '1.5.0',
-        'CFBundleShortVersionString': '1.5.0',
+        'CFBundleVersion': _version,
+        'CFBundleShortVersionString': _version,
         'NSHighResolutionCapable': True,
         'LSMinimumSystemVersion': '10.15',
     },

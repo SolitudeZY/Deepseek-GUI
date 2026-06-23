@@ -22,9 +22,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install openai pywebview pyinstaller
-          pip install tavily-python duckduckgo-search firecrawl-py || true
-          pip install pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-WebKit
+          pip install -r requirements.txt
+          pip install pyinstaller
 
       - name: Ensure skills directory exists
         run: mkdir -p app/skills
