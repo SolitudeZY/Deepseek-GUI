@@ -6,6 +6,11 @@ tavily-python>=0.3.0
 duckduckgo-search>=4.0
 firecrawl-py>=0.0.1
 
+# Document reading (read_file: pdf / docx / xlsx)
+pdfplumber>=0.10.0
+python-docx>=1.0.0
+openpyxl>=3.1.0
+
 # macOS-specific (pywebview cocoa backend)
 pyobjc-core>=9.0; sys_platform == "darwin"
 pyobjc-framework-Cocoa>=9.0; sys_platform == "darwin"

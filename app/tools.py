@@ -76,6 +76,20 @@ def _check_xlsx():
 MAX_FILE_CHARS = 50_000
 
 
+def _missing_pkg_msg(pkg: str, doc_type: str) -> str:
+    """缺包提示：引导用对的解释器 + 重启，而非运行期 pip install（对已运行进程无效）。
+
+    常见根因：app 没用 ai_api 环境的解释器启动（用了 base，没装这些包），
+    或运行期 pip 装了但当前进程 sys.path 已固定、且检测结果被缓存。
+    """
+    return (
+        f"错误：当前运行环境缺少 {pkg}，无法读取{doc_type}。\n"
+        f"请用项目 conda 环境 ai_api 的解释器启动 app（D:/miniconda/envs/ai_api/python.exe main.py），"
+        f"该环境已预装 {pkg}。\n"
+        f"注意：运行期 `pip install` 对已启动的 app 进程无效，安装后需重启 app 才生效。"
+    )
+
+
 # ── 工具实现 ──────────────────────────────────────────────────────────
 
 def _resolve(path: str, cwd: str = "") -> Path:
@@ -120,7 +134,7 @@ def read_file(path: str, cwd: str = "") -> str:
 
 def _read_pdf(p: Path) -> str:
     if not _check_pdf():
-        return "错误：pdfplumber 未安装，无法读取 PDF"
+        return _missing_pkg_msg("pdfplumber", "PDF")
     import pdfplumber
     text_parts = []
     with pdfplumber.open(p) as pdf:
@@ -133,7 +147,7 @@ def _read_pdf(p: Path) -> str:
 
 def _read_docx(p: Path) -> str:
     if not _check_docx():
-        return "错误：python-docx 未安装，无法读取 Word 文档"
+        return _missing_pkg_msg("python-docx", "Word 文档")
     from docx import Document as DocxDocument
     doc = DocxDocument(str(p))
     text = "\n".join(para.text for para in doc.paragraphs)
@@ -142,7 +156,7 @@ def _read_docx(p: Path) -> str:
 
 def _read_xlsx(p: Path) -> str:
     if not _check_xlsx():
-        return "错误：openpyxl 未安装，无法读取 Excel 文件"
+        return _missing_pkg_msg("openpyxl", "Excel 文件")
     import openpyxl
     wb = openpyxl.load_workbook(str(p), read_only=True, data_only=True)
     lines = []
