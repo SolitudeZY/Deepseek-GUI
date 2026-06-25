@@ -359,7 +359,8 @@ def run_subagent(prompt: str, api_key: str, base_url: str, model: str,
     system = "你是一个专注的子代理，负责完成指定的子任务并返回详细结果摘要。"
     is_deepseek = "deepseek" in (base_url or "").lower()
 
-    for _ in range(30):
+    MAX_ROUNDS = 50
+    for _ in range(MAX_ROUNDS):
         # DeepSeek V4 requires reasoning_content on all assistant messages
         # (V4 enables thinking by default). Patch before each API call.
         send_messages = [{"role": "system", "content": system}]
@@ -412,6 +413,26 @@ def run_subagent(prompt: str, api_key: str, base_url: str, model: str,
                 "content": str(result)[:50000],
             })
 
+    # 撞轮次上限：不要丢弃已查到的信息，强制让子代理基于已有上下文做一次总结
+    # （不带 tools，避免它继续调工具又超限）。否则前 N 轮的勘察成果全部浪费。
+    try:
+        send_messages = [{"role": "system", "content": system}]
+        for m in messages:
+            if m.get("role") == "assistant" and is_deepseek:
+                send_messages.append({**m, "reasoning_content": m.get("reasoning_content") or ""})
+            else:
+                send_messages.append(m)
+        send_messages.append({
+            "role": "user",
+            "content": "已达到工具调用轮次上限。请立即停止调用工具，基于你目前已经获取到的所有信息，"
+                       "给出尽可能完整、结构化的结果摘要（包括已查到的内容，以及还有哪些未完成）。",
+        })
+        resp = client.chat.completions.create(model=model, messages=send_messages)
+        final = resp.choices[0].message.content
+        if final:
+            return f"[子代理达到轮次上限({MAX_ROUNDS})，以下为已获取信息的总结]\n\n{final}"
+    except Exception as e:
+        return f"(子代理达到最大轮次，强制总结失败：{e})"
     return "(子代理达到最大轮次，未返回摘要)"
 
 
