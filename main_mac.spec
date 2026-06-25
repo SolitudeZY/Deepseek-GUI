@@ -3,6 +3,7 @@
 
 import os
 import sys
+from PyInstaller.utils.hooks import collect_data_files
 
 block_cipher = None
 
@@ -10,6 +11,8 @@ block_cipher = None
 datas = [('app/static', 'app/static')]
 if os.path.isdir('app/skills'):
     datas.append(('app/skills', 'app/skills'))
+# rapidocr_onnxruntime 的 config.yaml + models/*.onnx，否则运行时找不到 config.yaml
+datas += collect_data_files('rapidocr_onnxruntime')
 
 a = Analysis(
     ['main.py'],

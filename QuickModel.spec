@@ -1,11 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files
+
+# rapidocr_onnxruntime 的 config.yaml 和 models/*.onnx 必须随包，
+# 否则运行时报 "No such file or directory: .../rapidocr_onnxruntime/config.yaml"
+_rapidocr_datas = collect_data_files('rapidocr_onnxruntime')
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('app/static', 'app/static'), ('icon.ico', '.')],
+    datas=[('app/static', 'app/static'), ('icon.ico', '.')] + _rapidocr_datas,
     hiddenimports=[
         'app.agent',
         'app.tools',
