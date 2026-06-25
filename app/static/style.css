@@ -348,6 +348,7 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   display: inline-flex; flex-direction: column; gap: 4px;
   vertical-align: top; margin: 4px 6px 4px 0;
 }
+.attach-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .attach-card .attach-name {
   font-size: 11px; color: var(--text-muted);
   max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

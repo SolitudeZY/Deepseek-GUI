@@ -519,26 +519,38 @@ function buildUserContent(text) {
     return ({ pdf:'📕', doc:'📄', docx:'📄', xls:'📊', xlsx:'📊', csv:'📊',
               ppt:'📑', pptx:'📑', txt:'📃', md:'📃', json:'🗂', zip:'🗜' })[ext] || '📎';
   };
-  return text.split(/\n\n/).map(seg => {
+  // 分离文字段与附件段：文字在上、图片/附件缩略图统一排到气泡下方。
+  const textParts = [];
+  const attachParts = [];
+  text.split(/\n\n/).forEach(seg => {
     const mImg = seg.match(/^\[图片: (.+?)(?: 路径: ([^\]]*))?\]/);
     if (mImg) {
       const fname = mImg[1];
       const fpath = mImg[2] || fname;
-      return `<span class="attach-card attach-image">`
-           + `<img class="chat-img-thumb" data-path="${escapeHtml(fpath)}" src="" alt="${escapeHtml(fname)}">`
-           + `<span class="attach-name">🖼 ${escapeHtml(fname)}</span></span>`;
+      attachParts.push(
+        `<span class="attach-card attach-image">`
+        + `<img class="chat-img-thumb" data-path="${escapeHtml(fpath)}" src="" alt="${escapeHtml(fname)}">`
+        + `<span class="attach-name">🖼 ${escapeHtml(fname)}</span></span>`);
+      return;
     }
     const mDoc = seg.match(/^\[附件: (.+?)(?: 路径: ([^\]]*))?\]/);
     if (mDoc) {
       const fname = mDoc[1];
       const fpath = mDoc[2] || '';
       const openable = fpath ? ' attach-openable' : '';
-      return `<span class="attach-card attach-doc${openable}" data-path="${escapeHtml(fpath)}" title="${fpath ? '在文件夹中定位' : ''}">`
-           + `<span class="attach-icon">${docIcon(fname)}</span>`
-           + `<span class="attach-name">${escapeHtml(fname)}</span></span>`;
+      attachParts.push(
+        `<span class="attach-card attach-doc${openable}" data-path="${escapeHtml(fpath)}" title="${fpath ? '在文件夹中定位' : ''}">`
+        + `<span class="attach-icon">${docIcon(fname)}</span>`
+        + `<span class="attach-name">${escapeHtml(fname)}</span></span>`);
+      return;
     }
-    return escapeHtml(seg).replace(/\n/g, '<br>');
-  }).join('<br>');
+    textParts.push(escapeHtml(seg).replace(/\n/g, '<br>'));
+  });
+  let html = textParts.join('<br>');
+  if (attachParts.length) {
+    html += `<div class="attach-row">${attachParts.join('')}</div>`;
+  }
+  return html;
 }
 
 // 在容器内加载图片缩略图（按 data-path）并绑定点击放大 / 文档卡片定位。
@@ -1134,7 +1146,17 @@ async function sendMessage() {
   $('btn-undo').disabled = false;
 
   msgInput.value = '';
-  addUserBubble(text || '[附件]');
+  // 实时构造与后端一致的附件标记，让用户气泡即时显示缩略图（否则要刷新会话、
+  // 重新从带标记的历史 JSON 加载才显示）。格式同 webview_app.send_message：
+  // [图片: 名称 路径: 绝对路径] / [附件: 名称 路径: 绝对路径]，附件标记在前、文字在后。
+  const imgExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+  const markers = state.attachedFiles.map(f => {
+    const ext = (f.name.split('.').pop() || '').toLowerCase();
+    const kind = imgExts.includes(ext) ? '图片' : '附件';
+    return f.path ? `[${kind}: ${f.name} 路径: ${f.path}]` : `[${kind}: ${f.name}]`;
+  });
+  const bubbleText = [...markers, text].filter(Boolean).join('\n\n');
+  addUserBubble(bubbleText || '[附件]');
   startAssistantStream();
   setRunning(true);
 
