@@ -122,8 +122,14 @@ def generate_image(
     is_dashscope = (fmt == "dashscope")
 
     # 组装端点
-    if is_dashscope or use_full_url:
+    DASHSCOPE_PATH = "/services/aigc/multimodal-generation/generation"
+    if use_full_url:
         url = base_url
+    elif is_dashscope:
+        if base_url.endswith(DASHSCOPE_PATH):
+            url = base_url
+        else:
+            url = base_url + DASHSCOPE_PATH
     else:
         url = base_url if base_url.endswith("/images/generations") else base_url + "/images/generations"
 
@@ -131,7 +137,7 @@ def generate_image(
 
     # 构建请求体
     if is_dashscope:
-        dashscope_size = size.replace("x", "*")
+        dashscope_size = size.replace("x", "*").replace("X", "*")
         payload = {
             "model": model,
             "input": {
@@ -157,6 +163,7 @@ def generate_image(
         image_bytes = None
 
         if is_dashscope:
+            # 同步返回：output.choices[0].message.content[0].image
             choices = (data.get("output") or {}).get("choices") or []
             if not choices:
                 return {"ok": False, "error": f"返回中无 choices：{str(data)[:300]}"}
@@ -209,3 +216,150 @@ def generate_image(
         return {"ok": False, "error": f"HTTP {status}: {body or str(e)}{hint}"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+def edit_image(
+    image_path: str,
+    prompt: str,
+    api_key: str = "",
+    base_url: str = "",
+    model: str = "qwen-image-edit",
+    save_dir: str = "",
+) -> dict:
+    """指令式图像编辑（阿里 Qwen-Image-Edit / dashscope multimodal-generation）。
+
+    在已有图片基础上按文字指令编辑（如"把图中的猫换成狗"）。本地图转 base64 传入。
+    复用 generate_image 的 dashscope 端点拼接、响应解析、保存逻辑。
+    返回 dict：成功 {ok, path, filename, size}；失败 {ok: False, error}。
+    """
+    import uuid
+    import requests
+    from datetime import datetime
+
+    api_key = (api_key or "").strip()
+    if api_key.lower().startswith("bearer "):
+        api_key = api_key[7:].strip()
+    base_url = (base_url or "").strip().rstrip("/")
+    model = (model or "qwen-image-edit").strip()
+    prompt = (prompt or "").strip()
+    image_path = (image_path or "").strip()
+
+    if not api_key:
+        return {"ok": False, "error": "未配置图片生成 API Key（设置 → 图片工具 → 图片生成）"}
+    if not base_url:
+        return {"ok": False, "error": "未配置图片生成 Base URL"}
+    if not prompt:
+        return {"ok": False, "error": "编辑指令 prompt 为空"}
+    if not image_path or not Path(image_path).exists():
+        return {"ok": False, "error": f"原图不存在：{image_path}"}
+    if not is_image(image_path):
+        return {"ok": False, "error": f"不是受支持的图片格式：{image_path}"}
+
+    # 端点：dashscope multimodal-generation（同 generate_image 的 dashscope 分支）
+    DASHSCOPE_PATH = "/services/aigc/multimodal-generation/generation"
+    url = base_url if base_url.endswith(DASHSCOPE_PATH) else base_url + DASHSCOPE_PATH
+
+    b64, mime = _encode_image(image_path)
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "input": {
+            "messages": [
+                {"role": "user", "content": [
+                    {"image": f"data:{mime};base64,{b64}"},
+                    {"text": prompt},
+                ]}
+            ]
+        },
+    }
+    return _dashscope_image_request(url, headers, payload, save_dir, prefix="edit")
+
+
+def _dashscope_image_request(url, headers, payload, save_dir, prefix="gen") -> dict:
+    """发 dashscope 图像请求，解析 output.choices[0].message.content[0].image，
+    下载图片字节并保存到本地。供 edit_image 复用。"""
+    import uuid
+    import requests
+    from datetime import datetime
+
+    resp = None
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=180)
+        resp.raise_for_status()
+        data = resp.json()
+        choices = (data.get("output") or {}).get("choices") or []
+        if not choices:
+            return {"ok": False, "error": f"返回中无 choices：{str(data)[:300]}"}
+        content = (choices[0].get("message") or {}).get("content") or []
+        if not content:
+            return {"ok": False, "error": f"返回中无 content：{str(choices[0])[:300]}"}
+        image_url = ""
+        for c in content:
+            if isinstance(c, dict) and c.get("image"):
+                image_url = c["image"]
+                break
+        if not image_url:
+            return {"ok": False, "error": f"content 中无 image：{str(content[0])[:300]}"}
+        img_resp = requests.get(image_url, timeout=120)
+        img_resp.raise_for_status()
+        image_bytes = img_resp.content
+        if not image_bytes:
+            return {"ok": False, "error": "无法获取图片数据"}
+
+        out_dir = Path(save_dir).expanduser() if save_dir else Path.cwd()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{prefix}_{ts}_{uuid.uuid4().hex[:6]}.png"
+        dest = out_dir / filename
+        dest.write_bytes(image_bytes)
+        return {"ok": True, "path": str(dest), "filename": filename, "size": len(image_bytes)}
+    except requests.exceptions.Timeout:
+        return {"ok": False, "error": "请求超时（180 秒），模型生成较慢或网络问题"}
+    except requests.exceptions.HTTPError as e:
+        body = ""
+        try:
+            body = resp.text[:500] if resp is not None else ""
+        except Exception:
+            pass
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        hint = "（认证失败：检查 key 与 base_url 是否配套）" if status == 401 else ""
+        return {"ok": False, "error": f"HTTP {status}: {body or str(e)}{hint}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+# ── 本地 OCR（RapidOCR / ONNX，离线）─────────────────────────────────
+_RAPID_OCR = None
+_RAPID_OCR_FAILED = False
+
+
+def ocr_image(image_path: str) -> str:
+    """用本地 RapidOCR(ONNX) 识别图片中的文字。引擎单例懒加载（首次较慢）。"""
+    global _RAPID_OCR, _RAPID_OCR_FAILED
+    image_path = (image_path or "").strip()
+    if not image_path or not Path(image_path).exists():
+        return f"错误：图片不存在 — {image_path}"
+    if not is_image(image_path):
+        return f"错误：不是受支持的图片格式 — {image_path}"
+    if _RAPID_OCR is None and not _RAPID_OCR_FAILED:
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+            _RAPID_OCR = RapidOCR()
+        except ImportError:
+            _RAPID_OCR_FAILED = True
+            return ("错误：当前运行环境缺少 rapidocr-onnxruntime，无法本地 OCR。\n"
+                    "请用项目 conda 环境 ai_api 的解释器启动 app，并确保已 "
+                    "pip install rapidocr-onnxruntime（运行期安装需重启 app 才生效）。")
+        except Exception as e:
+            _RAPID_OCR_FAILED = True
+            return f"错误：RapidOCR 初始化失败 — {e}"
+    if _RAPID_OCR is None:
+        return "错误：OCR 引擎不可用。"
+    try:
+        result, _ = _RAPID_OCR(image_path)
+        if not result:
+            return "（未识别到文字）"
+        lines = [item[1] for item in result if len(item) >= 2]
+        return "\n".join(lines) if lines else "（未识别到文字）"
+    except Exception as e:
+        return f"错误：OCR 识别失败 — {e}"

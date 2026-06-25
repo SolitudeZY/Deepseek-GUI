@@ -1366,15 +1366,36 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         save_config(self._config)
 
     def list_recent_projects(self) -> list:
-        """返回最近使用的项目列表（含路径是否仍存在）。"""
+        """返回项目列表（含路径是否仍存在）。
+
+        合并两个来源，避免主页漏项目：① config 的 recent_projects（含 last_used 顺序）；
+        ② 所有会话里实际出现的 project_path（防止某些项目因旧数据/异常未登记 recent_projects，
+        导致侧边栏有分组但主页看不到、进不去）。以 recent_projects 顺序优先，会话独有的补在后面。
+        """
         out = []
+        seen = set()
         for p in self._config.get('recent_projects', []):
             if not isinstance(p, dict):
                 continue
-            item = dict(p)
             path = p.get('path', '')
-            item['exists'] = bool(path) and Path(path).expanduser().is_dir()
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            item = dict(p)
+            item['exists'] = Path(path).expanduser().is_dir()
             out.append(item)
+        # 补上会话里有、但 recent_projects 没记录的项目
+        for c in list_conversations():
+            path = (c.get('project_path', '') or '').strip()
+            if not path or path in seen:
+                continue
+            seen.add(path)
+            out.append({
+                'path': path,
+                'name': Path(path).name or path,
+                'last_used': 0,
+                'exists': Path(path).expanduser().is_dir(),
+            })
         return out
 
     def choose_project_folder(self) -> Optional[dict]:

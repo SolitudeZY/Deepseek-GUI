@@ -151,6 +151,19 @@ function renderConvList(filter = '') {
       state.collapsedGroups[path] = !state.collapsedGroups[path];
       renderConvList(searchInput.value);
     });
+    // 真实项目组（path 非空）加「+新对话」按钮：直接在该项目下开新会话。
+    // 用 addEventListener + stopPropagation，避免触发折叠；不用内联 onclick（Windows 路径转义坑）。
+    if (path) {
+      const addBtn = document.createElement('button');
+      addBtn.className = 'cg-add';
+      addBtn.textContent = '+';
+      addBtn.title = '在该项目中新建对话';
+      addBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        startConvWithProject(path);
+      });
+      header.appendChild(addBtn);
+    }
     // 供手动拖拽 _updateDropTarget 命中组标题时读取目标组（拖到组头=归入该组）
     header._groupKey = path;
     group.appendChild(header);
@@ -622,7 +635,7 @@ function addToolCallBubble(toolName, args) {
 
 // 只有这些工具的结果按图片缩略图渲染（其余工具结果即便文本里含 "[图片: ...]"
 // 也按普通文本截断折叠，避免 read_file 读到讲解附件格式的文档时铺开整个文件）。
-const _IMAGE_TOOLS = new Set(['generate_image']);
+const _IMAGE_TOOLS = new Set(['generate_image', 'edit_image']);
 
 function addToolResultBubble(toolName, result) {
   // find the last tool-call bubble for this tool and update its result inline

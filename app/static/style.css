@@ -138,6 +138,14 @@ pre, code,
   border-radius: 8px; padding: 0 6px; min-width: 16px; text-align: center;
 }
 .conv-group-items { list-style: none; margin: 0; padding: 0; }
+.conv-group-header .cg-add {
+  font-size: 14px; line-height: 1; width: 18px; height: 18px; flex-shrink: 0;
+  border: none; border-radius: 4px; cursor: pointer; padding: 0;
+  background: transparent; color: var(--text-muted);
+  opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.conv-group-header:hover .cg-add { opacity: 1; }
+.conv-group-header .cg-add:hover { background: var(--accent); color: #fff; }
 
 /* ── 拖拽排序视觉反馈 ── */
 #conv-list li.dragging { opacity: 0.35; }

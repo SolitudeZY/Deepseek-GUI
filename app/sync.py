@@ -13,12 +13,13 @@ from typing import Optional
 
 from app.config import (
     get_conversations_dir, load_config, save_config,
-    CONFIG_PATH, get_allowed_commands_path,
+    CONFIG_PATH, get_allowed_commands_path, get_app_data_dir,
 )
 
 
 SYNC_SUBDIR = "QuickModel_Sync"
 CONFIG_SYNC_SUBDIR = "QuickModel_Config"
+MEMORY_SYNC_SUBDIR = "QuickModel_Memory"
 
 
 def get_sync_dir() -> Optional[Path]:
@@ -193,13 +194,63 @@ def import_config(files: Optional[list] = None) -> dict:
     return {"imported": imported}
 
 
+# ─── 记忆同步 ───────────────────────────────────────────────────────────────
+
+def _get_memory_sync_dir() -> Optional[Path]:
+    """获取记忆同步目录。"""
+    config = load_config()
+    folder = config.get("sync_folder", "")
+    if not folder:
+        return None
+    d = Path(folder) / MEMORY_SYNC_SUBDIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _local_memory_dir() -> Path:
+    d = get_app_data_dir() / "memory"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def upload_memory() -> int:
+    """将本地记忆 .md 上传到同步文件夹（mtime 增量）。返回上传数量。"""
+    mem_dir = _get_memory_sync_dir()
+    if not mem_dir:
+        return 0
+    count = 0
+    for src in _local_memory_dir().glob("*.md"):
+        dest = mem_dir / src.name
+        if not dest.exists() or src.stat().st_mtime > dest.stat().st_mtime:
+            shutil.copy2(src, dest)
+            count += 1
+    return count
+
+
+def import_memory() -> int:
+    """从同步文件夹导入更新的记忆 .md 到本地（mtime 增量）。返回导入数量。"""
+    mem_dir = _get_memory_sync_dir()
+    if not mem_dir:
+        return 0
+    local_dir = _local_memory_dir()
+    count = 0
+    for src in mem_dir.glob("*.md"):
+        dest = local_dir / src.name
+        if not dest.exists() or src.stat().st_mtime > dest.stat().st_mtime:
+            shutil.copy2(src, dest)
+            count += 1
+    return count
+
+
 def sync_all() -> dict:
-    """一键全量同步：上传对话 + 上传配置。"""
+    """一键全量同步：上传对话 + 上传配置 + 上传记忆。"""
     conv_count = upload_all_conversations()
     cfg_result = upload_config()
+    mem_count = upload_memory()
     return {
         "conversations_uploaded": conv_count,
         "config_uploaded": cfg_result["uploaded"],
+        "memory_uploaded": mem_count,
     }
 
 
@@ -213,7 +264,10 @@ def import_all() -> dict:
         conv_count = import_from_sync(filenames)
     # 导入配置
     cfg_result = import_config()
+    # 导入记忆
+    mem_count = import_memory()
     return {
         "conversations_imported": conv_count,
         "config_imported": cfg_result["imported"],
+        "memory_imported": mem_count,
     }

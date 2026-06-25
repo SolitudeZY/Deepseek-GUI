@@ -371,6 +371,34 @@ def generate_image_tool(prompt: str, size: str = "1024x1024", vision_config: dic
             f"已生成并保存（{kb:.0f} KB）：{r['path']}")
 
 
+def edit_image_tool(image_path: str, prompt: str, size: str = "1024x1024", vision_config: dict = None) -> str:
+    """在已有图片上按指令编辑（阿里 Qwen-Image-Edit）。复用图片生成的 dashscope 配置。
+
+    返回的 [图片: 名称 路径: ...] 标记会被前端识别并显示缩略图卡片。
+    """
+    from app.vision import edit_image
+    vc = vision_config or {}
+    r = edit_image(
+        image_path=(image_path or "").strip(),
+        prompt=prompt,
+        api_key=vc.get("imagegen_api_key", ""),
+        base_url=vc.get("imagegen_base_url", ""),
+        model=vc.get("imageedit_model", "qwen-image-edit"),
+        save_dir=vc.get("imagegen_save_dir", ""),
+    )
+    if not r.get("ok"):
+        return f"[图片编辑失败：{r.get('error', '未知错误')}]"
+    kb = r.get("size", 0) / 1024
+    return (f"[图片: {r['filename']} 路径: {r['path']}]\n"
+            f"已编辑并保存（{kb:.0f} KB）：{r['path']}")
+
+
+def ocr_image_tool(image_path: str) -> str:
+    """用本地 RapidOCR 识别图片中的文字，返回纯文本。"""
+    from app.vision import ocr_image
+    return ocr_image((image_path or "").strip())
+
+
 def grep_files(pattern: str, path: str = ".", file_type: str = "",
                multiline: bool = False, max_results: int = 50, cwd: str = "") -> str:
     """Search file contents by regex pattern."""
@@ -1064,6 +1092,36 @@ TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "edit_image",
+            "description": "在一张已有的本地图片基础上按文字指令进行编辑（如替换物体『把图里的猫换成狗』、增删元素、改文字、调色、风格迁移等）。当用户给了图片并要求修改/编辑它时调用，而非重新生成。原图取自用户消息中标注的图片路径（形如 [图片: 文件名 路径: ...]）。编辑后的新图会保存到本地并在对话中显示。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_path": {"type": "string", "description": "要编辑的原图本地绝对路径（取自用户消息中标注的图片路径）"},
+                    "prompt": {"type": "string", "description": "编辑指令，清晰描述要做的修改，如『把图中的小猫替换成一只柯基犬，保持背景不变』"},
+                    "size": {"type": "string", "description": "输出尺寸，如 1024x1024", "default": "1024x1024"},
+                },
+                "required": ["image_path", "prompt"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ocr_image",
+            "description": "用本地 OCR 引擎识别图片中的文字并返回纯文本。当用户需要提取图片/截图/扫描件中的文字内容时调用。相比 analyze_image，本工具专注于逐字提取文字、离线运行、速度快、不消耗视觉模型额度。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "image_path": {"type": "string", "description": "要识别的图片本地绝对路径"},
+                },
+                "required": ["image_path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "grep_files",
             "description": "在文件内容中搜索正则表达式。支持文件类型过滤和多行模式。返回匹配的文件路径、行号和内容。用于在代码库中查找特定函数、变量、字符串等。",
             "parameters": {
@@ -1179,6 +1237,10 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
         return analyze_image(args.get("path", ""), args.get("question", ""), vision_config=vision_config)
     elif tool_name == "generate_image":
         return generate_image_tool(args.get("prompt", ""), args.get("size", "1024x1024"), vision_config=vision_config)
+    elif tool_name == "edit_image":
+        return edit_image_tool(args.get("image_path", ""), args.get("prompt", ""), args.get("size", "1024x1024"), vision_config=vision_config)
+    elif tool_name == "ocr_image":
+        return ocr_image_tool(args.get("image_path", ""))
     elif tool_name == "list_directory":
         return list_directory(args.get("path", ""), cwd=cwd)
     elif tool_name == "glob_files":
