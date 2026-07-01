@@ -703,8 +703,13 @@ def _search_tavily(query: str, max_results: int, api_key: str) -> str:
 # ── DuckDuckGo ───────────────────────────────────────────────────────
 
 def _search_duckduckgo(query: str, max_results: int) -> str:
+    # 包已从 duckduckgo_search 改名为 ddgs：旧包名的新版本(8.x)会静默返回空结果
+    # （功能失效），优先用新包 ddgs，回退兼容仅装了旧包的环境。
     try:
-        from duckduckgo_search import DDGS
+        try:
+            from ddgs import DDGS
+        except ImportError:
+            from duckduckgo_search import DDGS
         with DDGS() as ddgs:
             raw = list(ddgs.text(query, max_results=max_results))
         if not raw:
@@ -714,7 +719,7 @@ def _search_duckduckgo(query: str, max_results: int) -> str:
             for r in raw
         ])
     except ImportError:
-        return "搜索失败：duckduckgo-search 未安装，请运行 pip install duckduckgo-search"
+        return "搜索失败：ddgs 未安装，请运行 pip install ddgs"
     except Exception as e:
         return f"搜索失败：{e}"
 
