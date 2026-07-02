@@ -389,7 +389,8 @@ $('btn-sync-all').addEventListener('click', async () => {
   const result = await window.pywebview.api.sync_all();
   const cfgList = result.config_uploaded.length ? `，配置: ${result.config_uploaded.join(', ')}` : '';
   const memUp = result.memory_uploaded ? `，记忆: ${result.memory_uploaded} 条` : '';
-  $('sync-status').textContent = `已上传 ${result.conversations_uploaded} 个对话${cfgList}${memUp}`;
+  const skillUp = result.skills_uploaded ? `，技能: ${result.skills_uploaded} 条` : '';
+  $('sync-status').textContent = `已上传 ${result.conversations_uploaded} 个对话${cfgList}${memUp}${skillUp}`;
 });
 
 // 一键导入全部（对话+配置）
@@ -398,7 +399,8 @@ $('btn-sync-import-all').addEventListener('click', async () => {
   const result = await window.pywebview.api.sync_import_all();
   const cfgList = result.config_imported.length ? `，配置: ${result.config_imported.join(', ')}` : '';
   const memIn = result.memory_imported ? `，记忆: ${result.memory_imported} 条` : '';
-  $('sync-status').textContent = `导入 ${result.conversations_imported} 个对话${cfgList}${memIn}`;
+  const skillIn = result.skills_imported ? `，技能: ${result.skills_imported} 条` : '';
+  $('sync-status').textContent = `导入 ${result.conversations_imported} 个对话${cfgList}${memIn}${skillIn}`;
   // 刷新对话列表和配置
   state.conversations = await window.pywebview.api.list_conversations();
   renderConvList('');

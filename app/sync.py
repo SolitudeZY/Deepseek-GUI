@@ -20,6 +20,7 @@ from app.config import (
 SYNC_SUBDIR = "QuickModel_Sync"
 CONFIG_SYNC_SUBDIR = "QuickModel_Config"
 MEMORY_SYNC_SUBDIR = "QuickModel_Memory"
+SKILL_SYNC_SUBDIR = "QuickModel_Skills"
 
 
 def get_sync_dir() -> Optional[Path]:
@@ -213,6 +214,23 @@ def _local_memory_dir() -> Path:
     return d
 
 
+def _get_skill_sync_dir() -> Optional[Path]:
+    """获取技能同步目录。"""
+    config = load_config()
+    folder = config.get("sync_folder", "")
+    if not folder:
+        return None
+    d = Path(folder) / SKILL_SYNC_SUBDIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _local_skills_dir() -> Path:
+    d = get_app_data_dir() / "skills"
+    d.mkdir(exist_ok=True)
+    return d
+
+
 def upload_memory() -> int:
     """将本地记忆 .md 上传到同步文件夹（mtime 增量）。返回上传数量。"""
     mem_dir = _get_memory_sync_dir()
@@ -242,20 +260,51 @@ def import_memory() -> int:
     return count
 
 
+def upload_skills() -> int:
+    """将本地技能 .md 上传到同步文件夹（mtime 增量）。返回上传数量。"""
+    skill_dir = _get_skill_sync_dir()
+    if not skill_dir:
+        return 0
+    count = 0
+    for src in _local_skills_dir().glob("*.md"):
+        dest = skill_dir / src.name
+        if not dest.exists() or src.stat().st_mtime > dest.stat().st_mtime:
+            shutil.copy2(src, dest)
+            count += 1
+    return count
+
+
+def import_skills() -> int:
+    """从同步文件夹导入更新的技能 .md 到本地（mtime 增量）。返回导入数量。"""
+    skill_dir = _get_skill_sync_dir()
+    if not skill_dir:
+        return 0
+    local_dir = _local_skills_dir()
+    count = 0
+    for src in skill_dir.glob("*.md"):
+        dest = local_dir / src.name
+        if not dest.exists() or src.stat().st_mtime > dest.stat().st_mtime:
+            shutil.copy2(src, dest)
+            count += 1
+    return count
+
+
 def sync_all() -> dict:
-    """一键全量同步：上传对话 + 上传配置 + 上传记忆。"""
+    """一键全量同步：上传对话 + 上传配置 + 上传记忆 + 上传技能。"""
     conv_count = upload_all_conversations()
     cfg_result = upload_config()
     mem_count = upload_memory()
+    skill_count = upload_skills()
     return {
         "conversations_uploaded": conv_count,
         "config_uploaded": cfg_result["uploaded"],
         "memory_uploaded": mem_count,
+        "skills_uploaded": skill_count,
     }
 
 
 def import_all() -> dict:
-    """一键全量导入：导入所有新对话 + 导入配置。"""
+    """一键全量导入：导入所有新对话 + 导入配置 + 导入记忆 + 导入技能。"""
     # 导入对话
     new_convs = detect_new_conversations()
     conv_count = 0
@@ -266,8 +315,11 @@ def import_all() -> dict:
     cfg_result = import_config()
     # 导入记忆
     mem_count = import_memory()
+    # 导入技能
+    skill_count = import_skills()
     return {
         "conversations_imported": conv_count,
         "config_imported": cfg_result["imported"],
         "memory_imported": mem_count,
+        "skills_imported": skill_count,
     }
