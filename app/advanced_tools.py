@@ -218,14 +218,47 @@ def estimate_tokens(messages: list) -> int:
     return len(json.dumps(messages, default=str)) // 4
 
 
-def auto_compact(messages: list, client, model: str) -> list:
+def _summarize_text(client, model: str, text: str) -> str:
+    """调模型对一段对话文本做结构化摘要。失败抛异常由调用方处理。"""
+    prompt = (
+        "你在为一个『AI 编程助手』压缩历史对话，供它之后无缝继续工作。"
+        "请把下面的对话片段总结成结构化中文摘要，**必须尽量保留可继续工作的具体事实**，不要泛泛而谈：\n"
+        "- 用户的原始需求、明确要求与约束（逐条列出，含具体数值/参数）\n"
+        "- 涉及的具体文件路径、函数名、变量名、命令、URL、配置项等标识符（原样保留）\n"
+        "- 已经做出的关键决策及其理由\n"
+        "- 已完成的改动/结论，以及尚未完成的待办\n"
+        "- 工具调用得到的关键结果（如查到的目录结构、报错信息、搜索发现）\n\n"
+        "用如下结构输出：\n"
+        "## 需求与约束\n## 关键事实与标识符\n## 已完成\n## 待办/未决\n## 重要结论\n\n"
+        f"对话片段：\n{text}"
+    )
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.choices[0].message.content or "(无摘要)"
+
+
+def auto_compact(messages: list, client, model: str,
+                 summary_client=None, summary_model: str = "") -> list:
     """Summarize conversation when context is too large.
 
-    Preserves: system message (head) + recent tail (last 8 messages).
-    Replaces: the middle section with a summary.
-    This keeps the system prompt byte-stable so DeepSeek prefix cache stays warm.
+    Preserves: system message (head) + recent tail (RECENT_KEEP messages).
+    Replaces: the middle section with a structured summary.
+    保持 system 前缀 byte-stable，DeepSeek prefix cache 保温。
+
+    改进（修复压缩后失忆）：
+    - 中段分块摘要，不再 [-80000:] 硬截断丢弃早期内容；
+    - 结构化 prompt 保留可继续工作的具体事实；
+    - 摘要失败则保留原始消息（不压缩），绝不用错误串替换整个中段；
+    - RECENT_KEEP 提高；可用更便宜的模型（summary_client/summary_model）做摘要。
     """
-    RECENT_KEEP = 8  # keep last N messages verbatim
+    RECENT_KEEP = 15   # keep last N messages verbatim
+    CHUNK_CHARS = 60000  # 每块喂给摘要模型的字符上限
+
+    # 摘要用的模型/客户端：优先用传入的便宜模型，回退主模型
+    s_client = summary_client or client
+    s_model = summary_model or model
 
     # Archive full transcript for traceability
     transcripts_dir = get_app_data_dir() / "transcripts"
@@ -250,22 +283,41 @@ def auto_compact(messages: list, client, model: str) -> list:
     if not middle:
         return messages  # nothing to compact
 
-    conv_text = json.dumps(middle, default=str, ensure_ascii=False)[-80000:]
+    # 分块：按消息累积到 CHUNK_CHARS 一块，逐块摘要，避免硬截断丢弃早期内容
+    chunks, cur, cur_len = [], [], 0
+    for m in middle:
+        s = json.dumps(m, default=str, ensure_ascii=False)
+        if cur and cur_len + len(s) > CHUNK_CHARS:
+            chunks.append(cur)
+            cur, cur_len = [], 0
+        cur.append(m)
+        cur_len += len(s)
+    if cur:
+        chunks.append(cur)
+
     try:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content":
-                f"请用中文简洁总结以下对话内容，保留关键信息、决策和结论，供后续对话继续使用：\n{conv_text}"}],
-        )
-        summary = resp.choices[0].message.content or "(无摘要)"
+        part_summaries = []
+        for i, ch in enumerate(chunks):
+            ch_text = json.dumps(ch, default=str, ensure_ascii=False)
+            part_summaries.append(_summarize_text(s_client, s_model, ch_text))
+        if len(part_summaries) == 1:
+            summary = part_summaries[0]
+        else:
+            # 多块：合并各块摘要为一份总摘要
+            merged = "\n\n".join(f"[片段{i+1}]\n{s}" for i, s in enumerate(part_summaries))
+            summary = _summarize_text(
+                s_client, s_model,
+                f"以下是同一段对话按时间顺序分块得到的多份摘要，请合并为一份连贯、不丢信息的结构化摘要：\n{merged}")
     except Exception as e:
-        summary = f"(压缩失败: {e})"
+        # 关键：摘要失败不丢中段，退化为不压缩，避免灾难性失忆
+        return messages
 
     # Reassemble: system (unchanged prefix) + summary + recent tail
     compacted = list(system_msgs)
     compacted.append({"role": "user", "content":
-        f"<context_summary>\n以下是之前对话的摘要（原始记录：{path}）：\n{summary}\n</context_summary>"})
-    compacted.append({"role": "assistant", "content": "已了解之前的对话内容，请继续。"})
+        f"<context_summary>\n以下是之前对话的结构化摘要（完整原始记录已存档：{path}）。"
+        f"请把它当作你已经掌握的上下文，无缝继续后续工作：\n{summary}\n</context_summary>"})
+    compacted.append({"role": "assistant", "content": "已完整了解之前的对话上下文，继续。"})
     compacted.extend(tail)
     return compacted
 

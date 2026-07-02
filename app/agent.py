@@ -520,6 +520,20 @@ class Agent:
             })
         return all_messages
 
+    def _summary_client_model(self):
+        """返回用于上下文压缩摘要的 (client, model)：优先用便宜的 flash 模型配置，
+        回退主模型。摘要是内部一次性调用，用便宜模型省钱提速。"""
+        if self._model_configs:
+            flash_mc = next((c for c in self._model_configs if "flash" in c.get("model", "").lower()), None)
+            if flash_mc and flash_mc.get("api_key") and flash_mc.get("base_url"):
+                try:
+                    from openai import OpenAI
+                    c = OpenAI(api_key=flash_mc["api_key"], base_url=flash_mc["base_url"])
+                    return c, flash_mc.get("model") or self.model
+                except Exception:
+                    pass
+        return self._client, self.model
+
     def _manage_context(self, all_messages: list[dict], threshold: int, cb) -> list[dict]:
         """Apply auto_compact, push context usage.
 
@@ -529,7 +543,9 @@ class Agent:
         一次性折叠中段、保持 system 前缀稳定）兜底，缓存命中更高。
         """
         if estimate_tokens(all_messages) > threshold:
-            all_messages = auto_compact(all_messages, self._client, self.model)
+            s_client, s_model = self._summary_client_model()
+            all_messages = auto_compact(all_messages, self._client, self.model,
+                                        summary_client=s_client, summary_model=s_model)
         if cb.on_context_update:
             cb.on_context_update(estimate_tokens(all_messages), threshold)
         return all_messages
@@ -665,7 +681,9 @@ class Agent:
                     "role": "tool", "tool_call_id": tc["id"],
                     "content": "正在压缩上下文…",
                 })
-                compact_result = auto_compact(all_messages, self._client, self.model)
+                s_client, s_model = self._summary_client_model()
+                compact_result = auto_compact(all_messages, self._client, self.model,
+                                              summary_client=s_client, summary_model=s_model)
                 all_messages.clear()
                 all_messages.extend(compact_result)
                 cb.on_tool_result(tool_name, "上下文已压缩")
