@@ -1178,20 +1178,41 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             dl_path = Path(downloaded_path)
 
             if IS_WIN:
-                # Generate a bat script that waits, extracts/copies, and restarts
+                # ⚠ 关键：下载的 asset 名是 QuickModel-windows-x64.exe，而运行中的程序是
+                # QuickModel.exe（current_exe）。必须覆盖 current_exe 本身，不能用下载文件的
+                # 原名复制（否则目录里多一个新名 exe，重启的还是旧 QuickModel.exe → 表现为
+                # "关了没更新"）。且 taskkill 后 exe 句柄释放有延迟，用重试循环等文件可写。
                 script = current_dir / "_update.bat"
+                target = str(current_exe)  # 覆盖正在运行的 exe 本体
+                if dl_path.suffix.lower() == ".zip":
+                    apply_block = (
+                        f'powershell -Command "Expand-Archive -Force \'{dl_path}\' \'{current_dir}\'"\n'
+                    )
+                else:
+                    # 重试最多 10 次（每次等 1s）覆盖，规避 exe 仍被占用导致 copy 失败
+                    apply_block = (
+                        f'set _n=0\n'
+                        f':copyloop\n'
+                        f'copy /y "{dl_path}" "{target}" >nul 2>&1 && goto copyok\n'
+                        f'set /a _n+=1\n'
+                        f'if %_n% geq 10 goto copyfail\n'
+                        f'timeout /t 1 /nobreak >nul\n'
+                        f'goto copyloop\n'
+                        f':copyfail\n'
+                        f'echo 更新失败：无法覆盖 {target}，原文件可能仍被占用。\n'
+                        f'echo 已下载的新版本在：{dl_path}\n'
+                        f'pause\n'
+                        f'goto done\n'
+                        f':copyok\n'
+                    )
                 script.write_text(
                     f'@echo off\n'
                     f'echo 正在更新 QuickModel，请稍候...\n'
-                    f'timeout /t 2 /nobreak >nul\n'
                     f'taskkill /f /pid {os.getpid()} >nul 2>&1\n'
-                    f'timeout /t 1 /nobreak >nul\n'
-                    f'if /i "{dl_path.suffix}" == ".zip" (\n'
-                    f'  powershell -Command "Expand-Archive -Force \'{dl_path}\' \'{current_dir}\'"\n'
-                    f') else (\n'
-                    f'  copy /y "{dl_path}" "{current_dir}\\{dl_path.name}"\n'
-                    f')\n'
-                    f'start "" "{current_exe}"\n'
+                    f'timeout /t 2 /nobreak >nul\n'
+                    f'{apply_block}'
+                    f'start "" "{target}"\n'
+                    f':done\n'
                     f'del "%~f0"\n',
                     encoding='utf-8'
                 )
