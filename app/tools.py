@@ -464,6 +464,35 @@ def grep_files(pattern: str, path: str = ".", file_type: str = "",
     return output
 
 
+_WIN_BASH_CACHE = None  # None=未探测, ""=无, 其它=bash.exe 路径
+
+
+def _find_git_bash() -> str:
+    """Windows 下探测 Git Bash 的 bash.exe。找不到返回 ""。
+    ⚠ 必须避开 System32\\bash.exe 与 WindowsApps\\bash.exe（那是 WSL，另一个 Linux
+    环境，路径与 Windows 不通，命令会跑到 WSL 里去）。只认 Git for Windows 的 bash。"""
+    global _WIN_BASH_CACHE
+    if _WIN_BASH_CACHE is not None:
+        return _WIN_BASH_CACHE
+    import os as _os
+    candidates = [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+    ]
+    # 从 GIT 环境/常见安装位置补充
+    for base in (_os.environ.get("ProgramFiles", ""), _os.environ.get("ProgramFiles(x86)", ""),
+                 _os.environ.get("LOCALAPPDATA", "")):
+        if base:
+            candidates.append(str(Path(base) / "Git" / "bin" / "bash.exe"))
+    for c in candidates:
+        if c and Path(c).is_file():
+            _WIN_BASH_CACHE = c
+            return c
+    _WIN_BASH_CACHE = ""
+    return ""
+
+
 def run_command(command: str, timeout: int = 30, stop_flag=None, cwd: str = "") -> str:
     import time, threading, platform
 
@@ -471,7 +500,12 @@ def run_command(command: str, timeout: int = 30, stop_flag=None, cwd: str = "") 
         creationflags = 0
         if platform.system() == "Windows":
             creationflags = subprocess.CREATE_NO_WINDOW
-            shell_cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
+            # 优先 Git Bash（LLM 写的 ls/grep/&&/管道等 Unix 语法更稳），无则回退 PowerShell
+            _bash = _find_git_bash()
+            if _bash:
+                shell_cmd = [_bash, "-c", command]
+            else:
+                shell_cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", command]
         else:
             # macOS / Linux: use bash
             shell_cmd = ["/bin/bash", "-c", command]
@@ -521,15 +555,18 @@ def run_command(command: str, timeout: int = 30, stop_flag=None, cwd: str = "") 
         if 'error' in result_holder:
             return f"执行失败：{result_holder['error']}"
 
+        # Git Bash 输出是 UTF-8；PowerShell(Win) 常是 GBK。按实际用的 shell 定编码优先级。
+        _is_bash_shell = shell_cmd[0].lower().endswith("bash.exe") or shell_cmd[0] == "/bin/bash"
+
         def _decode(b: bytes) -> str:
             if not b:
                 return ""
-            # macOS/Linux: UTF-8 is standard; Windows may use GBK
-            if platform.system() == "Windows":
+            if platform.system() == "Windows" and not _is_bash_shell:
                 import locale
                 encodings = (locale.getpreferredencoding(False), "utf-8", "gbk", "cp936")
             else:
-                encodings = ("utf-8",)
+                # bash（任意平台）优先 UTF-8，再兜底 GBK
+                encodings = ("utf-8", "gbk")
             for enc in encodings:
                 try:
                     return b.decode(enc)
@@ -550,6 +587,7 @@ def run_command(command: str, timeout: int = 30, stop_flag=None, cwd: str = "") 
         if "conda" in command and ("不是内部或外部命令" in stderr
                                    or "无法将" in stderr
                                    or "not recognized" in stderr
+                                   or "command not found" in stderr  # bash
                                    or "CommandNotFoundError" in stderr
                                    or "conda activate" in command):
             output += ("\n[提示] 本环境的非交互 shell 未加载 conda 钩子，无法用 "
@@ -1195,7 +1233,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "run_command",
-            "description": "在 PowerShell 中执行命令，返回输出结果。支持 PowerShell 语法，包括 &&、$ENV:VAR、管道等。",
+            "description": "执行 shell 命令并返回输出。macOS/Linux 用 bash；Windows 若装了 Git Bash 也用 bash（否则回退 PowerShell）。因此**优先用通用的 Unix/bash 语法**（ls、grep、cat、管道 |、&&、$VAR、$(...) 等），避免 PowerShell 专有语法（如 Get-ChildItem、$ENV:VAR），以获得跨平台一致行为。路径用正斜杠。",
             "parameters": {
                 "type": "object",
                 "properties": {
