@@ -1235,10 +1235,16 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                     )
                 script.write_text(
                     f'@echo off\n'
+                    f'chcp 65001 >nul\n'  # UTF-8，与 Python 侧 _log 一致，修中文乱码
                     f'echo [bat] 启动 pid={os.getpid()} >> "{bat_log}"\n'
                     f'taskkill /f /pid {os.getpid()} >> "{bat_log}" 2>&1\n'
                     f'timeout /t 2 /nobreak >nul\n'
                     f'{apply_block}'
+                    # ⚠ onefile exe：旧进程退出后其 _MEIxxxx 临时目录异步清理有延迟，
+                    # 立刻 start 新 exe 会与残留 _MEI 冲突 → 新进程报 Failed to load Python DLL。
+                    # 多等几秒让旧 _MEI 清理完，再启动新实例。
+                    f'echo [bat] 等待旧实例 _MEI 清理 >> "{bat_log}"\n'
+                    f'timeout /t 4 /nobreak >nul\n'
                     f'echo [bat] 重启 {target} >> "{bat_log}"\n'
                     f'start "" "{target}"\n'
                     f':done\n'
