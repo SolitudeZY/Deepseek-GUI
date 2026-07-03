@@ -111,15 +111,41 @@ function _compareVersions(a, b) {
   return 0;
 }
 
+// 下载进度回调入口（后端 download_update 通过 evaluate_js 调用）
+window.Update = {
+  onProgress(pct, downloaded, total) {
+    const wrap = $('update-progress');
+    if (wrap) wrap.classList.remove('hidden');
+    const fill = $('update-progress-fill');
+    const text = $('update-progress-text');
+    if (pct >= 0) {
+      if (fill) fill.style.width = pct + '%';
+      if (text) {
+        const mb = n => (n / 1048576).toFixed(1);
+        text.textContent = total ? `${pct}%（${mb(downloaded)}/${mb(total)} MB）` : `${pct}%`;
+      }
+    } else {
+      // 无 Content-Length，无法算百分比，显示已下载量 + 不确定态
+      if (fill) fill.style.width = '100%';
+      if (text) text.textContent = downloaded ? `已下载 ${(downloaded/1048576).toFixed(1)} MB` : '下载中...';
+    }
+  }
+};
+
 async function _downloadAsset(url, filename) {
   if (!confirm(`下载 ${filename}？\n\n下载完成后将自动替换当前版本并重启应用。`)) return;
   $('update-status').textContent = `正在下载 ${filename}...`;
+  const wrap = $('update-progress');
+  if (wrap) wrap.classList.remove('hidden');
+  Update.onProgress(0, 0, 0);
   const result = await window.pywebview.api.download_update(url, filename);
   if (result.error) {
     $('update-status').textContent = `下载失败: ${result.error}`;
+    if (wrap) wrap.classList.add('hidden');
     return;
   }
   $('update-status').textContent = '下载完成，正在应用更新...';
+  if (wrap) wrap.classList.add('hidden');
   const applyResult = await window.pywebview.api.apply_update_and_restart(result.path);
   if (applyResult.error) {
     $('update-status').textContent = `更新失败: ${applyResult.error}`;

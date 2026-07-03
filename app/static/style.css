@@ -839,6 +839,11 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
 }
 .update-header strong { color: var(--accent); }
+.update-progress { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+.update-progress.hidden { display: none; }
+.update-progress-bar { flex: 1; height: 8px; background: var(--bg3); border-radius: 4px; overflow: hidden; }
+.update-progress-fill { height: 100%; width: 0; background: var(--accent); border-radius: 4px; transition: width 0.2s ease-out; }
+.update-progress-text { font-size: 11px; color: var(--text-muted); white-space: nowrap; min-width: 40px; }
 #update-releases { display: flex; flex-direction: column; gap: 10px; max-height: 350px; overflow-y: auto; }
 .update-card {
   border: 1px solid var(--border); border-radius: var(--radius); padding: 12px;

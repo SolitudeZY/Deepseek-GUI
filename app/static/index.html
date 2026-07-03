@@ -343,6 +343,10 @@
           <button id="btn-check-update" class="btn-primary">检查更新</button>
         </div>
         <div id="update-status" class="hint" style="margin:8px 0"></div>
+        <div id="update-progress" class="update-progress hidden">
+          <div class="update-progress-bar"><div id="update-progress-fill" class="update-progress-fill"></div></div>
+          <span id="update-progress-text" class="update-progress-text">0%</span>
+        </div>
         <div id="update-releases"></div>
         <hr style="border-color:var(--border);margin:12px 0">
         <label>GitHub Token（可选，避免 API 速率限制）

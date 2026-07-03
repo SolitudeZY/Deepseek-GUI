@@ -1149,7 +1149,8 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             return {"error": str(e), "current_version": APP_VERSION}
 
     def download_update(self, download_url: str, filename: str) -> dict:
-        """Download an update asset to a temp folder. Returns {path: str} or {error: str}."""
+        """Download an update asset to a temp folder，边下边通过 Update.onProgress 推进度。
+        Returns {path: str} or {error: str}."""
         import urllib.request
         import tempfile
         try:
@@ -1158,12 +1159,23 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             dest = dest_dir / filename
             req = urllib.request.Request(download_url, headers={"User-Agent": "QuickModel-Updater"})
             with urllib.request.urlopen(req, timeout=120) as resp:
+                total = int(resp.headers.get("Content-Length") or 0)
+                downloaded = 0
+                last_pct = -1
                 with open(dest, 'wb') as f:
                     while True:
                         chunk = resp.read(65536)
                         if not chunk:
                             break
                         f.write(chunk)
+                        downloaded += len(chunk)
+                        # 节流：整数百分比变化才推一次，避免过多 evaluate_js 调用
+                        pct = int(downloaded * 100 / total) if total else -1
+                        if pct != last_pct:
+                            last_pct = pct
+                            self._js(f"window.Update&&Update.onProgress&&Update.onProgress("
+                                     f"{pct},{downloaded},{total})")
+            self._js("window.Update&&Update.onProgress&&Update.onProgress(100,0,0)")
             return {"path": str(dest)}
         except Exception as e:
             return {"error": str(e)}
