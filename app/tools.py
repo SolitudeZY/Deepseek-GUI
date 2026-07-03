@@ -399,6 +399,12 @@ def ocr_image_tool(image_path: str) -> str:
     return ocr_image((image_path or "").strip())
 
 
+def read_conversations_by_date_tool(start_date: str = "", end_date: str = "") -> str:
+    """按时间范围读取历史会话完整内容（供写周报/日报/总结）。"""
+    from app.conversation import read_conversations_by_date
+    return read_conversations_by_date(start_date, end_date)
+
+
 def grep_files(pattern: str, path: str = ".", file_type: str = "",
                multiline: bool = False, max_results: int = 50, cwd: str = "") -> str:
     """Search file contents by regex pattern."""
@@ -1127,6 +1133,20 @@ TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "read_conversations_by_date",
+            "description": "按时间范围读取本应用中历史会话的完整内容。当用户需要总结/回顾某段时间的对话（如『帮我写这周的周报』『总结昨天做了什么』『回顾本月的工作』）时调用，之后基于返回内容撰写总结。日期格式 YYYY-MM-DD，含边界；只填 start_date 表示从该日至今，只填 end_date 表示该日及之前，都留空表示全部（可能很多）。请先根据用户说的『这周/上周/本月/昨天』等换算成具体日期区间再调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "start_date": {"type": "string", "description": "起始日期 YYYY-MM-DD（含当天），留空表示不限起点"},
+                    "end_date": {"type": "string", "description": "结束日期 YYYY-MM-DD（含当天 23:59），留空表示不限终点"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "grep_files",
             "description": "在文件内容中搜索正则表达式。支持文件类型过滤和多行模式。返回匹配的文件路径、行号和内容。用于在代码库中查找特定函数、变量、字符串等。",
             "parameters": {
@@ -1246,6 +1266,8 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
         return edit_image_tool(args.get("image_path", ""), args.get("prompt", ""), args.get("size", "1024x1024"), vision_config=vision_config)
     elif tool_name == "ocr_image":
         return ocr_image_tool(args.get("image_path", ""))
+    elif tool_name == "read_conversations_by_date":
+        return read_conversations_by_date_tool(args.get("start_date", ""), args.get("end_date", ""))
     elif tool_name == "list_directory":
         return list_directory(args.get("path", ""), cwd=cwd)
     elif tool_name == "glob_files":

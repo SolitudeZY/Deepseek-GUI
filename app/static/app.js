@@ -64,6 +64,22 @@ modelSelect.addEventListener('change', async () => {
 });
 
 // ── Conversation list ─────────────────────────────────────────────
+function _fmtConvTime(iso, full = false) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const pad = n => String(n).padStart(2, '0');
+  if (full) {
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return sameYear ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+                  : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function _makeConvLi(conv, idx) {
   const li = document.createElement('li');
   li.dataset.id = conv.id;
@@ -74,10 +90,22 @@ function _makeConvLi(conv, idx) {
     li.style.boxShadow = `inset 4px 0 0 ${li.style.borderLeftColor}, 0 0 12px ${li.style.borderLeftColor}33`;
   }
 
+  const titleWrap = document.createElement('div');
+  titleWrap.className = 'conv-title-wrap';
+  titleWrap.style.flex = '1';
   const titleSpan = document.createElement('span');
+  titleSpan.className = 'conv-title';
   titleSpan.textContent = conv.title;
-  titleSpan.style.flex = '1';
-  li.appendChild(titleSpan);
+  titleWrap.appendChild(titleSpan);
+  const timeSpan = document.createElement('span');
+  timeSpan.className = 'conv-time';
+  timeSpan.textContent = _fmtConvTime(conv.updated_at);
+  titleWrap.appendChild(timeSpan);
+  li.appendChild(titleWrap);
+  // hover 显示完整创建/更新时间
+  const _c = _fmtConvTime(conv.created_at, true);
+  const _u = _fmtConvTime(conv.updated_at, true);
+  li.title = `创建：${_c || '未知'}\n更新：${_u || '未知'}`;
 
   const actions = document.createElement('div');
   actions.className = 'conv-actions';
@@ -389,13 +417,54 @@ async function renderHomeProjects() {
                    + `<div class="hp-path">${escapeHtml(p.path || '')}</div>`;
     // 单击：展示该项目历史会话；“新建”按钮：直接以该项目开新会话
     card.addEventListener('click', () => showProjectConvs(p.path, p.name));
+    const acts = document.createElement('div');
+    acts.className = 'hp-actions';
     const startBtn = document.createElement('button');
     startBtn.className = 'hp-start btn-secondary';
     startBtn.textContent = '+ 新对话';
     startBtn.addEventListener('click', e => { e.stopPropagation(); startConvWithProject(p.path); });
-    card.appendChild(startBtn);
+    const editBtn = document.createElement('button');
+    editBtn.className = 'hp-edit btn-secondary';
+    editBtn.textContent = '✏ 改地址';
+    editBtn.title = '修改项目目录（该项目下所有会话一并改绑）';
+    editBtn.addEventListener('click', e => { e.stopPropagation(); editProjectPath(p.path, p.name); });
+    const delBtn = document.createElement('button');
+    delBtn.className = 'hp-del btn-danger';
+    delBtn.textContent = '🗑 移除';
+    delBtn.title = '从最近项目移除（不删会话，会话变为未分类）';
+    delBtn.addEventListener('click', e => { e.stopPropagation(); removeProject(p.path, p.name); });
+    acts.appendChild(startBtn);
+    acts.appendChild(editBtn);
+    acts.appendChild(delBtn);
+    card.appendChild(acts);
     box.appendChild(card);
   });
+}
+
+async function editProjectPath(oldPath, name) {
+  // new_path 传空 → 后端弹文件夹选择框
+  const r = await window.pywebview.api.update_project_path(oldPath, '');
+  if (r && r.cancelled) return;
+  if (r && r.ok) {
+    // 改了项目目录 = 该项目所有会话缓存失效一次（项目路径在系统提示前缀），下条消息重算
+    state.conversations = await window.pywebview.api.list_conversations();
+    renderConvList('');
+    await renderHomeProjects();
+  } else {
+    alert('修改失败：' + ((r && r.error) || '未知错误'));
+  }
+}
+
+async function removeProject(path, name) {
+  if (!confirm(`从最近项目移除「${name}」？\n\n该项目下的会话不会被删除，只是变为未分类。`)) return;
+  const r = await window.pywebview.api.remove_recent_project(path);
+  if (r && r.ok) {
+    state.conversations = await window.pywebview.api.list_conversations();
+    renderConvList('');
+    await renderHomeProjects();
+  } else {
+    alert('移除失败：' + ((r && r.error) || '未知错误'));
+  }
 }
 
 async function showProjectConvs(projectPath, projectName) {

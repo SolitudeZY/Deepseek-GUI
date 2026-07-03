@@ -136,12 +136,16 @@ class Agent:
                 f"当前工作目录：{os.getcwd()}\n"
                 "本会话未绑定项目目录，相对路径以此工作目录为基准。\n"
             )
+        import datetime as _dt
         env_block = (
             "\n\n<environment>\n"
             f"操作系统：{platform.system()} {platform.release()}\n"
+            f"当前日期：{_dt.date.today().isoformat()}（{['周一','周二','周三','周四','周五','周六','周日'][_dt.date.today().weekday()]}）\n"
             f"{cwd_line}"
             "你拥有的工具（如 run_command、read_file、write_file 等）直接在用户的本地电脑上执行，"
             "而非沙箱或远程环境。你可以直接操作用户的文件系统和运行命令。\n"
+            "当用户要总结/回顾某时间段的对话（如写周报、日报），用 read_conversations_by_date 工具，"
+            "先把『这周/上周/昨天/本月』按当前日期换算成 YYYY-MM-DD 区间再调用。\n"
             "</environment>"
         )
         prompt = base_prompt + env_block
@@ -157,6 +161,19 @@ class Agent:
                 + "\n</available_skills>"
             )
             prompt += skill_block
+
+        # 主动使用 subagent 的引导（此前模型往往要用户显式要求才派 subagent）
+        prompt += (
+            "\n\n<subagent_policy>\n"
+            "遇到相对独立、需要多步工具调用的子任务（如：探查一个陌生目录/代码库的结构、"
+            "在大量文件中搜集信息、对某个模块做专项分析），应**主动**调用 subagent 工具把该子任务"
+            "整体派给子代理，而不必等用户显式要求。这样能隔离上下文、避免主对话被大量中间结果淹没。\n"
+            "派发时在 prompt 里写清完整背景和明确的产出要求；只读分析用 agent_type=Explore，"
+            "需要改文件用 General。\n"
+            "注意：subagent 是同步阻塞的（会等它跑完返回摘要）。若只是想并行跑一条耗时 shell 命令、"
+            "不需要子代理的多步推理，用 background_run（立即返回，稍后 background_check 查结果）更合适。\n"
+            "</subagent_policy>"
+        )
 
         # 跨会话记忆：把用户长期记忆注入系统提示前缀（位置稳定，符合 prompt cache 铁律；
         # 记忆变动由用户主动触发、低频，失效一次可接受）。无记忆则不注入该块。

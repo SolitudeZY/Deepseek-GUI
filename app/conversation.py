@@ -76,6 +76,7 @@ def list_conversations() -> list[dict]:
             convs.append({
                 "id": data["id"],
                 "title": data.get("title", "新对话"),
+                "created_at": data.get("created_at", ""),
                 "updated_at": data.get("updated_at", ""),
                 "sort_order": data.get("sort_order", -1),
                 "model_config": data.get("model_config", ""),
@@ -120,6 +121,64 @@ def export_conversation_md(conv: dict) -> str:
         elif role == "assistant" and content:
             lines.append(f"**Assistant:**\n\n{content}\n\n")
     return "".join(lines)
+
+
+def read_conversations_by_date(start_date: str = "", end_date: str = "",
+                               max_chars: int = 120000) -> str:
+    """按 updated_at 时间范围读取会话的完整内容，供模型总结（如写周报）。
+
+    start_date/end_date 为 YYYY-MM-DD（含边界；end_date 当天算到 23:59:59）。
+    留空则不限该端。返回各命中会话的 Markdown 文本拼接，超 max_chars 截断并提示。
+    """
+    from datetime import datetime as _dt, time as _time
+
+    def _parse(d: str, end: bool):
+        d = (d or "").strip()
+        if not d:
+            return None
+        try:
+            day = _dt.strptime(d[:10], "%Y-%m-%d").date()
+            return _dt.combine(day, _time.max if end else _time.min)
+        except ValueError:
+            return None
+
+    lo = _parse(start_date, end=False)
+    hi = _parse(end_date, end=True)
+
+    hits = []
+    for p in get_conversations_dir().glob("conv_*.json"):
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        ts = data.get("updated_at", "") or data.get("created_at", "")
+        if not ts:
+            continue
+        try:
+            when = _dt.fromisoformat(ts)
+        except ValueError:
+            continue
+        if lo and when < lo:
+            continue
+        if hi and when > hi:
+            continue
+        hits.append((when, data))
+
+    if not hits:
+        rng = f"{start_date or '不限'} ~ {end_date or '不限'}"
+        return f"该时间范围（{rng}）内没有会话记录。"
+
+    hits.sort(key=lambda x: x[0])  # 按时间升序
+    parts = [f"共 {len(hits)} 个会话（时间范围 {start_date or '不限'} ~ {end_date or '不限'}）：\n"]
+    for when, data in hits:
+        parts.append(f"\n===== 会话：{data.get('title', '新对话')}"
+                     f"（更新于 {when.strftime('%Y-%m-%d %H:%M')}）=====\n")
+        parts.append(export_conversation_md(data))
+    text = "".join(parts)
+    if len(text) > max_chars:
+        text = text[:max_chars] + f"\n\n[内容过长已截断，仅显示前 {max_chars} 字符。可缩小时间范围再试]"
+    return text
 
 
 def import_conversation_from_file(file_path: str) -> Optional[dict]:

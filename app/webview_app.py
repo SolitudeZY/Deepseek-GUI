@@ -1435,6 +1435,57 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         return [c for c in list_conversations()
                 if (c.get('project_path', '') or '') == target]
 
+    def remove_recent_project(self, path: str) -> dict:
+        """从最近项目列表移除一个项目（仅移除条目，不删会话）。
+        该项目下的会话会变为未分类（project_path 保持不变，只是列表不再显示该项目）。
+        实际上会话仍带旧 project_path，故一并把这些会话置为未分类，避免 list_recent_projects
+        又从会话里把它补回来。"""
+        target = (path or '').strip()
+        if not target:
+            return {'ok': False, 'error': '路径为空'}
+        # 从 recent_projects 移除
+        recents = [p for p in self._config.get('recent_projects', [])
+                   if isinstance(p, dict) and p.get('path') != target]
+        self._config['recent_projects'] = recents
+        save_config(self._config)
+        # 该项目下会话置为未分类，否则 list_recent_projects 会从会话 project_path 把它补回
+        moved = 0
+        for c in list_conversations():
+            if (c.get('project_path', '') or '') == target:
+                set_conversation_project(c['id'], '')
+                moved += 1
+        return {'ok': True, 'unclassified': moved}
+
+    def update_project_path(self, old_path: str, new_path: str = '') -> dict:
+        """修改项目地址：把该项目下所有会话的 project_path 改为 new_path，并更新
+        recent_projects 条目。new_path 为空则弹文件夹对话框选择（复用失效重设的交互）。
+        返回 {ok, path, name, exists, updated} 或 {cancelled: True}。"""
+        old = (old_path or '').strip()
+        new = (new_path or '').strip()
+        if not old:
+            return {'ok': False, 'error': 'old_path 为空'}
+        if not new:
+            result = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+            if not result:
+                return {'cancelled': True}
+            new = result[0] if isinstance(result, (list, tuple)) else result
+        # 改该项目下所有会话
+        updated = 0
+        for c in list_conversations():
+            if (c.get('project_path', '') or '') == old:
+                set_conversation_project(c['id'], new)
+                updated += 1
+        # 更新 recent_projects：移除旧条目、加入新条目（保留原名或用新目录名）
+        import time as _t
+        name = Path(new).name or new
+        recents = [p for p in self._config.get('recent_projects', [])
+                   if isinstance(p, dict) and p.get('path') not in (old, new)]
+        recents.insert(0, {'path': new, 'name': name, 'last_used': _t.time()})
+        self._config['recent_projects'] = recents[:12]
+        save_config(self._config)
+        return {'ok': True, 'path': new, 'name': name,
+                'exists': Path(new).expanduser().is_dir(), 'updated': updated}
+
     def sync_detect_config(self) -> dict:
         """检测同步文件夹中是否有更新的配置。"""
         return detect_config_updates()
