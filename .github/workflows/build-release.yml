@@ -100,23 +100,30 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build .exe
+      - name: Build onedir
         run: pyinstaller QuickModel.spec --clean
 
-      - name: Rename artifact
-        run: Rename-Item dist/QuickModel.exe QuickModel-windows-x64.exe
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}" -replace '^v',''
+          if (-not $ver) { $ver = "0.0.0" }
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$ver" installer.iss
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: QuickModel-windows
-          path: dist/QuickModel-windows-x64.exe
+          path: QuickModel-Setup.exe
 
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/QuickModel-windows-x64.exe
+          files: QuickModel-Setup.exe
           body: ${{ needs.release-notes.outputs.body }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

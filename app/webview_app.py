@@ -1205,63 +1205,24 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                  f"dl_path={dl_path} dl_exists={dl_path.exists()} pid={os.getpid()}")
 
             if IS_WIN:
-                # ⚠ 关键：下载的 asset 名是 QuickModel-windows-x64.exe，运行中程序是 QuickModel.exe
-                # （current_exe）。必须覆盖 current_exe 本身。bat 用 DETACHED_PROCESS 无控制台，
-                # 故不能用 pause（会静默卡死）；改为把每步结果写进 update.log。
-                script = current_dir / "_update.bat"
-                target = str(current_exe)
-                bat_log = str(log_path)
-                if dl_path.suffix.lower() == ".zip":
-                    apply_block = (
-                        f'echo [bat] expanding zip >> "{bat_log}"\n'
-                        f'powershell -Command "Expand-Archive -Force \'{dl_path}\' \'{current_dir}\'" >> "{bat_log}" 2>&1\n'
-                    )
-                else:
-                    # 重试最多 15 次（每次等 1s）覆盖，规避 exe 句柄未释放导致 copy 失败
-                    apply_block = (
-                        f'set _n=0\n'
-                        f':copyloop\n'
-                        f'copy /y "{dl_path}" "{target}" >> "{bat_log}" 2>&1 && goto copyok\n'
-                        f'set /a _n+=1\n'
-                        f'echo [bat] copy 第 %_n% 次失败，等待重试 >> "{bat_log}"\n'
-                        f'if %_n% geq 15 goto copyfail\n'
-                        f'timeout /t 1 /nobreak >nul\n'
-                        f'goto copyloop\n'
-                        f':copyfail\n'
-                        f'echo [bat] 最终失败：无法覆盖 {target}（权限或占用）。新版在 {dl_path} >> "{bat_log}"\n'
-                        f'goto done\n'
-                        f':copyok\n'
-                        f'echo [bat] copy 成功 >> "{bat_log}"\n'
-                    )
-                script.write_text(
-                    f'@echo off\n'
-                    f'chcp 65001 >nul\n'  # UTF-8，与 Python 侧 _log 一致，修中文乱码
-                    f'echo [bat] 启动 pid={os.getpid()} >> "{bat_log}"\n'
-                    f'taskkill /f /pid {os.getpid()} >> "{bat_log}" 2>&1\n'
-                    f'timeout /t 2 /nobreak >nul\n'
-                    f'{apply_block}'
-                    # ⚠ onefile exe：旧进程退出后其 _MEIxxxx 临时目录异步清理有延迟，
-                    # 立刻 start 新 exe 会与残留 _MEI 冲突 → 新进程报 Failed to load Python DLL。
-                    # 多等几秒让旧 _MEI 清理完，再启动新实例。
-                    f'echo [bat] 等待旧实例 _MEI 清理 >> "{bat_log}"\n'
-                    f'timeout /t 4 /nobreak >nul\n'
-                    f'echo [bat] 重启 {target} >> "{bat_log}"\n'
-                    f'start "" "{target}"\n'
-                    f':done\n'
-                    f'echo [bat] 结束 >> "{bat_log}"\n'
-                    f'del "%~f0"\n',
-                    encoding='utf-8'
-                )
-                _log(f"已写出 bat: {script} (exists={script.exists()})，即将 Popen 启动")
+                # 安装包模式（Inno Setup）：下载的是 QuickModel-Setup.exe，直接静默运行它。
+                # 由安装程序接管：关闭旧进程(/CLOSEAPPLICATIONS)、覆盖安装、安装末尾拉起新版。
+                # 彻底绕开旧 onefile 时代手写 bat 替换 exe + _MEI/DLL 加载冲突的所有坑。
+                if not dl_path.exists():
+                    _log(f"setup 不存在: {dl_path}")
+                    return {"error": f"安装包不存在: {dl_path}"}
+                args = [str(dl_path), "/SILENT", "/CLOSEAPPLICATIONS", "/NORESTART"]
+                _log(f"即将运行安装程序: {args}")
                 try:
-                    proc = subprocess.Popen(['cmd', '/c', str(script)], creationflags=0x00000008)  # DETACHED_PROCESS
-                    _log(f"Popen 成功 pid={proc.pid}")
+                    proc = subprocess.Popen(args, creationflags=0x00000008)  # DETACHED_PROCESS
+                    _log(f"安装程序已启动 pid={proc.pid}")
                 except Exception as pe:
-                    _log(f"Popen 失败: {pe}")
-                    return {"error": f"启动更新脚本失败: {pe}"}
-                # 给 bat 一点时间真正起来（它开头会先 taskkill 本进程）。
-                # 不主动 destroy——交给 bat 的 taskkill，避免 destroy 与 taskkill 竞争导致卡死。
-                _log("已交给 bat，等待其 taskkill 本进程")
+                    _log(f"启动安装程序失败: {pe}")
+                    return {"error": f"启动安装程序失败: {pe}"}
+                # 主动退出本进程，让安装程序能覆盖文件（installer 的 CloseApplications 也会兜底关它）
+                _log("即将退出当前进程，交给安装程序覆盖并重启")
+                if self._window:
+                    self._window.destroy()
                 return {"ok": True}
             else:
                 # macOS: shell script。frozen .app 时 sys.executable 是
