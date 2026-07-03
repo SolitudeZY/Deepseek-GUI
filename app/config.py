@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 APP_NAME = "AIDesktopAssistant"
-APP_VERSION = "1.7.7"
+APP_VERSION = "1.7.8"
 GITHUB_REPO = "SolitudeZY/Deepseek-GUI"
 
 IS_MAC = platform.system() == "Darwin"
