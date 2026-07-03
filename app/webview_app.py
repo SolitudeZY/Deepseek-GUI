@@ -1184,15 +1184,18 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         """Generate a script to replace current exe and restart. Returns {ok: bool} or {error: str}."""
         import sys
         import subprocess
-        # 更新日志：Python 侧 + bat 侧都写这里，实测后据此定位卡在哪一步
-        log_path = get_app_data_dir() / "update.log"
+        import tempfile
+        import datetime as _d
+        # 更新日志写到 Temp（与下载文件同目录，已确认可写；避免 %APPDATA% 权限/路径意外）
+        log_path = Path(tempfile.gettempdir()) / "QuickModel_Update" / "update.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         def _log(msg):
             try:
                 with open(log_path, "a", encoding="utf-8") as lf:
-                    import datetime as _d
                     lf.write(f"[{_d.datetime.now().isoformat()}] {msg}\n")
             except Exception:
                 pass
+        _log("=== apply_update_and_restart 被调用 ===")
         try:
             current_exe = sys.executable
             current_dir = Path(current_exe).parent
@@ -1243,9 +1246,17 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                     f'del "%~f0"\n',
                     encoding='utf-8'
                 )
-                _log(f"已写出 bat: {script}，即将 Popen 启动")
-                subprocess.Popen(['cmd', '/c', str(script)], creationflags=0x00000008)  # DETACHED_PROCESS
-                _log("Popen 已调用，即将 destroy 窗口退出")
+                _log(f"已写出 bat: {script} (exists={script.exists()})，即将 Popen 启动")
+                try:
+                    proc = subprocess.Popen(['cmd', '/c', str(script)], creationflags=0x00000008)  # DETACHED_PROCESS
+                    _log(f"Popen 成功 pid={proc.pid}")
+                except Exception as pe:
+                    _log(f"Popen 失败: {pe}")
+                    return {"error": f"启动更新脚本失败: {pe}"}
+                # 给 bat 一点时间真正起来（它开头会先 taskkill 本进程）。
+                # 不主动 destroy——交给 bat 的 taskkill，避免 destroy 与 taskkill 竞争导致卡死。
+                _log("已交给 bat，等待其 taskkill 本进程")
+                return {"ok": True}
             else:
                 # macOS: shell script。frozen .app 时 sys.executable 是
                 # Foo.app/Contents/MacOS/Foo，重启要 `open` 整个 .app bundle 而非裸二进制，
