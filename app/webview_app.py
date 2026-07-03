@@ -1172,51 +1172,68 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         """Generate a script to replace current exe and restart. Returns {ok: bool} or {error: str}."""
         import sys
         import subprocess
+        # 更新日志：Python 侧 + bat 侧都写这里，实测后据此定位卡在哪一步
+        log_path = get_app_data_dir() / "update.log"
+        def _log(msg):
+            try:
+                with open(log_path, "a", encoding="utf-8") as lf:
+                    import datetime as _d
+                    lf.write(f"[{_d.datetime.now().isoformat()}] {msg}\n")
+            except Exception:
+                pass
         try:
             current_exe = sys.executable
             current_dir = Path(current_exe).parent
             dl_path = Path(downloaded_path)
+            _log(f"apply_update 开始: frozen={getattr(sys,'frozen',False)} "
+                 f"current_exe={current_exe} current_dir={current_dir} "
+                 f"dl_path={dl_path} dl_exists={dl_path.exists()} pid={os.getpid()}")
 
             if IS_WIN:
-                # ⚠ 关键：下载的 asset 名是 QuickModel-windows-x64.exe，而运行中的程序是
-                # QuickModel.exe（current_exe）。必须覆盖 current_exe 本身，不能用下载文件的
-                # 原名复制（否则目录里多一个新名 exe，重启的还是旧 QuickModel.exe → 表现为
-                # "关了没更新"）。且 taskkill 后 exe 句柄释放有延迟，用重试循环等文件可写。
+                # ⚠ 关键：下载的 asset 名是 QuickModel-windows-x64.exe，运行中程序是 QuickModel.exe
+                # （current_exe）。必须覆盖 current_exe 本身。bat 用 DETACHED_PROCESS 无控制台，
+                # 故不能用 pause（会静默卡死）；改为把每步结果写进 update.log。
                 script = current_dir / "_update.bat"
-                target = str(current_exe)  # 覆盖正在运行的 exe 本体
+                target = str(current_exe)
+                bat_log = str(log_path)
                 if dl_path.suffix.lower() == ".zip":
                     apply_block = (
-                        f'powershell -Command "Expand-Archive -Force \'{dl_path}\' \'{current_dir}\'"\n'
+                        f'echo [bat] expanding zip >> "{bat_log}"\n'
+                        f'powershell -Command "Expand-Archive -Force \'{dl_path}\' \'{current_dir}\'" >> "{bat_log}" 2>&1\n'
                     )
                 else:
-                    # 重试最多 10 次（每次等 1s）覆盖，规避 exe 仍被占用导致 copy 失败
+                    # 重试最多 15 次（每次等 1s）覆盖，规避 exe 句柄未释放导致 copy 失败
                     apply_block = (
                         f'set _n=0\n'
                         f':copyloop\n'
-                        f'copy /y "{dl_path}" "{target}" >nul 2>&1 && goto copyok\n'
+                        f'copy /y "{dl_path}" "{target}" >> "{bat_log}" 2>&1 && goto copyok\n'
                         f'set /a _n+=1\n'
-                        f'if %_n% geq 10 goto copyfail\n'
+                        f'echo [bat] copy 第 %_n% 次失败，等待重试 >> "{bat_log}"\n'
+                        f'if %_n% geq 15 goto copyfail\n'
                         f'timeout /t 1 /nobreak >nul\n'
                         f'goto copyloop\n'
                         f':copyfail\n'
-                        f'echo 更新失败：无法覆盖 {target}，原文件可能仍被占用。\n'
-                        f'echo 已下载的新版本在：{dl_path}\n'
-                        f'pause\n'
+                        f'echo [bat] 最终失败：无法覆盖 {target}（权限或占用）。新版在 {dl_path} >> "{bat_log}"\n'
                         f'goto done\n'
                         f':copyok\n'
+                        f'echo [bat] copy 成功 >> "{bat_log}"\n'
                     )
                 script.write_text(
                     f'@echo off\n'
-                    f'echo 正在更新 QuickModel，请稍候...\n'
-                    f'taskkill /f /pid {os.getpid()} >nul 2>&1\n'
+                    f'echo [bat] 启动 pid={os.getpid()} >> "{bat_log}"\n'
+                    f'taskkill /f /pid {os.getpid()} >> "{bat_log}" 2>&1\n'
                     f'timeout /t 2 /nobreak >nul\n'
                     f'{apply_block}'
+                    f'echo [bat] 重启 {target} >> "{bat_log}"\n'
                     f'start "" "{target}"\n'
                     f':done\n'
+                    f'echo [bat] 结束 >> "{bat_log}"\n'
                     f'del "%~f0"\n',
                     encoding='utf-8'
                 )
+                _log(f"已写出 bat: {script}，即将 Popen 启动")
                 subprocess.Popen(['cmd', '/c', str(script)], creationflags=0x00000008)  # DETACHED_PROCESS
+                _log("Popen 已调用，即将 destroy 窗口退出")
             else:
                 # macOS: shell script。frozen .app 时 sys.executable 是
                 # Foo.app/Contents/MacOS/Foo，重启要 `open` 整个 .app bundle 而非裸二进制，
