@@ -117,6 +117,9 @@ pre, code,
 }
 #conv-list li .conv-actions button:hover { background: var(--border); color: var(--text); }
 #conv-list li .conv-snippet { font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; opacity: 0.8; }
+#conv-list li .conv-title-wrap { display: flex; flex-direction: column; overflow: hidden; }
+#conv-list li .conv-title-wrap .conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#conv-list li .conv-title-wrap .conv-time { font-size: 10px; color: var(--text-muted); opacity: 0.75; margin-top: 1px; }
 #conv-list li.search-content-match { border-left: 2px solid var(--accent); }
 
 /* ── 侧边栏项目分组 ── */
@@ -203,10 +206,11 @@ body.conv-dragging, body.conv-dragging * { user-select: none !important; cursor:
 .home-project-card:hover { border-color: var(--accent); background: var(--bg3); }
 .home-project-card .hp-name { font-size: 14px; color: var(--text); font-weight: 500; }
 .home-project-card .hp-path { font-size: 11px; color: var(--text-muted); margin-top: 3px; word-break: break-all; }
-.home-project-card .hp-start {
+.home-project-card .hp-actions {
   position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
-  font-size: 12px; padding: 4px 10px;
+  display: flex; gap: 6px; align-items: center;
 }
+.home-project-card .hp-actions button { font-size: 12px; padding: 4px 10px; white-space: nowrap; }
 .home-conv-item {
   padding: 8px 12px; margin-bottom: 4px; font-size: 13px; color: var(--text);
   border-radius: var(--radius); background: var(--surface); cursor: pointer;
@@ -600,18 +604,18 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   border-radius: var(--radius); padding: 7px 16px; cursor: pointer;
   font-size: 13px; font-weight: 500; white-space: nowrap;
   transform: translateY(0);
-  transition: background 0.3s ease, color 0.2s ease, transform 0.3s ease, box-shadow 0.3s ease;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 0.15s ease-out, box-shadow 0.15s ease-out;
 }
-.btn-primary:hover { background: var(--accent-hover); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(122, 162, 247, 0.4); }
+.btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 3px 10px rgba(122, 162, 247, 0.28); }
 .btn-primary:active { transform: translateY(0) scale(0.95); transition-duration: 0.08s; }
 .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
 .btn-secondary {
   background: var(--bg3); color: var(--text); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 6px 12px; cursor: pointer; font-size: 13px;
   transform: translateY(0);
-  transition: background 0.3s ease, color 0.2s ease, transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+  transition: background 0.15s ease-out, color 0.15s ease-out, transform 0.15s ease-out, box-shadow 0.15s ease-out, border-color 0.15s ease-out;
 }
-.btn-secondary:hover { background: var(--border); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+.btn-secondary:hover { background: var(--border); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
 .btn-secondary:active { transform: scale(0.94); transition-duration: 0.08s; }
 .btn-ghost {
   background: none; color: var(--text-dim); border: 1px solid var(--border);
