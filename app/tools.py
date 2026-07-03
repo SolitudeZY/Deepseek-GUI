@@ -405,31 +405,6 @@ def read_conversations_by_date_tool(start_date: str = "", end_date: str = "") ->
     return read_conversations_by_date(start_date, end_date)
 
 
-# ── 企业微信聊天记录工具 ──────────────────────────────────────────────
-
-def wxwork_import_tool(file_path: str, replace: bool = False) -> str:
-    """从 JSON 文件导入企业微信聊天记录。"""
-    from app.wxwork import import_records
-    return import_records(file_path, replace=replace)
-
-
-def wxwork_query_tool(start_date: str = "", end_date: str = "",
-                      talker: str = "", keyword: str = "",
-                      sender: str = "", msg_type: str = "",
-                      max_results: int = 200) -> str:
-    """按条件查询企业微信聊天记录。"""
-    from app.wxwork import query_records
-    return query_records(start_date=start_date, end_date=end_date,
-                         talker=talker, keyword=keyword, sender=sender,
-                         msg_type=msg_type, max_results=max_results)
-
-
-def wxwork_list_talkers_tool() -> str:
-    """列出所有企业微信会话及其消息数。"""
-    from app.wxwork import list_talkers
-    return list_talkers()
-
-
 def grep_files(pattern: str, path: str = ".", file_type: str = "",
                multiline: bool = False, max_results: int = 50, cwd: str = "") -> str:
     """Search file contents by regex pattern."""
@@ -1311,48 +1286,6 @@ TOOLS_SCHEMA = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "wxwork_import",
-            "description": "从 JSON 文件导入企业微信聊天记录。file_path 是包含聊天记录的 JSON 文件路径。文件格式：{\"records\": [{\"time\": \"2026-07-03T14:30:00\", \"talker\": \"群名/联系人\", \"talker_type\": \"group\", \"sender\": \"张三\", \"content\": \"消息内容\", \"msg_type\": \"text\"}]}。replace=true 替换全部已有记录，默认 false 追加去重。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {"type": "string", "description": "要导入的 JSON 文件路径（绝对路径）"},
-                    "replace": {"type": "boolean", "description": "是否替换全部已有记录（默认 false = 追加）", "default": False},
-                },
-                "required": ["file_path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "wxwork_query",
-            "description": "按条件查询企业微信聊天记录。支持按时间范围、会话名称、关键词、发言人、消息类型筛选。用于写周报/日报时回顾企业微信中的工作讨论。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "start_date": {"type": "string", "description": "起始日期 YYYY-MM-DD（含当天），留空不限"},
-                    "end_date": {"type": "string", "description": "结束日期 YYYY-MM-DD（含当天），留空不限"},
-                    "talker": {"type": "string", "description": "会话名称（模糊匹配），如'项目组工作群'"},
-                    "keyword": {"type": "string", "description": "内容关键词（模糊匹配）"},
-                    "sender": {"type": "string", "description": "发言人（模糊匹配）"},
-                    "msg_type": {"type": "string", "description": "消息类型，如 text/image/file"},
-                    "max_results": {"type": "integer", "description": "最大返回条数，默认 200", "default": 200},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "wxwork_list_talkers",
-            "description": "列出所有已导入的企业微信会话（群聊/联系人），含消息数量和活跃时间范围。用于了解有哪些会话数据可用。",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    },
 ]
 
 # 需要用户确认的工具
@@ -1373,16 +1306,6 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
         return ocr_image_tool(args.get("image_path", ""))
     elif tool_name == "read_conversations_by_date":
         return read_conversations_by_date_tool(args.get("start_date", ""), args.get("end_date", ""))
-    elif tool_name == "wxwork_import":
-        return wxwork_import_tool(args.get("file_path", ""), args.get("replace", False))
-    elif tool_name == "wxwork_query":
-        return wxwork_query_tool(
-            start_date=args.get("start_date", ""), end_date=args.get("end_date", ""),
-            talker=args.get("talker", ""), keyword=args.get("keyword", ""),
-            sender=args.get("sender", ""), msg_type=args.get("msg_type", ""),
-            max_results=args.get("max_results", 200))
-    elif tool_name == "wxwork_list_talkers":
-        return wxwork_list_talkers_tool()
     elif tool_name == "list_directory":
         return list_directory(args.get("path", ""), cwd=cwd)
     elif tool_name == "glob_files":
