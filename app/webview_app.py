@@ -1001,8 +1001,8 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 source='chat',
                 model_config=self._active_model_config_name,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[token_usage] record failed: {e}")
 
     def _on_tool_start(self, tool_name: str, args: dict):
         self._js(f'Chat.showToolCall({json.dumps(tool_name)}, {json.dumps(args)})')

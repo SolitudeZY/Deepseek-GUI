@@ -37,6 +37,24 @@ def _usage_value(usage, *names: str) -> int:
     return 0
 
 
+def _estimate_round_usage(full_messages: list[dict], assistant_content: str, thinking_content: str, current_tool_calls: dict) -> tuple[int, int]:
+    """Estimate prompt/completion tokens when a provider omits or mislabels usage.
+
+    Some OpenAI-compatible streaming endpoints return a non-empty ``usage`` object
+    whose field names are not compatible with the OpenAI SDK. Treating that as a
+    real zero would suppress token recording entirely, so keep this fallback small
+    and deterministic.
+    """
+    prompt_tokens = estimate_tokens(full_messages)
+    completion_payload = [{"role": "assistant", "content": assistant_content}]
+    if thinking_content:
+        completion_payload[0]["reasoning_content"] = thinking_content
+    if current_tool_calls:
+        completion_payload[0]["tool_calls"] = list(current_tool_calls.values())
+    completion_tokens = max(1, estimate_tokens(completion_payload))
+    return prompt_tokens, completion_tokens
+
+
 # Token threshold for auto-compact (approx)
 AUTO_COMPACT_THRESHOLD = 600_000
 # Legacy V4 threshold (kept for reference, now overridden by per-model config)
@@ -664,19 +682,21 @@ class Agent:
         if cb.on_usage:
             estimated = False
             if round_usage:
-                pt = _usage_value(round_usage, 'prompt_tokens', 'input_tokens')
-                ct = _usage_value(round_usage, 'completion_tokens', 'output_tokens')
-                ch = _usage_value(round_usage, 'prompt_cache_hit_tokens', 'cache_hit_tokens')
-                cm = _usage_value(round_usage, 'prompt_cache_miss_tokens', 'cache_miss_tokens')
+                pt = _usage_value(round_usage, 'prompt_tokens', 'input_tokens', 'promptTokens', 'inputTokens')
+                ct = _usage_value(round_usage, 'completion_tokens', 'output_tokens', 'completionTokens', 'outputTokens')
+                ch = _usage_value(round_usage, 'prompt_cache_hit_tokens', 'cache_hit_tokens', 'promptCacheHitTokens', 'cacheHitTokens')
+                cm = _usage_value(round_usage, 'prompt_cache_miss_tokens', 'cache_miss_tokens', 'promptCacheMissTokens', 'cacheMissTokens')
+                total = _usage_value(round_usage, 'total_tokens', 'totalTokens')
+                if pt <= 0 and ct <= 0 and total > 0:
+                    pt = total
+                if pt <= 0 and ct <= 0:
+                    estimated = True
+                    pt, ct = _estimate_round_usage(full_messages, assistant_content, thinking_content, current_tool_calls)
+                    ch = 0
+                    cm = 0
             else:
                 estimated = True
-                pt = estimate_tokens(full_messages)
-                completion_payload = [{"role": "assistant", "content": assistant_content}]
-                if thinking_content:
-                    completion_payload[0]["reasoning_content"] = thinking_content
-                if current_tool_calls:
-                    completion_payload[0]["tool_calls"] = list(current_tool_calls.values())
-                ct = max(1, estimate_tokens(completion_payload))
+                pt, ct = _estimate_round_usage(full_messages, assistant_content, thinking_content, current_tool_calls)
                 ch = 0
                 cm = 0
 

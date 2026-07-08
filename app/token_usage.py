@@ -88,7 +88,15 @@ def aggregate_month(year: int, month: int) -> dict[str, Any]:
         if not date.startswith(prefix) or date not in day_totals:
             continue
         model = str(rec.get("model") or "unknown")
-        total = int(rec.get("total_tokens") or 0)
+        try:
+            total = int(rec.get("total_tokens") or 0)
+        except Exception:
+            total = 0
+        if total <= 0:
+            try:
+                total = int(rec.get("input_tokens") or 0) + int(rec.get("output_tokens") or 0)
+            except Exception:
+                total = 0
         if total <= 0:
             continue
         day_totals[date]["total_tokens"] += total
