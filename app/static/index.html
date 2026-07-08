@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="vendor/github-dark.min.css">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="animations.css">
+<link rel="stylesheet" href="usage_heatmap.css">
 </head>
 <body>
 <!-- ── 侧边栏 ── -->
@@ -52,6 +53,7 @@
       <button id="btn-slash" class="btn-ghost" title="命令菜单">⌘ 命令</button>
       <button id="btn-import" class="btn-ghost">导入</button>
       <button id="btn-export" class="btn-ghost">导出</button>
+      <button id="btn-token-heatmap" class="btn-ghost" title="查看每日 token 用量热力图">📊 用量</button>
       <button id="btn-settings" class="btn-ghost">设置</button>
     </div>
   </header>
@@ -130,6 +132,25 @@
     </div>
   </footer>
 </main>
+
+<!-- ── Token 用量热力图 ── -->
+<div id="usage-overlay" class="overlay hidden">
+  <div id="usage-modal" class="modal">
+    <div class="modal-header">
+      <h2>Token 用量热力图</h2>
+      <button class="btn-close" id="btn-usage-close">✕</button>
+    </div>
+    <div class="usage-toolbar">
+      <button id="btn-usage-prev" class="btn-secondary">‹ 上月</button>
+      <strong id="usage-month-label">-</strong>
+      <button id="btn-usage-next" class="btn-secondary">下月 ›</button>
+    </div>
+    <div id="usage-stats" class="usage-stats"></div>
+    <div class="usage-legend"><span>少</span><i data-level="0"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><span>多</span></div>
+    <div id="usage-heatmap" class="usage-heatmap"></div>
+  </div>
+  <div id="usage-tooltip" class="usage-tooltip hidden"></div>
+</div>
 
 <!-- ── 设置弹窗 ── -->
 <div id="settings-overlay" class="overlay hidden">

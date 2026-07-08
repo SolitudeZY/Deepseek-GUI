@@ -255,9 +255,17 @@ def edit_image(
     if not is_image(image_path):
         return {"ok": False, "error": f"不是受支持的图片格式：{image_path}"}
 
-    # 端点：dashscope multimodal-generation（同 generate_image 的 dashscope 分支）
+    # 端点：dashscope 原生 multimodal-generation（qwen-image-edit 必须用原生 API，
+    # 不能用 compatible-mode 端点）。如果 base_url 是 compatible-mode 的，自动切到原生。
+    DASHSCOPE_NATIVE = "https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
     DASHSCOPE_PATH = "/services/aigc/multimodal-generation/generation"
-    url = base_url if base_url.endswith(DASHSCOPE_PATH) else base_url + DASHSCOPE_PATH
+    if "compatible-mode" in base_url:
+        # 用户配置的是 compatible-mode 端点，编辑图片需要原生 API
+        url = DASHSCOPE_NATIVE
+    elif base_url.endswith(DASHSCOPE_PATH):
+        url = base_url
+    else:
+        url = base_url + DASHSCOPE_PATH
 
     b64, mime = _encode_image(image_path)
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}

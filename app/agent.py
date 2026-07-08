@@ -21,6 +21,22 @@ def _get_openai():
         OpenAI = _OpenAI
     return OpenAI
 
+
+def _usage_value(usage, *names: str) -> int:
+    """Read token usage from either OpenAI SDK objects or dict-like proxy responses."""
+    for name in names:
+        try:
+            if isinstance(usage, dict):
+                value = usage.get(name)
+            else:
+                value = getattr(usage, name, None)
+            if value is not None:
+                return int(value or 0)
+        except Exception:
+            continue
+    return 0
+
+
 # Token threshold for auto-compact (approx)
 AUTO_COMPACT_THRESHOLD = 600_000
 # Legacy V4 threshold (kept for reference, now overridden by per-model config)
@@ -641,20 +657,42 @@ class Agent:
                         if tc.function.arguments:
                             current_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
 
-        # Push usage stats
-        if round_usage and cb.on_usage:
-            pt = getattr(round_usage, 'prompt_tokens', 0) or 0
-            ct = getattr(round_usage, 'completion_tokens', 0) or 0
-            ch = getattr(round_usage, 'prompt_cache_hit_tokens', 0) or 0
-            cm = getattr(round_usage, 'prompt_cache_miss_tokens', 0) or 0
-            session_usage["prompt_tokens"] += pt
-            session_usage["completion_tokens"] += ct
-            session_usage["cache_hit_tokens"] += ch
-            session_usage["cache_miss_tokens"] += cm
-            cb.on_usage({
-                "round": {"prompt": pt, "completion": ct, "cache_hit": ch, "cache_miss": cm},
-                "session": dict(session_usage),
-            })
+        # Push usage stats. Some OpenAI-compatible proxy endpoints ignore
+        # stream_options.include_usage and never send the final usage chunk. In that
+        # case, still record an approximate value so the daily usage heatmap is not
+        # blank for those models.
+        if cb.on_usage:
+            estimated = False
+            if round_usage:
+                pt = _usage_value(round_usage, 'prompt_tokens', 'input_tokens')
+                ct = _usage_value(round_usage, 'completion_tokens', 'output_tokens')
+                ch = _usage_value(round_usage, 'prompt_cache_hit_tokens', 'cache_hit_tokens')
+                cm = _usage_value(round_usage, 'prompt_cache_miss_tokens', 'cache_miss_tokens')
+            else:
+                estimated = True
+                pt = estimate_tokens(full_messages)
+                completion_payload = [{"role": "assistant", "content": assistant_content}]
+                if thinking_content:
+                    completion_payload[0]["reasoning_content"] = thinking_content
+                if current_tool_calls:
+                    completion_payload[0]["tool_calls"] = list(current_tool_calls.values())
+                ct = max(1, estimate_tokens(completion_payload))
+                ch = 0
+                cm = 0
+
+            if pt > 0 or ct > 0:
+                session_usage["prompt_tokens"] += pt
+                session_usage["completion_tokens"] += ct
+                session_usage["cache_hit_tokens"] += ch
+                session_usage["cache_miss_tokens"] += cm
+                cb.on_usage({
+                    "round": {
+                        "prompt": pt, "completion": ct,
+                        "cache_hit": ch, "cache_miss": cm,
+                        "estimated": estimated,
+                    },
+                    "session": dict(session_usage),
+                })
 
         tool_calls_accumulated = list(current_tool_calls.values())
 

@@ -26,6 +26,7 @@ from app.sync import (
 from app.tools import read_file as _read_file, get_file_op_log
 from app.vision import is_image, describe_image
 from app.skills import skill_list, skill_save, skill_delete, skill_read, memory_list, memory_read, memory_write, memory_delete, skill_import_from_path
+from app.token_usage import aggregate_month, record_usage
 
 # Lazy-loaded heavy modules (deferred to first use for faster startup)
 _agent_module = None
@@ -129,12 +130,11 @@ def patch_http_root() -> None:
 def get_html_path() -> str:
     """返回要加载的 index.html 路径（启动时生成 _index.runtime.html）。
 
-    **自动缓存破坏**：WebView2（private_mode=False）对本地 css/js 缓存很顽固。
+    **自动缓存破坏**：WebView2 对本地 css/js 缓存很顽固。
     本函数在启动时扫描 index.html 里所有本地 .css/.js 引用（app.js、style.css、
-    vendor/*），按各文件的修改时间（mtime）注入 `?v=<mtime>` 缓存破坏戳——
-    **无需在 HTML 里手动维护版本号**。mtime 仅在文件真正改动时变化，因此：
-    文件没改→戳不变→正常命中缓存；文件一改→戳变→自动拉新。找不到文件的引用
-    回退到启动时间戳。原 HTML 里写不写 `?v=...` 都行，一律被本函数覆盖。
+    vendor/*），注入 `?v=<mtime>-<startup>` 缓存破坏戳。startup 每次启动都变，
+    因此即使 WebView2 忽略/错误复用旧缓存，重启也会强制请求全新的资源 URL。
+    原 HTML 里写不写 `?v=...` 都行，一律被本函数覆盖。
     """
     import re as _re
     import time as _time
@@ -149,7 +149,7 @@ def get_html_path() -> str:
             try:
                 f = (static / rel_path).resolve()
                 if f.is_file():
-                    return str(int(f.stat().st_mtime))
+                    return f"{int(f.stat().st_mtime)}-{startup_stamp}"
             except Exception:
                 pass
             return startup_stamp
@@ -204,6 +204,8 @@ class API:
         self._debate_stop = False
         self._team_initialized = False
         self._window_visible = True  # tracks page visibility from JS
+        self._active_model_name = ""
+        self._active_model_config_name = ""
 
     def _ensure_managers(self):
         """Lazily initialize heavy managers on first use."""
@@ -606,6 +608,13 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             return {"id": conv["id"], "title": conv["title"]}
         return None
 
+    def get_token_usage_month(self, year: int, month: int) -> dict:
+        """Return token usage aggregated by day/model for the heatmap view."""
+        try:
+            return aggregate_month(int(year), int(month))
+        except Exception as e:
+            return {"error": str(e), "year": year, "month": month, "days": {}, "stats": {}}
+
     def get_context_usage(self, conv_id: str) -> dict:
         """计算指定对话的上下文 token 使用量。"""
         conv = load_conversation(conv_id)
@@ -773,6 +782,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             self._js('Chat.showError("未配置模型，请在设置中添加模型配置")')
             return
 
+        self._active_model_name = mc.get('model', '')
+        self._active_model_config_name = mc.get('name', '')
+
         self._ensure_managers()
         self._agent = _lazy_agent().Agent(
             api_key=mc.get('api_key', ''),
@@ -821,6 +833,8 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         if not mc:
             self._js('Chat.showError("未配置模型，请在设置中添加模型配置")')
             return
+        self._active_model_name = mc.get('model', '')
+        self._active_model_config_name = mc.get('name', '')
         self._ensure_managers()
         self._agent = _lazy_agent().Agent(
             api_key=mc.get('api_key', ''),
@@ -978,6 +992,17 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def _on_usage(self, usage_data: dict):
         self._js(f'Chat.updateUsage({json.dumps(usage_data)})')
+        try:
+            r = usage_data.get('round', {}) if isinstance(usage_data, dict) else {}
+            record_usage(
+                self._active_model_name,
+                int(r.get('prompt') or 0),
+                int(r.get('completion') or 0),
+                source='chat',
+                model_config=self._active_model_config_name,
+            )
+        except Exception:
+            pass
 
     def _on_tool_start(self, tool_name: str, args: dict):
         self._js(f'Chat.showToolCall({json.dumps(tool_name)}, {json.dumps(args)})')

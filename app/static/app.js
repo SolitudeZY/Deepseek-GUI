@@ -503,11 +503,126 @@ async function deleteConversation(convId) {
 }
 
 $('btn-new-conv').addEventListener('click', newConversation);
+$('btn-token-heatmap').addEventListener('click', openUsageHeatmap);
 $('btn-home-add').addEventListener('click', async () => {
   const proj = await window.pywebview.api.choose_project_folder();
   if (proj && proj.path) await startConvWithProject(proj.path);
 });
 $('btn-home-noproject').addEventListener('click', () => startConvWithProject(''));
+
+// ── Token 用量热力图 ─────────────────────────────────────────────
+let _usageMonth = new Date();
+_usageMonth.setDate(1);
+
+function _fmtTokens(n) {
+  n = Number(n || 0);
+  if (n >= 1000000) return (n / 1000000).toFixed(2) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return String(n);
+}
+
+async function openUsageHeatmap() {
+  $('usage-overlay').classList.remove('hidden');
+  await renderUsageHeatmap();
+}
+
+function closeUsageHeatmap() {
+  hideUsageTooltip();
+  $('usage-overlay').classList.add('hidden');
+}
+
+async function renderUsageHeatmap() {
+  const y = _usageMonth.getFullYear();
+  const m = _usageMonth.getMonth() + 1;
+  $('usage-month-label').textContent = `${y} 年 ${String(m).padStart(2, '0')} 月`;
+  const data = await window.pywebview.api.get_token_usage_month(y, m);
+  const stats = data.stats || {};
+  $('usage-stats').innerHTML = `
+    <div><b>${_fmtTokens(stats.total_tokens)}</b><span>本月总量</span></div>
+    <div><b>${_fmtTokens(stats.average_per_day)}</b><span>日均</span></div>
+    <div><b>${stats.top_model ? escapeHtml(stats.top_model) : '-'}</b><span>主要模型</span></div>
+    <div><b>${stats.peak_date || '-'}</b><span>峰值日期</span></div>`;
+
+  const box = $('usage-heatmap');
+  box.innerHTML = '';
+  if (data.error) {
+    box.innerHTML = `<div class="usage-empty">读取失败：${escapeHtml(data.error)}</div>`;
+    return;
+  }
+  const days = data.days || {};
+  const maxVal = Math.max(1, ...Object.values(days).map(d => Number(d.total_tokens || 0)));
+  for (let day = 1; day <= (data.days_in_month || 31); day++) {
+    const date = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const item = days[date] || { date, total_tokens: 0, models: {} };
+    const total = Number(item.total_tokens || 0);
+    let level = 0;
+    if (total > 0) level = Math.max(1, Math.ceil((total / maxVal) * 4));
+    const cell = document.createElement('div');
+    cell.className = 'usage-cell';
+    cell.dataset.level = level;
+    cell.textContent = day;
+    cell.addEventListener('mouseenter', e => showUsageTooltip(e, item));
+    cell.addEventListener('mousemove', moveUsageTooltip);
+    cell.addEventListener('mouseleave', hideUsageTooltip);
+    box.appendChild(cell);
+  }
+}
+
+function getUsageTooltip() {
+  const tip = $('usage-tooltip');
+  // Keep the tooltip directly under <body>. A fixed-position element inside
+  // the animated modal can be offset because the modal uses CSS transform.
+  if (tip && tip.parentElement !== document.body) {
+    document.body.appendChild(tip);
+  }
+  return tip;
+}
+
+function showUsageTooltip(e, item) {
+  const models = Object.entries(item.models || {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([name, tokens]) => `<div><span>${escapeHtml(name)}</span><b>${_fmtTokens(tokens)}</b></div>`)
+    .join('') || '<div><span>无调用记录</span><b>0</b></div>';
+  const tip = getUsageTooltip();
+  tip.innerHTML = `<strong>${escapeHtml(item.date || '')}</strong><p>总计：${_fmtTokens(item.total_tokens || 0)} tokens</p>${models}`;
+  tip.classList.remove('hidden');
+  moveUsageTooltip(e);
+}
+
+function moveUsageTooltip(e) {
+  const tip = getUsageTooltip();
+  if (!tip) return;
+  const offset = 6;
+  const rect = tip.getBoundingClientRect();
+  const maxLeft = window.innerWidth - rect.width - 8;
+  const maxTop = window.innerHeight - rect.height - 8;
+  tip.style.left = `${Math.max(8, Math.min(e.clientX + offset, maxLeft))}px`;
+  tip.style.top = `${Math.max(8, Math.min(e.clientY + offset, maxTop))}px`;
+}
+
+function hideUsageTooltip() {
+  const tip = getUsageTooltip();
+  if (tip) tip.classList.add('hidden');
+}
+
+$('usage-heatmap').addEventListener('mouseleave', hideUsageTooltip);
+$('usage-modal').addEventListener('mouseleave', hideUsageTooltip);
+$('usage-overlay').addEventListener('mousemove', e => {
+  if (!$('usage-overlay').classList.contains('hidden') && !e.target.closest('.usage-cell')) {
+    hideUsageTooltip();
+  }
+});
+
+$('btn-usage-close').addEventListener('click', closeUsageHeatmap);
+$('btn-usage-prev').addEventListener('click', async () => {
+  _usageMonth.setMonth(_usageMonth.getMonth() - 1);
+  await renderUsageHeatmap();
+});
+$('btn-usage-next').addEventListener('click', async () => {
+  _usageMonth.setMonth(_usageMonth.getMonth() + 1);
+  await renderUsageHeatmap();
+});
 
 // ── History rendering ─────────────────────────────────────────────
 function loadHistory(messages) {
