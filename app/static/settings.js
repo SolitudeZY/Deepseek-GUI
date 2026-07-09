@@ -307,6 +307,8 @@ function fillSettingsFields(cfg) {
   $('imagegen-use-full-url').checked = cfg.imagegen_use_full_url || false;
   $('ui-theme').value = cfg.theme || 'dark';
   $('ui-fontsize').value = String(cfg.font_size || 14);
+  $('starfield-enabled').checked = cfg.starfield_enabled === true;
+  $('starfield-mode').value = cfg.starfield_mode || 'twinkle';
   $('sync-folder').value = cfg.sync_folder || '';
   $('sync-auto-upload').checked = cfg.sync_auto_upload !== false;
   $('github-token').value = cfg.github_token || '';
@@ -335,10 +337,13 @@ async function saveSettings() {
   state.config.imagegen_use_full_url = $('imagegen-use-full-url').checked;
   state.config.theme = $('ui-theme').value;
   state.config.font_size = parseInt($('ui-fontsize').value) || 14;
+  state.config.starfield_enabled = $('starfield-enabled').checked;
+  state.config.starfield_mode = $('starfield-mode').value;
   state.config.sync_auto_upload = $('sync-auto-upload').checked;
   state.config.github_token = $('github-token').value.trim();
   applyTheme(state.config.theme);
   applyFontSize(state.config.font_size);
+  if (typeof applyStarfieldSettings === 'function') applyStarfieldSettings(state.config);
   await window.pywebview.api.save_config(state.config);
   populateModelSelect();
   $('settings-overlay').classList.add('hidden');

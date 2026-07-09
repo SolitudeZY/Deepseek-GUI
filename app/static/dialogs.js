@@ -219,6 +219,37 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ── One-off secret dialog ─────────────────────────────────────────
+function showSecretDialog(kind, host, username, port) {
+  if (kind !== 'ssh_password') return;
+  $('secret-title').textContent = '输入 SSH 密码';
+  $('secret-question').textContent = `连接 ${username || '(unknown)'}@${host || '(unknown)'}:${port || 22}`;
+  $('secret-input').value = '';
+  $('secret-overlay').classList.remove('hidden');
+  $('secret-input').focus();
+}
+
+function _submitSecret(value) {
+  const input = $('secret-input');
+  const answer = value !== undefined ? value : input.value;
+  input.value = '';
+  $('secret-overlay').classList.add('hidden');
+  window.pywebview.api.answer_secret(answer || '');
+}
+
+$('btn-secret-submit').addEventListener('click', () => _submitSecret());
+$('btn-secret-cancel').addEventListener('click', () => _submitSecret(''));
+
+$('secret-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    _submitSecret();
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    _submitSecret('');
+  }
+});
+
 // ── Plan approval dialog ─────────────────────────────────────────
 function showPlanApproval(summary) {
   $('plan-summary').textContent = summary || '(模型已在上方输出计划内容，请查看后决定是否批准执行)';

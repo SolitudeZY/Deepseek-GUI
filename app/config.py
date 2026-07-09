@@ -100,6 +100,8 @@ DEFAULT_CONFIG = {
     "max_rounds": 50,
     "theme": "dark",               # dark | light | system
     "font_size": 13,
+    "starfield_enabled": False,    # 深色主题星空特效开关
+    "starfield_mode": "twinkle",   # twinkle | trails
     "sidebar_width": 220,
     "vision_api_key": "",
     "vision_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",

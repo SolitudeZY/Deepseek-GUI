@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="usage_heatmap.css">
 </head>
 <body>
+<canvas id="starfield-canvas" aria-hidden="true"></canvas>
 <!-- ── 侧边栏 ── -->
 <aside id="sidebar">
   <div id="sidebar-top">
@@ -392,6 +393,14 @@
             <option value="16">16</option>
           </select>
         </label>
+        <label class="checkbox-label"><input type="checkbox" id="starfield-enabled"> 深色模式启用星空特效</label>
+        <label>星空模式
+          <select id="starfield-mode">
+            <option value="twinkle">星星闪烁淡入淡出</option>
+            <option value="trails">旋转星轨</option>
+          </select>
+        </label>
+        <p class="hint">星星闪烁和星轨互斥，只在深色主题下显示；浅色主题会自动隐藏。</p>
       </div>
     </div>
     <div class="modal-footer">
@@ -505,6 +514,21 @@
   </div>
 </div>
 
+<!-- ── 一次性密钥输入弹窗（不写入聊天历史） ── -->
+<div id="secret-overlay" class="overlay hidden">
+  <div id="secret-modal" class="modal">
+    <div class="modal-header">
+      <h2 id="secret-title">输入 SSH 密码</h2>
+    </div>
+    <p id="secret-question"></p>
+    <input type="password" id="secret-input" autocomplete="off" placeholder="密码只用于本次连接">
+    <div class="modal-footer">
+      <button id="btn-secret-cancel">取消</button>
+      <button id="btn-secret-submit" class="btn-primary">连接</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── 计划审批弹窗 ── -->
 <div id="plan-overlay" class="overlay hidden">
   <div id="plan-modal" class="modal">
@@ -551,6 +575,7 @@
 <script src="drag.js"></script>
 <script src="dialogs.js"></script>
 <script src="settings.js"></script>
+<script src="starfield.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

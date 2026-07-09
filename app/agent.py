@@ -68,7 +68,7 @@ class _Callbacks:
     """Simple namespace to bundle callbacks."""
     __slots__ = ('on_token', 'on_tool_start', 'on_tool_result', 'on_confirm',
                  'on_done', 'on_error', 'on_todo_update', 'on_context_update',
-                 'on_thinking', 'on_usage', 'on_ask_user')
+                 'on_thinking', 'on_usage', 'on_ask_user', 'on_secret_input')
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -178,6 +178,8 @@ class Agent:
             f"{cwd_line}"
             "你拥有的工具（如 run_command、read_file、write_file 等）直接在用户的本地电脑上执行，"
             "而非沙箱或远程环境。你可以直接操作用户的文件系统和运行命令。\n"
+            "当用户需要操作远程服务器时，优先使用 ssh_connect 建立持久连接，再用 ssh_exec 执行一条命令、"
+            "观察 stdout/stderr/exit_code 后继续下一步；不要为了远程操作反复生成本地 Python 脚本做一次性执行。\n"
             "当用户要总结/回顾某时间段的对话（如写周报、日报），用 read_conversations_by_date 工具，"
             "先把『这周/上周/昨天/本月』按当前日期换算成 YYYY-MM-DD 区间再调用。\n"
             "</environment>"
@@ -494,6 +496,7 @@ class Agent:
         on_thinking: Optional[Callable[[str], None]] = None,
         on_usage: Optional[Callable[[dict], None]] = None,
         on_ask_user: Optional[Callable[[dict], str]] = None,
+        on_secret_input: Optional[Callable[[dict], str]] = None,
     ):
         """在调用线程中同步运行（应在后台线程调用）。"""
         self._stop_flag.clear()
@@ -506,6 +509,7 @@ class Agent:
             on_done=on_done, on_error=on_error,
             on_todo_update=on_todo_update, on_context_update=on_context_update,
             on_thinking=on_thinking, on_usage=on_usage, on_ask_user=on_ask_user,
+            on_secret_input=on_secret_input,
         )
 
         session_usage = {
@@ -797,11 +801,28 @@ class Agent:
             if result is None:
                 # Basic tools — may need confirmation
                 from app.config import is_command_allowed
-                if tool_name in CONFIRM_REQUIRED:
+                if tool_name == "ssh_connect":
+                    result = dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config, cwd=self.project_path)
+                    auth_failed = "authentication failed" in (result or "").lower()
+                    if auth_failed and not args.get("key_path") and getattr(cb, "on_secret_input", None):
+                        password = cb.on_secret_input({
+                            "kind": "ssh_password",
+                            "host": args.get("host", ""),
+                            "username": args.get("username", ""),
+                            "port": args.get("port", 22),
+                        })
+                        if password:
+                            secure_args = dict(args)
+                            secure_args["_password"] = password
+                            result = dispatch(tool_name, secure_args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config, cwd=self.project_path)
+                        else:
+                            result += "\n未提供 SSH 密码，连接已取消。"
+                elif tool_name in CONFIRM_REQUIRED:
                     if self.command_safety == "disabled":
                         result = f"命令执行已禁用（disabled 模式），拒绝执行：{tool_name}"
                     elif self.command_safety in ("confirm", "auto_countdown"):
-                        if not is_command_allowed(args.get("command", "")):
+                        allowed_by_list = tool_name == "run_command" and is_command_allowed(args.get("command", ""))
+                        if not allowed_by_list:
                             allowed = cb.on_confirm(tool_name, args)
                             result = (dispatch(tool_name, args, self.search_config, self.command_timeout, self._stop_flag, vision_config=self.vision_config, cwd=self.project_path)
                                       if allowed else f"用户拒绝执行工具：{tool_name}")

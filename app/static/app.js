@@ -11,6 +11,7 @@ window.addEventListener('pywebviewready', async () => {
   state.config = await window.pywebview.api.get_config();
   applyTheme(state.config.theme || 'dark');
   applyFontSize(state.config.font_size || 14);
+  if (typeof applyStarfieldSettings === 'function') applyStarfieldSettings(state.config);
   populateModelSelect();
   // Restore persistent toggle states
   const uiState = await window.pywebview.api.get_ui_state();
@@ -41,6 +42,7 @@ window.addEventListener('pywebviewready', async () => {
 // ── Theme / font ──────────────────────────────────────────────────
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
+  if (typeof applyStarfieldSettings === 'function') applyStarfieldSettings(state.config);
 }
 function applyFontSize(size) {
   document.documentElement.style.setProperty('--font-size', size + 'px');
@@ -550,13 +552,16 @@ async function renderUsageHeatmap() {
     return;
   }
   const days = data.days || {};
-  const maxVal = Math.max(1, ...Object.values(days).map(d => Number(d.total_tokens || 0)));
   for (let day = 1; day <= (data.days_in_month || 31); day++) {
     const date = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const item = days[date] || { date, total_tokens: 0, models: {} };
     const total = Number(item.total_tokens || 0);
+    // 绝对阈值分级：0 / 1-10K / 10K-100K / 100K-1M / 1M+
     let level = 0;
-    if (total > 0) level = Math.max(1, Math.ceil((total / maxVal) * 4));
+    if (total >= 1000000) level = 4;
+    else if (total >= 100000) level = 3;
+    else if (total >= 10000) level = 2;
+    else if (total > 0) level = 1;
     const cell = document.createElement('div');
     cell.className = 'usage-cell';
     cell.dataset.level = level;
@@ -809,7 +814,7 @@ function addToolCallBubble(toolName, args) {
   const div = document.createElement('div');
   div.className = 'bubble bubble-tool-call';
   const argsStr = JSON.stringify(args, null, 2);
-  const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', write_file:'✏️', list_directory:'📁' };
+  const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', ssh_connect:'🔐', ssh_exec:'🖥️', ssh_close:'🔌', ssh_list_sessions:'📡', write_file:'✏️', list_directory:'📁' };
   const icon = icons[toolName] || '🔧';
   div.innerHTML = `
     <div class="tool-header" onclick="this.parentElement.classList.toggle('tool-expanded')">
@@ -866,7 +871,7 @@ function addToolResultBubble(toolName, result) {
   // fallback: orphaned result bubble
   const div = document.createElement('div');
   div.className = 'bubble bubble-tool-call';
-  const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', write_file:'✏️', apply_patch:'🩹', list_directory:'📁', glob_files:'🔎', grep_files:'🔎' };
+  const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', ssh_connect:'🔐', ssh_exec:'🖥️', ssh_close:'🔌', ssh_list_sessions:'📡', write_file:'✏️', apply_patch:'🩹', list_directory:'📁', glob_files:'🔎', grep_files:'🔎' };
   const icon = icons[toolName] || '🔧';
   // 含图片标记且是图片生成工具 → 展开并渲染缩略图
   if (_IMAGE_TOOLS.has(toolName) && /\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result || '')) {

@@ -59,6 +59,23 @@ body {
   display: flex;
   height: 100vh;
   user-select: none;  /* default off, enable selectively */
+  position: relative;
+}
+
+#starfield-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.55s ease;
+}
+#starfield-canvas.is-active { opacity: 1; }
+[data-theme="light"] #starfield-canvas { display: none; }
+#sidebar,
+#main {
+  position: relative;
+  z-index: 1;
 }
 
 /* Allow text selection in chat bubbles and code */
@@ -250,6 +267,23 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
+}
+[data-theme="dark"][data-starfield="on"] body {
+  background:
+    radial-gradient(circle at 58% 42%, rgba(46, 73, 135, 0.22), transparent 45%),
+    #080a14;
+}
+[data-theme="dark"][data-starfield="on"] #main {
+  background: rgba(12, 14, 27, 0.62);
+}
+[data-theme="dark"][data-starfield="on"] #sidebar,
+[data-theme="dark"][data-starfield="on"] #toolbar,
+[data-theme="dark"][data-starfield="on"] #input-area {
+  background: rgba(18, 20, 34, 0.78);
+  backdrop-filter: blur(8px);
+}
+[data-theme="dark"][data-starfield="on"] #chat-area {
+  background: rgba(9, 11, 22, 0.14);
 }
 
 /* ── Toolbar ── */

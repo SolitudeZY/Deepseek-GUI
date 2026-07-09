@@ -183,6 +183,8 @@ class API:
         self._confirm_result = False
         self._ask_event = threading.Event()
         self._ask_answer = ""
+        self._secret_event = threading.Event()
+        self._secret_answer = ""
         self._plan_event = threading.Event()
         self._plan_approved = False
         # Shared managers — lazy init on first send
@@ -823,6 +825,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 on_thinking=self._on_thinking,
                 on_usage=self._on_usage,
                 on_ask_user=self._on_ask_user,
+                on_secret_input=self._on_secret_input,
             )
 
         threading.Thread(target=run, daemon=True).start()
@@ -874,6 +877,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 on_thinking=self._on_thinking,
                 on_usage=self._on_usage,
                 on_ask_user=self._on_ask_user,
+                on_secret_input=self._on_secret_input,
             )
 
         threading.Thread(target=run, daemon=True).start()
@@ -1058,7 +1062,8 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         self._js(f'Chat.updateFileOps({json.dumps(conv["file_ops"])})')
 
     def _on_confirm(self, tool_name: str, args: dict) -> bool:
-        # Check allowlist for run_command
+        # Check allowlist for local run_command only. Remote SSH commands should not
+        # inherit local command allowlist entries because they run on another host.
         if tool_name == "run_command":
             cmd = args.get("command", "").strip()
             if is_command_allowed(cmd):
@@ -1075,7 +1080,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                     wildcard = f"{prefix} *"
         self._js(f'Chat.showConfirmDialog({json.dumps(tool_name)}, {json.dumps(args)}, {json.dumps(wildcard)})')
         # Notify user if window is in background
-        cmd_preview = args.get("command", tool_name)[:50] if tool_name == "run_command" else tool_name
+        cmd_preview = args.get("command", tool_name)[:50] if tool_name in ("run_command", "ssh_exec") else tool_name
         self._notify_system("需要确认执行", f"工具: {cmd_preview}")
         if not self._confirm_event.wait(timeout=120):
             # Timeout — treat as rejection to avoid permanent deadlock
@@ -1115,6 +1120,27 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         """JS calls this when user submits answer."""
         self._ask_answer = answer
         self._ask_event.set()
+
+    def _on_secret_input(self, args: dict) -> str:
+        """Callback for one-off secrets. The returned value is never appended to chat history."""
+        kind = args.get("kind", "")
+        if kind != "ssh_password":
+            return ""
+        host = args.get("host", "")
+        username = args.get("username", "")
+        port = args.get("port", 22)
+        self._secret_answer = ""
+        self._secret_event.clear()
+        self._js(f'showSecretDialog({json.dumps("ssh_password")}, {json.dumps(host)}, {json.dumps(username)}, {json.dumps(port)})')
+        self._notify_system("需要 SSH 密码", f"{username}@{host}:{port}")
+        if not self._secret_event.wait(timeout=120):
+            return ""
+        return self._secret_answer
+
+    def answer_secret(self, value: str) -> None:
+        """JS calls this when user submits a one-off secret."""
+        self._secret_answer = value or ""
+        self._secret_event.set()
 
     def _on_plan_approve(self, plan_summary: str) -> bool:
         """Callback: agent exits plan mode, asks user to approve."""

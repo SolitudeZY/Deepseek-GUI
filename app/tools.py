@@ -1,7 +1,10 @@
 import json
 import os
+import shlex
 import subprocess
 import threading
+import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +174,307 @@ def _truncate(text: str, path: str) -> str:
     if len(text) > MAX_FILE_CHARS:
         return text[:MAX_FILE_CHARS] + f"\n\n[文件已截断，仅显示前 {MAX_FILE_CHARS} 字符，原始路径：{path}]"
     return text
+
+
+SSH_MAX_OUTPUT_CHARS = 60_000
+SSH_TIMEOUT_CAP = 300
+SSH_CONNECT_TIMEOUT_CAP = 30
+
+
+def _decode_ssh_bytes(data: bytes) -> str:
+    if not data:
+        return ""
+    for enc in ("utf-8", "gbk", "cp936"):
+        try:
+            return data.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
+
+
+def _bounded_timeout(value: Any, default: int, cap: int) -> int:
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        value = default
+    return max(1, min(value, cap))
+
+
+def _ssh_hard_block_reason(command: str) -> str:
+    """Block commands that are almost certainly destructive at host or disk level."""
+    c = " ".join((command or "").strip().lower().split())
+    if not c:
+        return "命令为空"
+    hard_patterns = [
+        "rm -rf /", "rm -fr /", "rm -rf /*", "rm -fr /*",
+        "mkfs", "wipefs", "fdisk ", "parted ", "sgdisk ",
+        "dd if=", " of=/dev/sd", " of=/dev/nvme", " of=/dev/vd",
+        "shutdown", "reboot", "poweroff", "halt",
+        "chmod -r 777 /", "chown -r ",
+        ":(){", ":|:&",
+    ]
+    for pat in hard_patterns:
+        if pat in c:
+            return f"命中危险模式：{pat}"
+    return ""
+
+
+class _SSHSessionManager:
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._sessions: dict[str, dict[str, Any]] = {}
+
+    def connect(
+        self,
+        host: str,
+        username: str,
+        port: int = 22,
+        key_path: str = "",
+        password: str = "",
+        timeout: int = 15,
+    ) -> str:
+        try:
+            import paramiko
+        except ImportError:
+            return (
+                "错误：当前运行环境缺少 paramiko，无法使用 SSH 工具。\n"
+                "请在 ai_api 环境安装依赖并重启 app："
+                "D:/miniconda/envs/ai_api/python.exe -m pip install paramiko"
+            )
+
+        host = (host or "").strip()
+        username = (username or "").strip()
+        if not host:
+            return "错误：host 不能为空"
+        if not username:
+            return "错误：username 不能为空"
+        port = _bounded_timeout(port, 22, 65535)
+        timeout = _bounded_timeout(timeout, 15, SSH_CONNECT_TIMEOUT_CAP)
+
+        key_filename = None
+        if key_path:
+            kp = Path(key_path).expanduser()
+            if not kp.exists() or not kp.is_file():
+                return f"错误：SSH 私钥文件不存在 — {key_path}"
+            key_filename = str(kp)
+
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            client.connect(
+                hostname=host,
+                port=port,
+                username=username,
+                password=password or None,
+                key_filename=key_filename,
+                timeout=timeout,
+                banner_timeout=timeout,
+                auth_timeout=timeout,
+                allow_agent=True,
+                look_for_keys=not bool(key_filename),
+            )
+        except Exception as e:
+            try:
+                client.close()
+            except Exception:
+                pass
+            return f"SSH 连接失败：{e}"
+
+        session_id = f"ssh_{uuid.uuid4().hex[:12]}"
+        with self._lock:
+            self._sessions[session_id] = {
+                "client": client,
+                "host": host,
+                "port": port,
+                "username": username,
+                "key_path": key_path or "",
+                "created_at": time.time(),
+                "last_used": time.time(),
+            }
+        return (
+            "✅ SSH 已连接\n"
+            f"session_id: {session_id}\n"
+            f"remote: {username}@{host}:{port}\n"
+            "提示：后续用 ssh_exec 并传入该 session_id 执行远程命令。"
+        )
+
+    def _get(self, session_id: str):
+        sid = (session_id or "").strip()
+        if not sid:
+            return None, "错误：session_id 不能为空"
+        with self._lock:
+            entry = self._sessions.get(sid)
+        if not entry:
+            return None, f"错误：SSH 会话不存在或已关闭 — {sid}"
+        client = entry["client"]
+        transport = client.get_transport()
+        if not transport or not transport.is_active():
+            return None, f"错误：SSH 会话已断开 — {sid}"
+        return entry, ""
+
+    def exec(self, session_id: str, command: str, cwd: str = "", timeout: int = 30, stop_flag=None) -> str:
+        entry, err = self._get(session_id)
+        if err:
+            return err
+        command = (command or "").strip()
+        reason = _ssh_hard_block_reason(command)
+        if reason:
+            return f"拒绝执行远程命令：{reason}"
+
+        timeout = _bounded_timeout(timeout, 30, SSH_TIMEOUT_CAP)
+        remote_command = command
+        if cwd:
+            remote_command = f"cd {shlex.quote(cwd)} && {command}"
+
+        client = entry["client"]
+        channel = None
+        stdout_chunks: list[bytes] = []
+        stderr_chunks: list[bytes] = []
+        stdout_len = 0
+        stderr_len = 0
+        stdout_truncated = False
+        stderr_truncated = False
+        started = time.monotonic()
+
+        def _take(buf: bytes, chunks: list[bytes], current_len: int) -> tuple[int, bool]:
+            truncated = False
+            if current_len < SSH_MAX_OUTPUT_CHARS:
+                room = SSH_MAX_OUTPUT_CHARS - current_len
+                chunks.append(buf[:room])
+                current_len += min(len(buf), room)
+            if len(buf) > 0 and current_len >= SSH_MAX_OUTPUT_CHARS:
+                truncated = True
+            return current_len, truncated
+
+        try:
+            transport = client.get_transport()
+            channel = transport.open_session(timeout=10)
+            channel.exec_command(remote_command)
+
+            while True:
+                if stop_flag and stop_flag.is_set():
+                    channel.close()
+                    return "用户已停止 SSH 命令执行"
+                if time.monotonic() - started >= timeout:
+                    channel.close()
+                    return f"错误：SSH 命令超时（{timeout}s）"
+
+                while channel.recv_ready():
+                    chunk = channel.recv(4096)
+                    stdout_len, trunc = _take(chunk, stdout_chunks, stdout_len)
+                    stdout_truncated = stdout_truncated or trunc
+                while channel.recv_stderr_ready():
+                    chunk = channel.recv_stderr(4096)
+                    stderr_len, trunc = _take(chunk, stderr_chunks, stderr_len)
+                    stderr_truncated = stderr_truncated or trunc
+
+                if channel.exit_status_ready():
+                    while channel.recv_ready():
+                        chunk = channel.recv(4096)
+                        stdout_len, trunc = _take(chunk, stdout_chunks, stdout_len)
+                        stdout_truncated = stdout_truncated or trunc
+                    while channel.recv_stderr_ready():
+                        chunk = channel.recv_stderr(4096)
+                        stderr_len, trunc = _take(chunk, stderr_chunks, stderr_len)
+                        stderr_truncated = stderr_truncated or trunc
+                    exit_code = channel.recv_exit_status()
+                    break
+                time.sleep(0.05)
+        except Exception as e:
+            return f"SSH 命令执行失败：{e}"
+        finally:
+            if channel is not None:
+                try:
+                    channel.close()
+                except Exception:
+                    pass
+            with self._lock:
+                if session_id in self._sessions:
+                    self._sessions[session_id]["last_used"] = time.time()
+
+        stdout = _decode_ssh_bytes(b"".join(stdout_chunks))
+        stderr = _decode_ssh_bytes(b"".join(stderr_chunks))
+        if stdout_truncated:
+            stdout += f"\n\n[stdout已截断，仅显示前 {SSH_MAX_OUTPUT_CHARS} 字符]"
+        if stderr_truncated:
+            stderr += f"\n\n[stderr已截断，仅显示前 {SSH_MAX_OUTPUT_CHARS} 字符]"
+
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        parts = [
+            "SSH 命令执行完成",
+            f"session_id: {session_id}",
+            f"remote: {entry['username']}@{entry['host']}:{entry['port']}",
+            f"command: {command}",
+            f"exit_code: {exit_code}",
+            f"duration_ms: {elapsed_ms}",
+        ]
+        if stdout:
+            parts.append(f"\n[stdout]\n{stdout}")
+        if stderr:
+            parts.append(f"\n[stderr]\n{stderr}")
+        if not stdout and not stderr:
+            parts.append("\n（无输出）")
+        return "\n".join(parts)
+
+    def close(self, session_id: str = "") -> str:
+        sid = (session_id or "").strip()
+        closed = []
+        with self._lock:
+            if sid:
+                entries = [(sid, self._sessions.pop(sid, None))]
+            else:
+                entries = list(self._sessions.items())
+                self._sessions.clear()
+        for key, entry in entries:
+            if not entry:
+                continue
+            try:
+                entry["client"].close()
+            except Exception:
+                pass
+            closed.append(key)
+        if not closed:
+            return f"未找到 SSH 会话：{sid}" if sid else "没有可关闭的 SSH 会话"
+        return "已关闭 SSH 会话：" + ", ".join(closed)
+
+    def list_sessions(self) -> str:
+        with self._lock:
+            items = list(self._sessions.items())
+        if not items:
+            return "当前没有 SSH 会话"
+        now = time.time()
+        lines = []
+        for sid, entry in items:
+            age = int(now - entry["created_at"])
+            idle = int(now - entry["last_used"])
+            lines.append(
+                f"{sid}  {entry['username']}@{entry['host']}:{entry['port']}  "
+                f"age={age}s idle={idle}s"
+            )
+        return "\n".join(lines)
+
+
+_SSH_MANAGER = _SSHSessionManager()
+
+
+def ssh_connect(host: str, username: str, port: int = 22, key_path: str = "", timeout: int = 15) -> str:
+    return _SSH_MANAGER.connect(host, username, port=port, key_path=key_path, timeout=timeout)
+
+
+def ssh_connect_with_password(host: str, username: str, password: str, port: int = 22, key_path: str = "", timeout: int = 15) -> str:
+    return _SSH_MANAGER.connect(host, username, port=port, key_path=key_path, password=password, timeout=timeout)
+
+
+def ssh_exec(session_id: str, command: str, cwd: str = "", timeout: int = 30, stop_flag=None) -> str:
+    return _SSH_MANAGER.exec(session_id, command, cwd=cwd, timeout=timeout, stop_flag=stop_flag)
+
+
+def ssh_close(session_id: str = "") -> str:
+    return _SSH_MANAGER.close(session_id)
+
+
+def ssh_list_sessions() -> str:
+    return _SSH_MANAGER.list_sessions()
 
 
 def list_directory(path: str, cwd: str = "") -> str:
@@ -1232,6 +1536,65 @@ TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
+            "name": "ssh_connect",
+            "description": "建立一个持久 SSH 连接，返回 session_id。优先使用 key_path、系统 SSH agent 或默认私钥；不要把密码或私钥内容放进对话。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {"type": "string", "description": "远程主机名或 IP"},
+                    "username": {"type": "string", "description": "SSH 用户名"},
+                    "port": {"type": "integer", "description": "SSH 端口，默认 22", "default": 22},
+                    "key_path": {"type": "string", "description": "本机私钥文件路径，可选。留空时尝试 SSH agent 或默认私钥。"},
+                    "timeout": {"type": "integer", "description": "连接超时秒数，默认 15，最大 30", "default": 15},
+                },
+                "required": ["host", "username"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ssh_exec",
+            "description": "在已建立的 SSH 会话中执行远程 shell 命令并返回 stdout/stderr/exit_code。适合 ReAct：执行一条命令、观察反馈、再决定下一步。远程环境通常按 POSIX shell 编写命令；高风险命令需要用户确认，极危险命令会被拒绝。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "ssh_connect 返回的会话 ID"},
+                    "command": {"type": "string", "description": "要在远程机器执行的 shell 命令"},
+                    "cwd": {"type": "string", "description": "远程工作目录，可选。提供时会先 cd 到该目录再执行命令。"},
+                    "timeout": {"type": "integer", "description": "命令超时秒数，默认 30，最大 300", "default": 30},
+                },
+                "required": ["session_id", "command"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ssh_close",
+            "description": "关闭指定 SSH 会话；不传 session_id 时关闭所有 SSH 会话。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string", "description": "要关闭的 SSH 会话 ID，可选"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ssh_list_sessions",
+            "description": "列出当前仍在内存中的 SSH 会话。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_command",
             "description": "执行 shell 命令并返回输出。macOS/Linux 用 bash；Windows 若装了 Git Bash 也用 bash（否则回退 PowerShell）。因此**优先用通用的 Unix/bash 语法**（ls、grep、cat、管道 |、&&、$VAR、$(...) 等），避免 PowerShell 专有语法（如 Get-ChildItem、$ENV:VAR），以获得跨平台一致行为。路径用正斜杠。",
             "parameters": {
@@ -1289,7 +1652,7 @@ TOOLS_SCHEMA = [
 ]
 
 # 需要用户确认的工具
-CONFIRM_REQUIRED = {"run_command", "write_file", "apply_patch"}
+CONFIRM_REQUIRED = {"run_command", "ssh_exec", "write_file", "apply_patch"}
 
 
 def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: int = 30, stop_flag=None, vision_config: dict = None, cwd: str = "") -> str:
@@ -1328,6 +1691,36 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
         )
     elif tool_name == "web_read":
         return web_read(args.get("url", ""))
+    elif tool_name == "ssh_connect":
+        password = args.get("_password", "")
+        if password:
+            return ssh_connect_with_password(
+                args.get("host", ""),
+                args.get("username", ""),
+                password,
+                port=args.get("port", 22),
+                key_path=args.get("key_path", ""),
+                timeout=args.get("timeout", 15),
+            )
+        return ssh_connect(
+            args.get("host", ""),
+            args.get("username", ""),
+            port=args.get("port", 22),
+            key_path=args.get("key_path", ""),
+            timeout=args.get("timeout", 15),
+        )
+    elif tool_name == "ssh_exec":
+        return ssh_exec(
+            args.get("session_id", ""),
+            args.get("command", ""),
+            cwd=args.get("cwd", ""),
+            timeout=args.get("timeout", timeout),
+            stop_flag=stop_flag,
+        )
+    elif tool_name == "ssh_close":
+        return ssh_close(args.get("session_id", ""))
+    elif tool_name == "ssh_list_sessions":
+        return ssh_list_sessions()
     elif tool_name == "run_command":
         return run_command(args.get("command", ""), args.get("timeout", timeout), stop_flag=stop_flag, cwd=cwd)
     elif tool_name == "write_file":
