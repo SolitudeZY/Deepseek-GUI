@@ -8,7 +8,7 @@ Windows / macOS 桌面 AI 助手，支持通过 OpenAI 兼容 API 接入多家 L
 
 中文 | [English](./README.en.md)
 
-> 详细图文教程请参阅 [使用说明](./使用说明.md) | [主流 LLM 模型的 API Base URL 汇总](./主流%20LLM%20模型的%20API%20Base%20URL%20汇总.md)
+> 详细图文教程请参阅 [使用说明](./使用说明.md) | [MCP 使用指南](./MCP使用指南.md) | [主流 LLM 模型的 API Base URL 汇总](./主流%20LLM%20模型的%20API%20Base%20URL%20汇总.md)
 
 ## 功能特性
 
