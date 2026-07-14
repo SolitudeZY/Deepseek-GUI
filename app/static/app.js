@@ -837,6 +837,7 @@ function addToolCallBubble(toolName, args) {
 // 只有这些工具的结果按图片缩略图渲染（其余工具结果即便文本里含 "[图片: ...]"
 // 也按普通文本截断折叠，避免 read_file 读到讲解附件格式的文档时铺开整个文件）。
 const _IMAGE_TOOLS = new Set(['generate_image', 'edit_image']);
+const _isImageResultTool = toolName => _IMAGE_TOOLS.has(toolName) || toolName.startsWith('mcp__');
 
 function addToolResultBubble(toolName, result) {
   // find the last tool-call bubble for this tool and update its result inline
@@ -851,7 +852,7 @@ function addToolResultBubble(toolName, result) {
       if (resultEl && resultEl.textContent === '等待中…') {
         // 仅图片生成类工具的结果按缩略图渲染；其他工具（如 read_file 读到含
         // "[图片: ...]" 文本的文件）一律走截断文本路径，避免误判铺开整个文件。
-        if (_IMAGE_TOOLS.has(toolName) && /\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result)) {
+        if (_isImageResultTool(toolName) && /\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result)) {
           resultEl.innerHTML = buildUserContent(result);
           _hydrateImgThumbs(resultEl);
           // 默认展开，让缩略图可见
@@ -874,7 +875,7 @@ function addToolResultBubble(toolName, result) {
   const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', ssh_connect:'🔐', ssh_exec:'🖥️', ssh_close:'🔌', ssh_list_sessions:'📡', write_file:'✏️', apply_patch:'🩹', list_directory:'📁', glob_files:'🔎', grep_files:'🔎' };
   const icon = icons[toolName] || '🔧';
   // 含图片标记且是图片生成工具 → 展开并渲染缩略图
-  if (_IMAGE_TOOLS.has(toolName) && /\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result || '')) {
+  if (_isImageResultTool(toolName) && /\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result || '')) {
     div.classList.add('tool-expanded');
     div.innerHTML = `<div class="tool-header"><span class="tool-icon">🖼</span><span class="tool-name">${escapeHtml(toolName)}</span><span class="tool-chevron">▶</span></div>`
       + `<div class="tool-body"><div class="tool-result-content"></div></div>`;

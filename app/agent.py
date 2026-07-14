@@ -113,6 +113,7 @@ class Agent:
         vision_config: dict = None,
         project_path: str = "",
         use_full_url: bool = False,
+        mcp_manager=None,
     ):
         self.model = model
         self.search_config = search_config or {}
@@ -123,6 +124,7 @@ class Agent:
         self.thinking = thinking  # "off" | "high" | "max"
         self.max_rounds = max_rounds
         self.search_enabled = search_enabled
+        self.mcp_manager = mcp_manager
         # Per-model context config (0 = use defaults)
         self.context_length = context_length or (1_000_000 if model in V4_MODELS else 1_000_000)
         self.compact_threshold = compact_threshold or AUTO_COMPACT_THRESHOLD
@@ -365,6 +367,11 @@ class Agent:
         """Return tool schemas. Cached for prefix stability — never changes mid-session."""
         if not hasattr(self, '_cached_tools'):
             tools = TOOLS_SCHEMA + ADVANCED_TOOLS_SCHEMA
+            if self.mcp_manager is not None:
+                try:
+                    tools = tools + self.mcp_manager.get_tool_schemas()
+                except Exception as exc:
+                    print(f"[mcp] tool discovery failed: {exc}")
             if not self.search_enabled:
                 tools = [t for t in tools if t.get("function", {}).get("name") not in ("web_search", "web_read")]
             # Sort deterministically so JSON serialization is byte-stable across turns
@@ -796,8 +803,26 @@ class Agent:
                 })
                 continue
 
-            # Try advanced tools (registry)
-            result = self._dispatch_advanced(tool_name, args)
+            if self.mcp_manager is not None and self.mcp_manager.is_mcp_tool(tool_name):
+                info = self.mcp_manager.get_call_info(tool_name)
+                if not info:
+                    result = f"MCP 工具不可用或工具列表已刷新：{tool_name}"
+                elif info.get("trusted"):
+                    result = self.mcp_manager.call_tool(tool_name, args)
+                elif self.command_safety == "disabled":
+                    result = f"命令执行已禁用（disabled 模式），拒绝执行 MCP 工具：{info['server']}/{info['tool']}"
+                else:
+                    confirm_args = {
+                        "server": info["server"],
+                        "tool": info["tool"],
+                        "arguments": args,
+                    }
+                    allowed = cb.on_confirm(f"MCP: {info['server']}/{info['tool']}", confirm_args)
+                    result = (self.mcp_manager.call_tool(tool_name, args)
+                              if allowed else f"用户拒绝执行 MCP 工具：{info['server']}/{info['tool']}")
+            else:
+                # Try advanced tools (registry)
+                result = self._dispatch_advanced(tool_name, args)
             if result is None:
                 # Basic tools — may need confirmation
                 from app.config import is_command_allowed

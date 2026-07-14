@@ -22,6 +22,9 @@ uploads/
 test_*
 *_test.*
 tests/
+!tests/
+tests/*
+!tests/test_mcp_client.py
 *_generated_*.png
 矩阵运算*.md
 newton_bisection.tex

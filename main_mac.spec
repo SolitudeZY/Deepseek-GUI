@@ -3,7 +3,7 @@
 
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 block_cipher = None
 
@@ -13,6 +13,13 @@ if os.path.isdir('app/skills'):
     datas.append(('app/skills', 'app/skills'))
 # rapidocr_onnxruntime 的 config.yaml + models/*.onnx，否则运行时找不到 config.yaml
 datas += collect_data_files('rapidocr_onnxruntime')
+datas += copy_metadata('mcp')
+_mcp_hiddenimports = [
+    'mcp.types',
+    'mcp.client.session',
+    'mcp.client.stdio',
+    'mcp.client.streamable_http',
+]
 
 a = Analysis(
     ['main.py'],
@@ -30,7 +37,8 @@ a = Analysis(
         'app.config',
         'app.conversation',
         'app.vision',
-    ],
+        'app.mcp_client',
+    ] + _mcp_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

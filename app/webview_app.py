@@ -27,6 +27,7 @@ from app.tools import read_file as _read_file, get_file_op_log
 from app.vision import is_image, describe_image
 from app.skills import skill_list, skill_save, skill_delete, skill_read, memory_list, memory_read, memory_write, memory_delete, skill_import_from_path
 from app.token_usage import aggregate_month, record_usage
+from app.mcp_client import MCPManager, normalize_server_configs
 
 # Lazy-loaded heavy modules (deferred to first use for faster startup)
 _agent_module = None
@@ -208,6 +209,13 @@ class API:
         self._window_visible = True  # tracks page visibility from JS
         self._active_model_name = ""
         self._active_model_config_name = ""
+        try:
+            self._config["mcp_servers"] = normalize_server_configs(self._config.get("mcp_servers", []))
+            self._mcp = MCPManager(self._config["mcp_servers"])
+        except Exception as exc:
+            print(f"[mcp] invalid startup config: {exc}")
+            self._config["mcp_servers"] = []
+            self._mcp = MCPManager([])
 
     def _ensure_managers(self):
         """Lazily initialize heavy managers on first use."""
@@ -294,9 +302,28 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
     def get_config(self) -> dict:
         return self._config
 
-    def save_config(self, config: dict) -> None:
+    def save_config(self, config: dict) -> dict:
+        try:
+            normalized = normalize_server_configs(config.get("mcp_servers", []))
+            self._mcp.apply_config(normalized)
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+        config["mcp_servers"] = normalized
         self._config = config
         save_config(config)
+        return {"ok": True}
+
+    def test_mcp_server(self, config: dict) -> dict:
+        return self._mcp.test_server(config)
+
+    def get_mcp_statuses(self) -> list:
+        return self._mcp.get_statuses()
+
+    def reconnect_mcp_server(self, server_id: str) -> dict:
+        return self._mcp.reconnect(server_id)
+
+    def shutdown(self) -> None:
+        self._mcp.shutdown()
 
     # ── Conversations ─────────────────────────────────────────────
     def list_conversations(self) -> list:
@@ -807,6 +834,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             vision_config=self._build_vision_config(),
             project_path=conv.get('project_path', ''),
             use_full_url=mc.get('use_full_url', False),
+            mcp_manager=self._mcp,
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
@@ -858,6 +886,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             vision_config=self._build_vision_config(),
             project_path=conv.get('project_path', ''),
             use_full_url=mc.get('use_full_url', False),
+            mcp_manager=self._mcp,
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
@@ -1555,6 +1584,11 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         # 否则 get_config() 返回旧值、且后续 save_config 会用旧内存覆盖刚导入的配置。
         if result.get("imported"):
             self._config = load_config()
+            try:
+                self._config["mcp_servers"] = self._mcp.apply_config(self._config.get("mcp_servers", []))
+                save_config(self._config)
+            except Exception as exc:
+                result["mcp_error"] = str(exc)
         return result
 
     def sync_all(self) -> dict:
@@ -1567,4 +1601,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         # 同上：导入配置后刷新内存，避免旧配置回写覆盖
         if result.get("config_imported"):
             self._config = load_config()
+            try:
+                self._config["mcp_servers"] = self._mcp.apply_config(self._config.get("mcp_servers", []))
+                save_config(self._config)
+            except Exception as exc:
+                result["mcp_error"] = str(exc)
         return result

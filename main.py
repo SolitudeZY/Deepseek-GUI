@@ -46,4 +46,7 @@ if __name__ == "__main__":
     if platform.system() == "Windows":
         start_kwargs["private_mode"] = True
 
-    webview.start(**start_kwargs)
+    try:
+        webview.start(**start_kwargs)
+    finally:
+        api.shutdown()

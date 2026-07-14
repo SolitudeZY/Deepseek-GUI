@@ -163,6 +163,7 @@
     <div class="modal-tabs">
       <button class="tab-btn active" data-tab="models">模型配置</button>
       <button class="tab-btn" data-tab="tools">工具设置</button>
+      <button class="tab-btn" data-tab="mcp">MCP</button>
       <button class="tab-btn" data-tab="vision">图片工具</button>
       <button class="tab-btn" data-tab="allowlist">允许的指令</button>
       <button class="tab-btn" data-tab="memory">记忆</button>
@@ -256,6 +257,58 @@
         <p class="hint">auto_countdown 模式下，命令将在 5 秒倒计时后自动执行，期间可取消。自动执行结果后果自负。</p>
         <label>命令超时（秒）<input type="number" id="cmd-timeout" value="30" min="5" max="300"></label>
         <label>工具调用最大轮次<input type="number" id="max-rounds" value="50" min="1" max="200"></label>
+      </div>
+      <!-- MCP -->
+      <div class="tab-panel" id="tab-mcp">
+        <div class="mcp-toolbar">
+          <button id="btn-mcp-add" class="btn-secondary">+ 添加服务器</button>
+          <button id="btn-mcp-refresh" class="btn-ghost">刷新状态</button>
+        </div>
+        <div id="mcp-server-list" class="mcp-server-list"></div>
+        <div id="mcp-editor" class="mcp-editor hidden">
+          <div class="form-row">
+            <label style="flex:1">名称<input type="text" id="mcp-name" placeholder="filesystem"></label>
+            <label style="width:170px">传输方式
+              <select id="mcp-transport">
+                <option value="stdio">stdio</option>
+                <option value="http">Streamable HTTP</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-row mcp-toggle-row">
+            <label class="checkbox-label"><input type="checkbox" id="mcp-enabled" checked> 启用</label>
+            <label class="checkbox-label"><input type="checkbox" id="mcp-trusted"> 信任并自动执行</label>
+          </div>
+          <div id="mcp-stdio-fields" class="mcp-transport-fields">
+            <label>Command<input type="text" id="mcp-command" placeholder="npx / uvx / python"></label>
+            <label>Arguments<textarea id="mcp-args" rows="3" placeholder="每行一个参数"></textarea></label>
+            <label>Working Directory<input type="text" id="mcp-cwd" placeholder="可选"></label>
+            <div class="mcp-kv-head"><span>Environment</span><button id="btn-mcp-env-add" class="btn-ghost" type="button">+ 添加</button></div>
+            <div id="mcp-env-rows" class="mcp-kv-list"></div>
+          </div>
+          <div id="mcp-http-fields" class="mcp-transport-fields hidden">
+            <label>Endpoint URL<input type="text" id="mcp-url" placeholder="https://example.com/mcp"></label>
+            <div class="mcp-kv-head"><span>Headers</span><button id="btn-mcp-header-add" class="btn-ghost" type="button">+ 添加</button></div>
+            <div id="mcp-header-rows" class="mcp-kv-list"></div>
+          </div>
+          <div class="form-row">
+            <label style="flex:1">连接超时（秒）<input type="number" id="mcp-connect-timeout" min="1" max="600" value="15"></label>
+            <label style="flex:1">调用超时（秒）<input type="number" id="mcp-call-timeout" min="1" max="600" value="60"></label>
+          </div>
+          <div class="mcp-test-row">
+            <button id="btn-mcp-test" class="btn-secondary" type="button">测试连接</button>
+            <span id="mcp-test-status" class="mcp-status-text"></span>
+          </div>
+          <div id="mcp-tool-box" class="mcp-tool-box hidden">
+            <div class="mcp-tool-head"><span>可用工具</span><span id="mcp-tool-count"></span></div>
+            <div id="mcp-tool-list" class="mcp-tool-list"></div>
+          </div>
+          <div class="form-row mcp-editor-actions">
+            <button id="btn-mcp-editor-save" class="btn-primary" type="button">保存服务器</button>
+            <button id="btn-mcp-editor-cancel" class="btn-secondary" type="button">取消</button>
+            <button id="btn-mcp-editor-delete" class="btn-danger hidden" type="button">删除</button>
+          </div>
+        </div>
       </div>
       <!-- 图片工具 -->
       <div class="tab-panel" id="tab-vision">
