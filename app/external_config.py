@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
 
-import tomli
+try:
+    import tomllib as _toml
+except ModuleNotFoundError:  # Python 3.10 runtime
+    import tomli as _toml
 
 
 _IMPORT_NAMESPACE = uuid.UUID("62d1f0d9-e641-46d8-bad2-b554e9a55528")
@@ -125,7 +128,7 @@ def _read_toml(path: Path, errors: list[dict]) -> Optional[dict]:
         return None
     try:
         with path.open("rb") as handle:
-            data = tomli.load(handle)
+            data = _toml.load(handle)
         if not isinstance(data, dict):
             raise ValueError("root is not a table")
         return data

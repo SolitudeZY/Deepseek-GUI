@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from app.external_config import (
     import_external_mcp_configs,
     import_external_model_configs,
 )
+from app import external_config
 from app.webview_app import API
 
 
@@ -25,6 +27,10 @@ class ExternalConfigTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_toml_backend_uses_stdlib_when_available(self):
+        expected = "tomllib" if sys.version_info >= (3, 11) else "tomli"
+        self.assertEqual(external_config._toml.__name__, expected)
 
     @staticmethod
     def _write_json(path, value):

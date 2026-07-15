@@ -61,6 +61,10 @@ API.import_external_model_configs(candidate_ids: list, project_path: str) -> dic
   the base Conda installation when `_ssl.pyd` comes from an environment.
 - PyInstaller collects the exact MCP client modules and `mcp` metadata. Do not collect
   `mcp.cli` unless the optional CLI dependencies are intentionally installed.
+- TOML parsing imports standard-library `tomllib` on Python 3.11+ and falls back to `tomli`
+  only on Python 3.10. Keep the `tomli` requirement behind `python_version < "3.11"` so
+  Python 3.11 PyInstaller builds cannot pick up its mypyc wheel and omit the hash-named
+  `__mypyc` extension at runtime.
 - Claude/Codex import reads only fixed global paths and the active conversation's project
   paths. It never follows arbitrary source-provided paths or writes back to source files.
 - Discovery summaries expose credential presence only. Explicit API keys/auth tokens enter a
@@ -107,6 +111,8 @@ API.import_external_model_configs(candidate_ids: list, project_path: str) -> dic
   cancel-scope ownership errors.
 - Bad: A Conda build packages base-environment OpenSSL DLLs next to an environment `_ssl.pyd`,
   causing `ImportError: DLL load failed while importing _ssl` at startup.
+- Bad: Installing `tomli` unconditionally in the Python 3.11 release build can collect its
+  Python modules without the hash-named mypyc extension, causing startup failure after update.
 - Bad: Treating Codex `disabled_tools` as `tool_policy=all` silently expands permissions.
 
 ### 6. Tests Required
@@ -121,6 +127,8 @@ API.import_external_model_configs(candidate_ids: list, project_path: str) -> dic
 - Verify untrusted Agent routing can be rejected and trusted routing bypasses confirmation.
 - Verify Claude/Codex global/project precedence, deterministic IDs, stdio/HTTP mapping,
   environment-backed headers, denylist safety, and malformed-source isolation.
+- Assert Python 3.11+ selects `tomllib`, Python 3.10 selects `tomli`, and release requirements
+  do not install `tomli` on Python 3.11+.
 - Verify discovery output excludes explicit and OAuth secrets; selected import returns only the
   supported explicit credential field. Verify bridge calls preserve IDs and project path.
 - Render MCP/model import lists at compact and regular viewports; assert no horizontal overflow,
