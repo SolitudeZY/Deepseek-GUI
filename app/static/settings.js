@@ -6,8 +6,8 @@
 
 // ── Settings ──────────────────────────────────────────────────────
 $('btn-settings').addEventListener('click', openSettings);
-$('btn-settings-close').addEventListener('click', () => $('settings-overlay').classList.add('hidden'));
-$('btn-settings-cancel').addEventListener('click', () => $('settings-overlay').classList.add('hidden'));
+$('btn-settings-close').addEventListener('click', closeSettingsWithoutSave);
+$('btn-settings-cancel').addEventListener('click', closeSettingsWithoutSave);
 $('btn-settings-save').addEventListener('click', saveSettings);
 $('btn-allowlist-save').addEventListener('click', async () => {
   const cmds = $('allowlist-cmds').value.split('\n').map(s => s.trim()).filter(Boolean);
@@ -160,7 +160,10 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     $('tab-' + btn.dataset.tab).classList.add('active');
     if (btn.dataset.tab === 'memory') renderMemoryList();
-    if (btn.dataset.tab === 'mcp') renderMcpServers();
+    if (btn.dataset.tab === 'mcp') {
+      renderMcpServers();
+      _maybePromptExternalMcp();
+    }
   });
 });
 
@@ -169,6 +172,119 @@ let _mcpEditingIndex = -1;
 let _mcpDiscoveredTools = [];
 let _mcpDraftId = '';
 let _mcpServersDraft = [];
+let _externalMcpPrompted = false;
+let _externalMcpCandidates = [];
+let _externalModelCandidates = [];
+let _modelConfigsBeforeOpen = null;
+
+function closeSettingsWithoutSave() {
+  if (_modelConfigsBeforeOpen !== null) {
+    state.config.model_configs = _modelConfigsBeforeOpen;
+    _modelConfigsBeforeOpen = null;
+  }
+  $('settings-overlay').classList.add('hidden');
+}
+
+function _settingsProjectPath() {
+  const conv = (state.conversations || []).find(item => item.id === state.currentConvId);
+  return conv?.project_path || '';
+}
+
+function _externalErrors(containerId, errors) {
+  const box = $(containerId);
+  box.innerHTML = '';
+  (errors || []).forEach(item => {
+    const row = document.createElement('div');
+    row.textContent = `${item.source || '配置文件'}：${item.error || '读取失败'}`;
+    box.appendChild(row);
+  });
+}
+
+function _externalConflict(candidate, existing, idField) {
+  const sameId = existing.find(item => item[idField] === candidate.id);
+  if (sameId) return {kind: 'update', label: '将更新'};
+  const sameName = existing.find(item => (item.name || '').toLowerCase() === (candidate.name || '').toLowerCase());
+  if (sameName) return {kind: 'conflict', label: '名称冲突'};
+  return {kind: 'add', label: '新增'};
+}
+
+function _renderExternalCandidates(kind, result) {
+  const isMcp = kind === 'mcp';
+  const list = $(isMcp ? 'mcp-import-list' : 'model-import-list');
+  const existing = isMcp ? _mcpServersDraft : (state.config.model_configs || []);
+  const idField = isMcp ? 'id' : '_import_id';
+  const candidates = result.candidates || [];
+  if (isMcp) _externalMcpCandidates = candidates;
+  else _externalModelCandidates = candidates;
+  list.innerHTML = '';
+  if (!candidates.length) {
+    list.innerHTML = '<div class="external-import-empty">未发现可读取的本地配置</div>';
+  }
+  const protocolLabels = {
+    anthropic_messages: 'Anthropic Messages',
+    openai_responses: 'OpenAI Responses',
+    openai_chat: 'Chat Completions',
+  };
+  candidates.forEach(candidate => {
+    const conflict = _externalConflict(candidate, existing, idField);
+    const disabled = !candidate.importable || conflict.kind === 'conflict';
+    const row = document.createElement('label');
+    row.className = `external-import-item${disabled ? ' disabled' : ''}`;
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.dataset.candidateId = candidate.id;
+    checkbox.disabled = disabled;
+    checkbox.checked = !disabled && conflict.kind === 'add';
+    const main = document.createElement('div');
+    main.className = 'external-import-main';
+    const meta = isMcp
+      ? `${candidate.source_label} · ${candidate.transport || '未知传输'}`
+      : `${candidate.source_label} · ${protocolLabels[candidate.protocol] || candidate.protocol || '未知协议'} · ${candidate.model || '未填写模型'}${candidate.has_api_key ? ' · 已检测到密钥' : ' · 未检测到密钥'}`;
+    main.innerHTML = `<div class="external-import-name">${escapeHtml(candidate.name)}</div>`
+      + `<div class="external-import-meta">${escapeHtml(meta)}</div>`;
+    (candidate.warnings || []).forEach(warning => {
+      const warningEl = document.createElement('div');
+      warningEl.className = 'external-import-warning';
+      warningEl.textContent = warning;
+      main.appendChild(warningEl);
+    });
+    if (conflict.kind === 'conflict') {
+      const warningEl = document.createElement('div');
+      warningEl.className = 'external-import-warning';
+      warningEl.textContent = 'QuickModel 已有同名配置，请先重命名或删除后再导入';
+      main.appendChild(warningEl);
+    }
+    const badge = document.createElement('span');
+    badge.className = 'external-import-badge';
+    badge.textContent = candidate.importable ? conflict.label : '不支持';
+    row.appendChild(checkbox); row.appendChild(main); row.appendChild(badge); list.appendChild(row);
+  });
+  _externalErrors(isMcp ? 'mcp-import-errors' : 'model-import-errors', result.errors);
+}
+
+async function _loadExternalMcp(showPanel = true) {
+  const result = await window.pywebview.api.discover_external_mcp_configs(_settingsProjectPath());
+  _renderExternalCandidates('mcp', result || {});
+  if (showPanel) $('mcp-import-panel').classList.remove('hidden');
+  return result || {candidates: []};
+}
+
+async function _maybePromptExternalMcp() {
+  if (_externalMcpPrompted) return;
+  _externalMcpPrompted = true;
+  try {
+    const result = await _loadExternalMcp(false);
+    const existingIds = new Set(_mcpServersDraft.map(item => item.id));
+    const existingNames = new Set(_mcpServersDraft.map(item => (item.name || '').toLowerCase()));
+    const hasNew = (result.candidates || []).some(item => item.importable
+      && !existingIds.has(item.id) && !existingNames.has((item.name || '').toLowerCase()));
+    if (hasNew && confirm('发现本地 Claude/Codex 配置，是否导入？')) {
+      $('mcp-import-panel').classList.remove('hidden');
+    }
+  } catch (error) {
+    // Manual import remains available if background discovery fails.
+  }
+}
 
 function _newMcpId() {
   if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
@@ -383,6 +499,35 @@ async function _testMcpDraft() {
 }
 
 $('btn-mcp-add').addEventListener('click', () => openMcpEditor(-1));
+$('btn-mcp-import').addEventListener('click', async () => {
+  try {
+    await _loadExternalMcp(true);
+  } catch (error) {
+    alert(`读取本地 MCP 配置失败：${error}`);
+  }
+});
+$('btn-mcp-import-cancel').addEventListener('click', () => $('mcp-import-panel').classList.add('hidden'));
+$('btn-mcp-import-selected').addEventListener('click', async () => {
+  const selected = [...$('mcp-import-list').querySelectorAll('input[type="checkbox"]:checked')]
+    .map(item => item.dataset.candidateId);
+  if (!selected.length) { alert('请选择要导入的 MCP Server'); return; }
+  const result = await window.pywebview.api.import_external_mcp_configs(selected, _settingsProjectPath());
+  let imported = 0;
+  (result.items || []).forEach(item => {
+    const config = item.config;
+    const existingIndex = _mcpServersDraft.findIndex(current => current.id === config.id);
+    const nameConflict = _mcpServersDraft.some((current, index) => index !== existingIndex
+      && (current.name || '').toLowerCase() === (config.name || '').toLowerCase());
+    if (nameConflict) return;
+    if (existingIndex >= 0) _mcpServersDraft[existingIndex] = config;
+    else _mcpServersDraft.push(config);
+    imported++;
+  });
+  _externalErrors('mcp-import-errors', result.errors);
+  $('mcp-import-panel').classList.add('hidden');
+  await renderMcpServers();
+  alert(`已导入 ${imported} 个 MCP Server。点击设置窗口底部“保存”后生效。`);
+});
 $('btn-mcp-refresh').addEventListener('click', renderMcpServers);
 $('mcp-transport').addEventListener('change', _updateMcpTransportFields);
 $('btn-mcp-env-add').addEventListener('click', () => _addMcpKvRow('mcp-env-rows'));
@@ -514,8 +659,14 @@ $('btn-mc-models').addEventListener('click', e =>
 
 async function openSettings() {
   _mcpServersDraft = JSON.parse(JSON.stringify(state.config.mcp_servers || []));
+  _modelConfigsBeforeOpen = JSON.parse(JSON.stringify(state.config.model_configs || []));
   _mcpEditingIndex = -1;
+  _externalMcpPrompted = false;
+  _externalMcpCandidates = [];
+  _externalModelCandidates = [];
   $('mcp-editor').classList.add('hidden');
+  $('mcp-import-panel').classList.add('hidden');
+  $('model-import-panel').classList.add('hidden');
   fillSettingsFields(state.config);
   $('sync-list').innerHTML = '';
   $('sync-import-actions').style.display = 'none';
@@ -529,6 +680,9 @@ async function openSettings() {
   const ver = await window.pywebview.api.get_app_version();
   $('update-current-ver').textContent = ver || '-';
   $('settings-overlay').classList.remove('hidden');
+  if (document.querySelector('.tab-btn.active')?.dataset.tab === 'mcp') {
+    _maybePromptExternalMcp();
+  }
 }
 
 // 用 cfg 填充设置面板各输入框（openSettings 与导入配置后共用）
@@ -599,6 +753,7 @@ async function saveSettings() {
     alert(`保存设置失败：${saved.error || 'MCP 配置无效'}`);
     return;
   }
+  _modelConfigsBeforeOpen = null;
   populateModelSelect();
   $('settings-overlay').classList.add('hidden');
 }
@@ -786,6 +941,47 @@ function saveCurrentMc() {
 }
 
 $('btn-save-mc').addEventListener('click', saveCurrentMc);
+$('btn-model-import').addEventListener('click', async () => {
+  try {
+    const result = await window.pywebview.api.discover_external_model_configs(_settingsProjectPath());
+    _renderExternalCandidates('model', result || {});
+    $('model-import-panel').classList.remove('hidden');
+  } catch (error) {
+    alert(`读取本地模型配置失败：${error}`);
+  }
+});
+$('btn-model-import-cancel').addEventListener('click', () => $('model-import-panel').classList.add('hidden'));
+$('btn-model-import-selected').addEventListener('click', async () => {
+  const selected = [...$('model-import-list').querySelectorAll('input[type="checkbox"]:checked')]
+    .map(item => item.dataset.candidateId);
+  if (!selected.length) { alert('请选择要导入的模型配置'); return; }
+  saveCurrentMc();
+  const result = await window.pywebview.api.import_external_model_configs(selected, _settingsProjectPath());
+  const configs = state.config.model_configs || [];
+  let imported = 0;
+  let selectedIndex = null;
+  (result.items || []).forEach(item => {
+    const config = item.config;
+    const existingIndex = configs.findIndex(current => current._import_id === config._import_id);
+    const nameConflict = configs.some((current, index) => index !== existingIndex
+      && (current.name || '').toLowerCase() === (config.name || '').toLowerCase());
+    if (nameConflict) return;
+    if (existingIndex >= 0) {
+      configs[existingIndex] = config;
+      selectedIndex = existingIndex;
+    } else {
+      configs.push(config);
+      selectedIndex = configs.length - 1;
+    }
+    imported++;
+  });
+  state.config.model_configs = configs;
+  _externalErrors('model-import-errors', result.errors);
+  $('model-import-panel').classList.add('hidden');
+  if (selectedIndex !== null) selectMc(selectedIndex);
+  else renderModelConfigList();
+  alert(`已导入 ${imported} 个模型配置。请检查协议兼容性，并点击设置窗口底部“保存”。`);
+});
 $('btn-add-model').addEventListener('click', () => {
   const configs = state.config.model_configs || [];
   configs.push({ name: `新配置 ${configs.length + 1}`, api_key: '', base_url: '', model: '', system_prompt: 'You are a helpful assistant.', context_length: 1000000, compact_threshold: 600000, use_full_url: false });

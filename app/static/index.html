@@ -174,9 +174,22 @@
     <div class="modal-body">
       <!-- 模型配置 -->
       <div class="tab-panel active" id="tab-models">
+        <div id="model-import-panel" class="external-import-panel hidden">
+          <div class="external-import-head">
+            <strong>本地模型配置</strong>
+            <span>从 Claude / Codex 读取</span>
+          </div>
+          <div id="model-import-list" class="external-import-list"></div>
+          <div id="model-import-errors" class="external-import-errors"></div>
+          <div class="external-import-actions">
+            <button id="btn-model-import-selected" class="btn-primary" type="button">导入所选</button>
+            <button id="btn-model-import-cancel" class="btn-secondary" type="button">取消</button>
+          </div>
+        </div>
         <div class="model-layout">
           <div class="model-list-col">
             <button id="btn-add-model" class="btn-secondary">+ 添加</button>
+            <button id="btn-model-import" class="btn-ghost" type="button">读取本地配置</button>
             <ul id="model-config-list"></ul>
           </div>
           <div class="model-form-col">
@@ -262,7 +275,20 @@
       <div class="tab-panel" id="tab-mcp">
         <div class="mcp-toolbar">
           <button id="btn-mcp-add" class="btn-secondary">+ 添加服务器</button>
+          <button id="btn-mcp-import" class="btn-ghost" type="button">读取本地配置</button>
           <button id="btn-mcp-refresh" class="btn-ghost">刷新状态</button>
+        </div>
+        <div id="mcp-import-panel" class="external-import-panel hidden">
+          <div class="external-import-head">
+            <strong>本地 MCP 配置</strong>
+            <span>从 Claude / Codex 读取</span>
+          </div>
+          <div id="mcp-import-list" class="external-import-list"></div>
+          <div id="mcp-import-errors" class="external-import-errors"></div>
+          <div class="external-import-actions">
+            <button id="btn-mcp-import-selected" class="btn-primary" type="button">导入所选</button>
+            <button id="btn-mcp-import-cancel" class="btn-secondary" type="button">取消</button>
+          </div>
         </div>
         <div id="mcp-server-list" class="mcp-server-list"></div>
         <div id="mcp-editor" class="mcp-editor hidden">

@@ -794,6 +794,36 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 #model-config-list li.active { background: var(--bg3); color: var(--text); }
 .model-form-col { flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
 
+/* ── External Claude / Codex import ── */
+.external-import-panel {
+  margin-bottom: 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--bg2); overflow: hidden;
+}
+.external-import-panel.hidden { display: none; }
+.external-import-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--bg3);
+}
+.external-import-head strong { color: var(--text); font-size: 13px; }
+.external-import-head span { color: var(--text-muted); font-size: 11px; }
+.external-import-list { display: flex; flex-direction: column; max-height: 220px; overflow-y: auto; }
+.external-import-item {
+  display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px;
+  align-items: start; padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.external-import-item:last-child { border-bottom: none; }
+.external-import-item input { width: 15px; height: 15px; margin-top: 2px; accent-color: var(--accent); }
+.external-import-item.disabled { opacity: 0.62; }
+.external-import-main { min-width: 0; }
+.external-import-name { color: var(--text); font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.external-import-meta { color: var(--text-muted); font-size: 11px; margin-top: 2px; overflow-wrap: anywhere; }
+.external-import-warning { color: #e8a838; font-size: 11px; margin-top: 3px; overflow-wrap: anywhere; }
+.external-import-badge { color: var(--accent); font-size: 10px; white-space: nowrap; padding-top: 2px; }
+.external-import-errors { color: var(--danger); font-size: 11px; padding: 0 10px; overflow-wrap: anywhere; }
+.external-import-errors:not(:empty) { padding-top: 7px; }
+.external-import-actions { display: flex; gap: 7px; padding: 8px 10px; border-top: 1px solid var(--border); }
+.external-import-empty { padding: 12px; text-align: center; color: var(--text-muted); font-size: 12px; }
+
 /* ── Rename modal ── */
 #rename-modal input { width: 100%; margin: 10px 18px; width: calc(100% - 36px); }
 
@@ -870,7 +900,7 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .memory-editor.hidden { display: none; }
 
 /* ── MCP servers ── */
-.mcp-toolbar { display: flex; gap: 8px; align-items: center; }
+.mcp-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .mcp-server-list { display: flex; flex-direction: column; gap: 6px; }
 .mcp-server-empty { padding: 14px; border: 1px dashed var(--border); color: var(--text-muted); font-size: 12px; text-align: center; }
 .mcp-server-item {
@@ -912,6 +942,8 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .mcp-editor-actions .btn-danger { margin-left: auto; }
 
 @media (max-width: 620px) {
+  .external-import-item { grid-template-columns: 18px minmax(0, 1fr); }
+  .external-import-badge { grid-column: 2; }
   .mcp-server-item { grid-template-columns: minmax(0, 1fr) auto; }
   .mcp-state { grid-column: 1 / -1; text-align: left; }
   .mcp-kv-row { grid-template-columns: 1fr 1fr 30px; }

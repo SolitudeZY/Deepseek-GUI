@@ -31,6 +31,10 @@ API.test_mcp_server(config: dict) -> dict
 API.get_mcp_statuses() -> list[dict]
 API.reconnect_mcp_server(server_id: str) -> dict
 API.save_config(config: dict) -> {"ok": bool, "error"?: str}
+API.discover_external_mcp_configs(project_path: str) -> dict
+API.import_external_mcp_configs(candidate_ids: list, project_path: str) -> dict
+API.discover_external_model_configs(project_path: str) -> dict
+API.import_external_model_configs(candidate_ids: list, project_path: str) -> dict
 ```
 
 ### 3. Contracts
@@ -57,6 +61,17 @@ API.save_config(config: dict) -> {"ok": bool, "error"?: str}
   the base Conda installation when `_ssl.pyd` comes from an environment.
 - PyInstaller collects the exact MCP client modules and `mcp` metadata. Do not collect
   `mcp.cli` unless the optional CLI dependencies are intentionally installed.
+- Claude/Codex import reads only fixed global paths and the active conversation's project
+  paths. It never follows arbitrary source-provided paths or writes back to source files.
+- Discovery summaries expose credential presence only. Explicit API keys/auth tokens enter a
+  QuickModel draft only after the user selects a model candidate for import. OAuth token
+  bundles are never imported.
+- Imported MCP servers always set `trusted=false`. Unsupported SSE entries remain visible but
+  not importable; unrepresentable deny-only tool policies remain disabled for review.
+- Deterministic import IDs allow repeat discovery to update the same draft. A same-name item
+  with a different ID must be shown as a conflict and never overwrite silently.
+- Imported servers and models use the existing Settings save flow. Saving MCP configuration
+  hot-applies it through `MCPManager`; application restart is not required.
 
 ### 4. Validation & Error Matrix
 
@@ -72,6 +87,9 @@ API.save_config(config: dict) -> {"ok": bool, "error"?: str}
 | Trusted tool call | Execute without confirmation |
 | Call timeout | Return an actionable redacted MCP error and close the failed worker |
 | Config changes or app shutdown | Close affected sessions and stdio child processes |
+| Malformed Claude/Codex source | Report a source-specific safe summary; continue other files |
+| Imported server | Force untrusted regardless of source annotations |
+| Imported non-Chat model | Show its wire protocol and a compatibility warning |
 | Structured or image result | Produce model-readable text or the existing image marker |
 | Result over 60,000 characters | Truncate and state the original length |
 
@@ -79,13 +97,17 @@ API.save_config(config: dict) -> {"ok": bool, "error"?: str}
 
 - Good: A stdio server receives configured env values while inheriting `PATH`, exposes an
   allowlisted tool, survives multiple chat messages, and terminates when disabled.
+- Good: Discovery reports a masked Claude/Codex model candidate; only an explicitly selected
+  import returns the supported API key field into the unsaved Settings draft.
 - Base: An empty `mcp_servers` list creates no workers and leaves all built-in tools unchanged.
+- Base: Missing local Claude/Codex files return no candidates and do not affect current config.
 - Bad: Passing only the configured env map to `StdioServerParameters` removes inherited `PATH`
   and makes commands such as `npx` fail.
 - Bad: Entering a client context in one coroutine and closing it from another triggers AnyIO
   cancel-scope ownership errors.
 - Bad: A Conda build packages base-environment OpenSSL DLLs next to an environment `_ssl.pyd`,
   causing `ImportError: DLL load failed while importing _ssl` at startup.
+- Bad: Treating Codex `disabled_tools` as `tool_policy=all` silently expands permissions.
 
 ### 6. Tests Required
 
@@ -97,6 +119,12 @@ API.save_config(config: dict) -> {"ok": bool, "error"?: str}
 - Start a local Streamable HTTP server; verify custom headers, discovery, calls, and status.
 - Verify disabled servers create no workers and expose no schemas.
 - Verify untrusted Agent routing can be rejected and trusted routing bypasses confirmation.
+- Verify Claude/Codex global/project precedence, deterministic IDs, stdio/HTTP mapping,
+  environment-backed headers, denylist safety, and malformed-source isolation.
+- Verify discovery output excludes explicit and OAuth secrets; selected import returns only the
+  supported explicit credential field. Verify bridge calls preserve IDs and project path.
+- Render MCP/model import lists at compact and regular viewports; assert no horizontal overflow,
+  long names wrap, protocol warnings remain visible, and cancel discards model draft changes.
 - Run `unittest`, `compileall`, JavaScript syntax checks, a clean Windows onedir build, and a
   packaged executable startup smoke test.
 
@@ -115,6 +143,12 @@ params = StdioServerParameters(command=command, env=configured_env)
 # Replaces the child environment and can remove PATH.
 ```
 
+```python
+def discover_models():
+    return {"api_key": read_auth_json()["OPENAI_API_KEY"]}
+# Exposes a credential before the user selects a candidate.
+```
+
 #### Correct
 
 ```python
@@ -130,4 +164,12 @@ params = StdioServerParameters(
     command=command,
     env={**os.environ, **configured_env},
 )
+```
+
+```python
+def discover_models():
+    return {"has_api_key": explicit_key_exists()}
+
+def import_models(selected_ids):
+    return reread_selected_candidates(selected_ids, include_secrets=True)
 ```

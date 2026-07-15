@@ -28,6 +28,12 @@ from app.vision import is_image, describe_image
 from app.skills import skill_list, skill_save, skill_delete, skill_read, memory_list, memory_read, memory_write, memory_delete, skill_import_from_path
 from app.token_usage import aggregate_month, record_usage
 from app.mcp_client import MCPManager, normalize_server_configs
+from app.external_config import (
+    discover_external_mcp_configs,
+    discover_external_model_configs,
+    import_external_mcp_configs,
+    import_external_model_configs,
+)
 
 # Lazy-loaded heavy modules (deferred to first use for faster startup)
 _agent_module = None
@@ -321,6 +327,18 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def reconnect_mcp_server(self, server_id: str) -> dict:
         return self._mcp.reconnect(server_id)
+
+    def discover_external_mcp_configs(self, project_path: str = "") -> dict:
+        return discover_external_mcp_configs(project_path)
+
+    def import_external_mcp_configs(self, candidate_ids: list, project_path: str = "") -> dict:
+        return import_external_mcp_configs(candidate_ids, project_path)
+
+    def discover_external_model_configs(self, project_path: str = "") -> dict:
+        return discover_external_model_configs(project_path)
+
+    def import_external_model_configs(self, candidate_ids: list, project_path: str = "") -> dict:
+        return import_external_model_configs(candidate_ids, project_path)
 
     def shutdown(self) -> None:
         self._mcp.shutdown()
