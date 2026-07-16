@@ -7,7 +7,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 APP_NAME = "AIDesktopAssistant"
-APP_VERSION = "1.9.3"
+APP_VERSION = "1.9.4"
 GITHUB_REPO = "SolitudeZY/Deepseek-GUI"
 
 IS_MAC = platform.system() == "Darwin"
