@@ -26,6 +26,11 @@ tests/
 tests/*
 !tests/test_mcp_client.py
 !tests/test_external_config.py
+!tests/test_agent_protocols.py
+!tests/test_model_callers.py
+!tests/test_model_config.py
+!tests/test_model_protocol.py
+!tests/test_responses_state.py
 *_generated_*.png
 矩阵运算*.md
 newton_bisection.tex

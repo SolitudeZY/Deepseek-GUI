@@ -218,7 +218,7 @@ def estimate_tokens(messages: list) -> int:
     return len(json.dumps(messages, default=str)) // 4
 
 
-def _summarize_text(client, model: str, text: str) -> str:
+def _summarize_text(model_config: dict, text: str) -> str:
     """调模型对一段对话文本做结构化摘要。失败抛异常由调用方处理。"""
     prompt = (
         "你在为一个『AI 编程助手』压缩历史对话，供它之后无缝继续工作。"
@@ -232,15 +232,12 @@ def _summarize_text(client, model: str, text: str) -> str:
         "## 需求与约束\n## 关键事实与标识符\n## 已完成\n## 待办/未决\n## 重要结论\n\n"
         f"对话片段：\n{text}"
     )
-    resp = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.choices[0].message.content or "(无摘要)"
+    from app.model_protocol import complete_text
+    return complete_text(model_config, [{"role": "user", "content": prompt}]) or "(无摘要)"
 
 
-def auto_compact(messages: list, client, model: str,
-                 summary_client=None, summary_model: str = "") -> list:
+def auto_compact(messages: list, model_config: dict,
+                 summary_model_config: dict = None) -> list:
     """Summarize conversation when context is too large.
 
     Preserves: system message (head) + recent tail (RECENT_KEEP messages).
@@ -256,9 +253,8 @@ def auto_compact(messages: list, client, model: str,
     RECENT_KEEP = 15   # keep last N messages verbatim
     CHUNK_CHARS = 60000  # 每块喂给摘要模型的字符上限
 
-    # 摘要用的模型/客户端：优先用传入的便宜模型，回退主模型
-    s_client = summary_client or client
-    s_model = summary_model or model
+    # 摘要模型：优先用传入的便宜模型配置，回退主模型配置。
+    summary_config = summary_model_config or model_config
 
     # Archive full transcript for traceability
     transcripts_dir = get_app_data_dir() / "transcripts"
@@ -299,14 +295,14 @@ def auto_compact(messages: list, client, model: str,
         part_summaries = []
         for i, ch in enumerate(chunks):
             ch_text = json.dumps(ch, default=str, ensure_ascii=False)
-            part_summaries.append(_summarize_text(s_client, s_model, ch_text))
+            part_summaries.append(_summarize_text(summary_config, ch_text))
         if len(part_summaries) == 1:
             summary = part_summaries[0]
         else:
             # 多块：合并各块摘要为一份总摘要
             merged = "\n\n".join(f"[片段{i+1}]\n{s}" for i, s in enumerate(part_summaries))
             summary = _summarize_text(
-                s_client, s_model,
+                summary_config,
                 f"以下是同一段对话按时间顺序分块得到的多份摘要，请合并为一份连贯、不丢信息的结构化摘要：\n{merged}")
     except Exception as e:
         # 关键：摘要失败不丢中段，退化为不压缩，避免灾难性失忆
@@ -323,25 +319,23 @@ def auto_compact(messages: list, client, model: str,
 
 
 # ── RLM 并行子任务 ──────────────────────────────────────────────────
-def run_rlm(prompts: list[str], api_key: str, base_url: str,
-            model: str = "deepseek-v4-flash", system_prompt: str = "") -> str:
+def run_rlm(prompts: list[str], model_config: dict, system_prompt: str = "") -> str:
     """Dispatch 1-16 prompts to a low-cost model in parallel, return aggregated results."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from openai import OpenAI
+    from app.model_protocol import create_model_adapter
 
     if not prompts:
         return "错误：prompts 列表为空"
     if len(prompts) > 16:
         prompts = prompts[:16]
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
     sys_msg = [{"role": "system", "content": system_prompt}] if system_prompt else []
 
     def _call(idx: int, prompt: str) -> tuple[int, str]:
         try:
             msgs = sys_msg + [{"role": "user", "content": prompt}]
-            resp = client.chat.completions.create(model=model, messages=msgs)
-            return idx, resp.choices[0].message.content or "(无输出)"
+            content = create_model_adapter(model_config).complete_text(msgs)
+            return idx, content or "(无输出)"
         except Exception as e:
             return idx, f"[错误] {e}"
 
@@ -360,13 +354,13 @@ def run_rlm(prompts: list[str], api_key: str, base_url: str,
 
 
 # ── Subagent (s04) ───────────────────────────────────────────────────
-def run_subagent(prompt: str, api_key: str, base_url: str, model: str,
+def run_subagent(prompt: str, model_config: dict,
                  agent_type: str = "Explore") -> str:
     """Spawn a focused sub-agent with its own tool loop. Returns a summary."""
-    from openai import OpenAI
+    from app.model_protocol import create_model_adapter
     from app.tools import read_file, list_directory, run_command, write_file
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    adapter = create_model_adapter(model_config)
 
     # Explore agents get read-only tools; General agents get write tools too
     sub_tools = [
@@ -409,78 +403,42 @@ def run_subagent(prompt: str, api_key: str, base_url: str, model: str,
 
     messages = [{"role": "user", "content": prompt}]
     system = "你是一个专注的子代理，负责完成指定的子任务并返回详细结果摘要。"
-    is_deepseek = "deepseek" in (base_url or "").lower()
-
     MAX_ROUNDS = 50
     for _ in range(MAX_ROUNDS):
-        # DeepSeek V4 requires reasoning_content on all assistant messages
-        # (V4 enables thinking by default). Patch before each API call.
-        send_messages = [{"role": "system", "content": system}]
-        for m in messages:
-            if m.get("role") == "assistant" and is_deepseek:
-                send_messages.append({**m, "reasoning_content": m.get("reasoning_content") or ""})
-            else:
-                send_messages.append(m)
+        send_messages = [{"role": "system", "content": system}] + messages
 
         try:
-            resp = client.chat.completions.create(
-                model=model,
-                messages=send_messages,
-                tools=sub_tools,
-                tool_choice="auto",
-            )
+            round_result = adapter.stream_round(send_messages, tools=sub_tools, stateless=True)
         except Exception as e:
             return f"子代理调用失败：{e}"
 
-        choice = resp.choices[0]
-        msg = choice.message
+        if not round_result.tool_calls:
+            return round_result.assistant_message.get("content") or "(子代理无返回)"
 
-        if not msg.tool_calls:
-            return msg.content or "(子代理无返回)"
-
-        # Append assistant message with tool_calls + reasoning_content
-        asst = {
-            "role": "assistant",
-            "content": msg.content or "",
-            "tool_calls": [
-                {"id": tc.id, "type": "function",
-                 "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                for tc in msg.tool_calls
-            ],
-        }
-        rc = getattr(msg, "reasoning_content", None)
-        if rc:
-            asst["reasoning_content"] = rc
-        messages.append(asst)
+        messages.append(round_result.assistant_message)
         # Execute tools and append results
-        for tc in msg.tool_calls:
+        for tc in round_result.tool_calls:
             try:
-                args = json.loads(tc.function.arguments or "{}")
+                args = json.loads(tc["function"]["arguments"] or "{}")
             except json.JSONDecodeError:
                 args = {}
-            result = dispatch(tc.function.name, args)
+            result = dispatch(tc["function"]["name"], args)
             messages.append({
                 "role": "tool",
-                "tool_call_id": tc.id,
+                "tool_call_id": tc["id"],
                 "content": str(result)[:50000],
             })
 
     # 撞轮次上限：不要丢弃已查到的信息，强制让子代理基于已有上下文做一次总结
     # （不带 tools，避免它继续调工具又超限）。否则前 N 轮的勘察成果全部浪费。
     try:
-        send_messages = [{"role": "system", "content": system}]
-        for m in messages:
-            if m.get("role") == "assistant" and is_deepseek:
-                send_messages.append({**m, "reasoning_content": m.get("reasoning_content") or ""})
-            else:
-                send_messages.append(m)
+        send_messages = [{"role": "system", "content": system}] + messages
         send_messages.append({
             "role": "user",
             "content": "已达到工具调用轮次上限。请立即停止调用工具，基于你目前已经获取到的所有信息，"
                        "给出尽可能完整、结构化的结果摘要（包括已查到的内容，以及还有哪些未完成）。",
         })
-        resp = client.chat.completions.create(model=model, messages=send_messages)
-        final = resp.choices[0].message.content
+        final = adapter.complete_text(send_messages)
         if final:
             return f"[子代理达到轮次上限({MAX_ROUNDS})，以下为已获取信息的总结]\n\n{final}"
     except Exception as e:

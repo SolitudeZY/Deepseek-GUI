@@ -1,0 +1,125 @@
+import threading
+import unittest
+from unittest.mock import patch
+
+from app.agent import Agent
+from app.model_protocol import ModelRoundResult, NormalizedUsage, ProviderStateUpdate
+
+
+def model_config(protocol):
+    return {
+        "name": protocol,
+        "api_key": "test-key",
+        "base_url": "https://provider.example/v1",
+        "model": "test-model",
+        "api_protocol": protocol,
+        "provider_profile": "generic",
+        "auth_mode": "api_key",
+        "responses_server_state": protocol == "openai_responses",
+    }
+
+
+class FakeAdapter:
+    def __init__(self, protocol, stateful=False, notice=""):
+        self.config = type("Config", (), {"base_url": "https://provider.example/v1"})()
+        self.protocol = protocol
+        self.stateful = stateful
+        self.notice = notice
+        self.calls = []
+
+    def stream_round(self, messages, **kwargs):
+        self.calls.append((messages, kwargs))
+        if len(self.calls) == 1:
+            state = None
+            if self.stateful:
+                state = ProviderStateUpdate("resp_tool", "sha256:test", "now")
+            return ModelRoundResult(
+                assistant_message={
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "skill_list", "arguments": "{}"},
+                    }],
+                },
+                tool_calls=[{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "skill_list", "arguments": "{}"},
+                }],
+                usage=NormalizedUsage(10, 2),
+                provider_state_update=state,
+                downgrade_notice=self.notice,
+            )
+        state = None
+        if self.stateful:
+            state = ProviderStateUpdate("resp_final", "sha256:test", "later")
+        return ModelRoundResult(
+            assistant_message={"role": "assistant", "content": "done"},
+            usage=NormalizedUsage(5, 1),
+            provider_state_update=state,
+        )
+
+
+class AgentProtocolTests(unittest.TestCase):
+    def _run_agent(self, protocol, adapter, provider_state=None):
+        cfg = model_config(protocol)
+        if adapter.stateful:
+            with patch("app.agent.model_config_fingerprint", return_value="sha256:test"):
+                with patch("app.agent.create_model_adapter", return_value=adapter):
+                    agent = Agent(
+                        api_key="test-key", base_url=cfg["base_url"], model=cfg["model"],
+                        model_config=cfg, provider_state=provider_state,
+                    )
+        else:
+            with patch("app.agent.create_model_adapter", return_value=adapter):
+                agent = Agent(
+                    api_key="test-key", base_url=cfg["base_url"], model=cfg["model"],
+                    model_config=cfg, provider_state=provider_state,
+                )
+        completed, errors, notices, usage = [], [], [], []
+        agent.run(
+            messages=[{"role": "user", "content": "Use a harmless tool"}],
+            on_token=lambda *_: None,
+            on_tool_start=lambda *_: None,
+            on_tool_result=lambda *_: None,
+            on_confirm=lambda *_: True,
+            on_done=completed.append,
+            on_error=lambda error, messages: errors.append((error, messages)),
+            on_usage=usage.append,
+            on_notice=notices.append,
+        )
+        self.assertFalse(errors)
+        self.assertEqual(completed[0][-1]["content"], "done")
+        self.assertEqual(completed[0][-2]["role"], "tool")
+        return agent, completed[0], notices, usage
+
+    def test_main_react_loop_uses_adapter_for_all_protocols(self):
+        for protocol in ("openai_chat", "openai_responses", "anthropic_messages"):
+            with self.subTest(protocol=protocol):
+                adapter = FakeAdapter(protocol)
+                _, messages, _, usage = self._run_agent(protocol, adapter)
+                self.assertEqual(len(adapter.calls), 2)
+                self.assertTrue(adapter.calls[0][1]["tools"])
+                self.assertEqual(messages[-3]["tool_calls"][0]["function"]["name"], "skill_list")
+                self.assertEqual(usage[-1]["session"]["prompt_tokens"], 15)
+
+    def test_notice_is_visible_and_not_written_to_history(self):
+        adapter = FakeAdapter("openai_chat", notice="text-only downgrade")
+        _, messages, notices, _ = self._run_agent("openai_chat", adapter)
+        self.assertEqual(notices, ["text-only downgrade"])
+        self.assertNotIn("text-only downgrade", str(messages))
+
+    def test_responses_state_advances_and_second_round_sends_tool_suffix(self):
+        adapter = FakeAdapter("openai_responses", stateful=True)
+        agent, _, _, _ = self._run_agent("openai_responses", adapter)
+        self.assertEqual(agent.provider_state["response_id"], "resp_final")
+        second_kwargs = adapter.calls[1][1]
+        self.assertEqual(second_kwargs["previous_response_id"], "resp_tool")
+        self.assertEqual(len(second_kwargs["incremental_messages"]), 1)
+        self.assertEqual(second_kwargs["incremental_messages"][0]["role"], "tool")
+
+
+if __name__ == "__main__":
+    unittest.main()

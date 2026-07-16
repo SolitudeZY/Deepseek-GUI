@@ -163,7 +163,14 @@ requires_openai_auth = true
         claude = next(config for name, config in configs.items() if name.startswith("Claude"))
         codex = next(config for name, config in configs.items() if name.startswith("Codex"))
         self.assertEqual(claude["api_key"], "claude-model-secret")
+        self.assertEqual(claude["api_protocol"], "anthropic_messages")
+        self.assertEqual(claude["api_type"], "anthropic")
+        self.assertEqual(claude["auth_mode"], "auth_token")
+        self.assertEqual(claude["provider_profile"], "generic")
         self.assertEqual(codex["api_key"], "codex-api-secret")
+        self.assertEqual(codex["api_protocol"], "openai_chat")
+        self.assertEqual(codex["api_type"], "codex_chat")
+        self.assertEqual(codex["client_profile"], "codex")
         imported_text = json.dumps(imported, ensure_ascii=False)
         self.assertNotIn("oauth-access-secret", imported_text)
         self.assertNotIn("oauth-refresh-secret", imported_text)
@@ -185,6 +192,9 @@ env_key = "LOCAL_PROVIDER_KEY"
             self.assertEqual(candidate["protocol"], "openai_responses")
             imported = import_external_model_configs([candidate["id"]], "", self.home)
         self.assertEqual(imported["items"][0]["config"]["api_key"], "environment-secret")
+        self.assertEqual(imported["items"][0]["config"]["api_protocol"], "openai_responses")
+        self.assertEqual(imported["items"][0]["config"]["api_type"], "codex_responses")
+        self.assertEqual(imported["items"][0]["config"]["client_profile"], "codex")
 
     def test_unrelated_project_settings_do_not_change_model_source_labels(self):
         self._write_json(self.home / ".claude" / "settings.json", {

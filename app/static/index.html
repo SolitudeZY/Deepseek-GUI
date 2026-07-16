@@ -194,16 +194,41 @@
           </div>
           <div class="model-form-col">
             <label>名称<input type="text" id="mc-name" placeholder="配置名称"></label>
-            <label>API Key<input type="password" id="mc-key" placeholder="sk-..."></label>
-            <label>Base URL<input type="text" id="mc-url" placeholder="https://api.xxx.com/v1"></label>
-            <label class="checkbox-label" style="margin-bottom:8px"><input type="checkbox" id="mc-use-full-url"> 使用完整 URL（不自动拼接路径）</label>
-            <p class="hint">默认：填入 <code>/v1</code> 结尾的地址，SDK 自动拼接 <code>/chat/completions</code>。勾选后 URL 原样传给 SDK，适用于需要完整端点的中转服务。</p>
+            <label>接口类型
+              <select id="mc-api-type">
+                <optgroup label="通用协议">
+                  <option value="openai_chat">OpenAI 兼容 · Chat Completions</option>
+                  <option value="openai_responses">OpenAI · Responses</option>
+                  <option value="anthropic">Anthropic · Claude Messages</option>
+                </optgroup>
+                <optgroup label="国内模型">
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="qwen">Qwen / DashScope</option>
+                  <option value="glm">GLM / BigModel</option>
+                </optgroup>
+                <optgroup label="Codex 配置">
+                  <option value="codex_responses">Codex · Responses</option>
+                  <option value="codex_chat">Codex · Chat Completions</option>
+                </optgroup>
+              </select>
+            </label>
+            <p id="mc-api-summary" class="model-api-summary"></p>
+            <label id="mc-auth-mode-wrap" class="hidden">Anthropic 认证方式
+              <select id="mc-auth-mode">
+                <option value="api_key">API Key（x-api-key）</option>
+                <option value="auth_token">Auth Token（Bearer）</option>
+              </select>
+            </label>
+            <label id="mc-key-label"><span id="mc-key-title">API Key</span><input type="password" id="mc-key" placeholder="sk-..."></label>
+            <label>API 地址（根地址或完整接口）<input type="text" id="mc-url" placeholder="https://api.xxx.com/v1"></label>
+            <p class="hint" id="mc-url-hint"></p>
+            <label id="mc-responses-state-wrap" class="checkbox-label hidden"><input type="checkbox" id="mc-responses-state"> 保留 Responses 服务端会话状态</label>
             <label>模型名<input type="text" id="mc-model" placeholder="model-name"></label>
             <div class="form-row">
               <button id="btn-mc-models" class="btn-secondary">读取模型列表</button>
             </div>
             <div class="model-list-box" id="mc-models-box"></div>
-            <div class="form-row">
+            <div class="form-row context-size-row">
               <label style="flex:1">上下文长度
                 <div class="form-row">
                   <input type="number" id="mc-context-length" placeholder="1000" min="1" style="flex:1">

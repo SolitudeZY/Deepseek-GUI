@@ -14,6 +14,7 @@ if os.path.isdir('app/skills'):
 # rapidocr_onnxruntime 的 config.yaml + models/*.onnx，否则运行时找不到 config.yaml
 datas += collect_data_files('rapidocr_onnxruntime')
 datas += copy_metadata('mcp')
+datas += copy_metadata('anthropic')
 _mcp_hiddenimports = [
     'mcp.types',
     'mcp.client.session',
@@ -38,6 +39,11 @@ a = Analysis(
         'app.conversation',
         'app.vision',
         'app.mcp_client',
+        'app.model_protocol',
+        'anthropic',
+        'anthropic._client',
+        'anthropic.resources.messages',
+        'anthropic.types',
     ] + _mcp_hiddenimports,
     hookspath=[],
     hooksconfig={},

@@ -620,17 +620,13 @@ document.querySelectorAll('.subtab-btn').forEach(btn => {
   });
 });
 
-// 读取模型列表（图片理解 / 图片生成共用）
-async function fetchModelList(keyId, urlId, modelId, boxId, btn) {
+async function requestModelList(modelId, boxId, btn, request) {
   const box = $(boxId);
-  const key = $(keyId).value.trim();
-  const url = $(urlId).value.trim();
-  if (!key || !url) { box.innerHTML = '<span class="model-list-err">请先填写 API Key 和 Base URL</span>'; return; }
   const oldLabel = btn.textContent;
   btn.disabled = true; btn.textContent = '读取中...';
   box.innerHTML = '<span class="model-list-loading">正在拉取模型列表...</span>';
   try {
-    const r = await window.pywebview.api.list_models(key, url);
+    const r = await request();
     if (!r.ok) { box.innerHTML = `<span class="model-list-err">${escapeHtml(r.error || '读取失败')}</span>`; return; }
     box.innerHTML = `<div class="model-list-head">共 ${r.models.length} 个模型（点击填入模型名）</div>`;
     const wrap = document.createElement('div');
@@ -654,9 +650,6 @@ $('btn-vision-models').addEventListener('click', e =>
   fetchModelList('vision-key', 'vision-url', 'vision-model', 'vision-models-box', e.currentTarget));
 $('btn-imagegen-models').addEventListener('click', e =>
   fetchModelList('imagegen-key', 'imagegen-url', 'imagegen-model', 'imagegen-models-box', e.currentTarget));
-$('btn-mc-models').addEventListener('click', e =>
-  fetchModelList('mc-key', 'mc-url', 'mc-model', 'mc-models-box', e.currentTarget));
-
 async function openSettings() {
   _mcpServersDraft = JSON.parse(JSON.stringify(state.config.mcp_servers || []));
   _modelConfigsBeforeOpen = JSON.parse(JSON.stringify(state.config.model_configs || []));
@@ -683,6 +676,18 @@ async function openSettings() {
   if (document.querySelector('.tab-btn.active')?.dataset.tab === 'mcp') {
     _maybePromptExternalMcp();
   }
+}
+
+// 读取模型列表（图片理解 / 图片生成共用）
+async function fetchModelList(keyId, urlId, modelId, boxId, btn) {
+  const key = $(keyId).value.trim();
+  const url = $(urlId).value.trim();
+  if (!key || !url) {
+    $(boxId).innerHTML = '<span class="model-list-err">请先填写 API Key 和 API 地址</span>';
+    return;
+  }
+  return requestModelList(modelId, boxId, btn,
+    () => window.pywebview.api.list_models(key, url));
 }
 
 // 用 cfg 填充设置面板各输入框（openSettings 与导入配置后共用）
@@ -853,6 +858,74 @@ $('btn-sync-import-all').addEventListener('click', async () => {
   }
 });
 
+const MODEL_API_TYPE_META = Object.freeze({
+  openai_chat: {
+    protocol: 'openai_chat', provider: 'generic', client: 'generic',
+    summary: 'Chat Completions · 通用参数', endpoint: '/chat/completions',
+    placeholder: 'https://api.openai.com/v1',
+  },
+  openai_responses: {
+    protocol: 'openai_responses', provider: 'generic', client: 'generic',
+    summary: 'Responses · 通用 SDK', endpoint: '/responses',
+    placeholder: 'https://api.openai.com/v1',
+  },
+  anthropic: {
+    protocol: 'anthropic_messages', provider: 'generic', client: 'generic',
+    summary: 'Anthropic Messages', endpoint: '/v1/messages',
+    placeholder: 'https://api.anthropic.com',
+  },
+  deepseek: {
+    protocol: 'openai_chat', provider: 'deepseek', client: 'generic',
+    summary: 'Chat Completions · DeepSeek 思考参数', endpoint: '/chat/completions',
+    placeholder: 'https://api.deepseek.com/v1',
+  },
+  qwen: {
+    protocol: 'openai_chat', provider: 'qwen', client: 'generic',
+    summary: 'Chat Completions · Qwen 思考参数', endpoint: '/chat/completions',
+    placeholder: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  },
+  glm: {
+    protocol: 'openai_chat', provider: 'glm', client: 'generic',
+    summary: 'Chat Completions · GLM 思考参数', endpoint: '/chat/completions',
+    placeholder: 'https://open.bigmodel.cn/api/paas/v4',
+  },
+  codex_chat: {
+    protocol: 'openai_chat', provider: 'generic', client: 'codex',
+    summary: 'Chat Completions · Codex 请求头', endpoint: '/chat/completions',
+    placeholder: 'https://api.openai.com/v1',
+  },
+  codex_responses: {
+    protocol: 'openai_responses', provider: 'generic', client: 'codex',
+    summary: 'Responses · Codex 请求头', endpoint: '/responses',
+    placeholder: 'https://api.openai.com/v1',
+  },
+});
+
+function inferModelApiType(mc) {
+  if (MODEL_API_TYPE_META[mc.api_type]) return mc.api_type;
+  const protocol = mc.api_protocol || 'openai_chat';
+  if (mc.client_profile === 'codex') {
+    return protocol === 'openai_responses' ? 'codex_responses' : 'codex_chat';
+  }
+  if (protocol === 'anthropic_messages') return 'anthropic';
+  if (protocol === 'openai_responses') return 'openai_responses';
+  return ['deepseek', 'qwen', 'glm'].includes(mc.provider_profile)
+    ? mc.provider_profile : 'openai_chat';
+}
+
+function applyModelApiType(mc, apiType) {
+  const type = MODEL_API_TYPE_META[apiType] ? apiType : 'openai_chat';
+  const meta = MODEL_API_TYPE_META[type];
+  mc.api_type = type;
+  mc.api_protocol = meta.protocol;
+  mc.provider_profile = meta.provider;
+  mc.client_profile = meta.client;
+  if (type !== 'anthropic') mc.auth_mode = 'api_key';
+  if (meta.protocol !== 'openai_responses') mc.responses_server_state = false;
+  delete mc.use_full_url;
+  return meta;
+}
+
 // Model config list
 function renderModelConfigList() {
   const ul = $('model-config-list');
@@ -896,11 +969,14 @@ function selectMc(idx) {
   state.selectedMcIdx = idx;
   const mc = state.config.model_configs[idx];
   $('mc-name').value = mc.name || '';
+  $('mc-api-type').value = inferModelApiType(mc);
+  $('mc-auth-mode').value = mc.auth_mode || 'api_key';
+  $('mc-responses-state').checked = mc.responses_server_state === true;
   $('mc-key').value = mc.api_key || '';
   $('mc-url').value = mc.base_url || '';
   $('mc-model').value = mc.model || '';
   $('mc-system').value = mc.system_prompt || '';
-  $('mc-use-full-url').checked = mc.use_full_url || false;
+  updateModelApiTypeUI();
   // 上下文长度和压缩阈值（自动选择 K/M 单位）
   const ctxLen = mc.context_length || 600000;
   if (ctxLen >= 1000000 && ctxLen % 1000000 === 0) {
@@ -922,14 +998,16 @@ function selectMc(idx) {
 }
 
 function saveCurrentMc() {
-  if (state.selectedMcIdx === null) return;
+  if (state.selectedMcIdx === null) return null;
   const mc = state.config.model_configs[state.selectedMcIdx];
   mc.name = $('mc-name').value.trim() || mc.name;
+  applyModelApiType(mc, $('mc-api-type').value);
+  mc.auth_mode = $('mc-auth-mode').value;
+  mc.responses_server_state = $('mc-responses-state').checked;
   mc.api_key = $('mc-key').value.trim();
   mc.base_url = $('mc-url').value.trim();
   mc.model = $('mc-model').value.trim();
   mc.system_prompt = $('mc-system').value.trim();
-  mc.use_full_url = $('mc-use-full-url').checked;
   // 上下文长度和压缩阈值
   const ctxVal = parseFloat($('mc-context-length').value) || 600;
   const ctxUnit = $('mc-context-unit').value;
@@ -938,7 +1016,35 @@ function saveCurrentMc() {
   const compUnit = $('mc-compact-unit').value;
   mc.compact_threshold = Math.round(compVal * (compUnit === 'M' ? 1000000 : 1000));
   renderModelConfigList();
+  return mc;
 }
+
+function updateModelApiTypeUI() {
+  const apiType = $('mc-api-type').value || 'openai_chat';
+  const meta = MODEL_API_TYPE_META[apiType] || MODEL_API_TYPE_META.openai_chat;
+  const isAnthropic = meta.protocol === 'anthropic_messages';
+  const isResponses = meta.protocol === 'openai_responses';
+  $('mc-auth-mode-wrap').classList.toggle('hidden', !isAnthropic);
+  $('mc-responses-state-wrap').classList.toggle('hidden', !isResponses);
+  $('mc-key-title').textContent = isAnthropic ? 'Anthropic 凭据' : 'API Key';
+  $('mc-key').placeholder = isAnthropic ? 'API Key 或 Auth Token' : 'sk-...';
+  $('mc-url').placeholder = meta.placeholder;
+  $('mc-api-summary').textContent = meta.summary;
+  $('mc-url-hint').textContent = `请求路径：${meta.endpoint}`;
+  $('btn-mc-models').style.display = isAnthropic ? 'none' : '';
+  if (isAnthropic) $('mc-models-box').innerHTML = '';
+}
+
+$('mc-api-type').addEventListener('change', updateModelApiTypeUI);
+$('btn-mc-models').addEventListener('click', e => {
+  const mc = saveCurrentMc();
+  if (!mc || !mc.api_key || !mc.base_url) {
+    $('mc-models-box').innerHTML = '<span class="model-list-err">请先填写 API Key 和 API 地址</span>';
+    return;
+  }
+  requestModelList('mc-model', 'mc-models-box', e.currentTarget,
+    () => window.pywebview.api.list_text_models(mc));
+});
 
 $('btn-save-mc').addEventListener('click', saveCurrentMc);
 $('btn-model-import').addEventListener('click', async () => {
@@ -980,11 +1086,11 @@ $('btn-model-import-selected').addEventListener('click', async () => {
   $('model-import-panel').classList.add('hidden');
   if (selectedIndex !== null) selectMc(selectedIndex);
   else renderModelConfigList();
-  alert(`已导入 ${imported} 个模型配置。请检查协议兼容性，并点击设置窗口底部“保存”。`);
+  alert(`已导入 ${imported} 个模型配置并自动匹配接口类型。请点击设置窗口底部“保存”。`);
 });
 $('btn-add-model').addEventListener('click', () => {
   const configs = state.config.model_configs || [];
-  configs.push({ name: `新配置 ${configs.length + 1}`, api_key: '', base_url: '', model: '', system_prompt: 'You are a helpful assistant.', context_length: 1000000, compact_threshold: 600000, use_full_url: false });
+  configs.push({ name: `新配置 ${configs.length + 1}`, api_key: '', base_url: '', model: '', system_prompt: 'You are a helpful assistant.', context_length: 1000000, compact_threshold: 600000, api_type: 'openai_chat', auth_mode: 'api_key', responses_server_state: false });
   state.config.model_configs = configs;
   selectMc(configs.length - 1);
 });

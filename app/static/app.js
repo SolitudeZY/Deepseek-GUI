@@ -931,6 +931,15 @@ function addErrorBubble(msg) {
   scrollToBottom();
 }
 
+function addNoticeBubble(msg) {
+  const div = document.createElement('div');
+  div.className = 'bubble bubble-notice';
+  div.innerHTML = `<div class="bubble-label">Notice</div><div>${escapeHtml(msg)}</div>`;
+  chatMessages.appendChild(div);
+  if (_streamingConvId) _streamNodes.push(div);
+  scrollToBottom();
+}
+
 // ── Streaming assistant bubble ────────────────────────────────────
 let _streamBubble = null;
 let _streamContent = '';
@@ -1109,6 +1118,9 @@ window.Chat = {
     _streamNodes = [];
     addErrorBubble(msg);
     setRunning(false);
+  },
+  showNotice(msg) {
+    addNoticeBubble(msg);
   },
   showConfirmDialog(toolName, args, wildcard) {
     $('confirm-title').textContent = `确认执行：${toolName}`;

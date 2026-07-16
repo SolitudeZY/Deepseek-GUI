@@ -1,8 +1,10 @@
 import json
 import os
 import platform
+import copy
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 APP_NAME = "AIDesktopAssistant"
 APP_VERSION = "1.9.3"
@@ -10,6 +12,119 @@ GITHUB_REPO = "SolitudeZY/Deepseek-GUI"
 
 IS_MAC = platform.system() == "Darwin"
 IS_WIN = platform.system() == "Windows"
+
+MODEL_PROTOCOLS = {"openai_chat", "openai_responses", "anthropic_messages"}
+PROVIDER_PROFILES = {"generic", "deepseek", "qwen", "glm"}
+ANTHROPIC_AUTH_MODES = {"api_key", "auth_token"}
+MODEL_CLIENT_PROFILES = {"generic", "codex"}
+MODEL_API_TYPES = {
+    "openai_chat",
+    "openai_responses",
+    "anthropic",
+    "deepseek",
+    "qwen",
+    "glm",
+    "codex_chat",
+    "codex_responses",
+}
+
+MODEL_API_TYPE_FIELDS = {
+    "openai_chat": ("openai_chat", "generic", "generic"),
+    "openai_responses": ("openai_responses", "generic", "generic"),
+    "anthropic": ("anthropic_messages", "generic", "generic"),
+    "deepseek": ("openai_chat", "deepseek", "generic"),
+    "qwen": ("openai_chat", "qwen", "generic"),
+    "glm": ("openai_chat", "glm", "generic"),
+    "codex_chat": ("openai_chat", "generic", "codex"),
+    "codex_responses": ("openai_responses", "generic", "codex"),
+}
+
+MODEL_CONFIG_DEFAULTS = {
+    "api_type": "openai_chat",
+    "api_protocol": "openai_chat",
+    "provider_profile": "generic",
+    "auth_mode": "api_key",
+    "client_profile": "generic",
+    "responses_server_state": False,
+}
+
+
+def infer_provider_profile(model_config: dict) -> str:
+    """Conservatively classify legacy Chat-compatible provider configs once."""
+    url = str(model_config.get("base_url", "") or "").strip().lower()
+    model = str(model_config.get("model", "") or "").strip().lower()
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except Exception:
+        host = ""
+    if host == "api.deepseek.com" or model.startswith("deepseek-"):
+        return "deepseek"
+    if host.endswith("dashscope.aliyuncs.com") or model.startswith("qwen"):
+        return "qwen"
+    if host == "open.bigmodel.cn" or model.startswith(("glm-", "chatglm")):
+        return "glm"
+    return "generic"
+
+
+def infer_model_api_type(model_config: dict) -> str:
+    """Map legacy protocol/profile/client combinations to one UI-facing type."""
+    protocol = str(model_config.get("api_protocol", "") or "").strip().lower()
+    if protocol not in MODEL_PROTOCOLS:
+        protocol = "openai_chat"
+    profile = str(model_config.get("provider_profile", "") or "").strip().lower()
+    if profile not in PROVIDER_PROFILES:
+        profile = infer_provider_profile(model_config)
+    client = str(model_config.get("client_profile", "") or "").strip().lower()
+    if client not in MODEL_CLIENT_PROFILES:
+        client = "generic"
+
+    if client == "codex":
+        return "codex_responses" if protocol == "openai_responses" else "codex_chat"
+    if protocol == "anthropic_messages":
+        return "anthropic"
+    if protocol == "openai_responses":
+        return "openai_responses"
+    return profile if profile in {"deepseek", "qwen", "glm"} else "openai_chat"
+
+
+def normalize_model_config(model_config: dict) -> dict:
+    """Return a validated model config without mutating the caller's object."""
+    normalized = copy.deepcopy(model_config) if isinstance(model_config, dict) else {}
+
+    api_type = str(normalized.get("api_type", "") or "").strip().lower()
+    if api_type not in MODEL_API_TYPES:
+        if "provider_profile" not in normalized:
+            normalized["provider_profile"] = infer_provider_profile(normalized)
+        api_type = infer_model_api_type(normalized)
+    normalized["api_type"] = api_type
+    protocol, profile, client_profile = MODEL_API_TYPE_FIELDS[api_type]
+    normalized["api_protocol"] = protocol
+    normalized["provider_profile"] = profile
+    normalized["client_profile"] = client_profile
+
+    auth_mode = str(normalized.get("auth_mode", "") or "").strip().lower()
+    normalized["auth_mode"] = auth_mode if auth_mode in ANTHROPIC_AUTH_MODES else "api_key"
+    if api_type != "anthropic":
+        normalized["auth_mode"] = "api_key"
+    normalized["responses_server_state"] = (
+        normalized.get("responses_server_state") is True
+        and protocol == "openai_responses"
+    )
+    normalized.pop("use_full_url", None)
+    return normalized
+
+
+def normalize_config(config: dict) -> dict:
+    """Normalize persisted config fields at the storage boundary."""
+    normalized = copy.deepcopy(config) if isinstance(config, dict) else {}
+    for key, value in DEFAULT_CONFIG.items():
+        if key not in normalized:
+            normalized[key] = copy.deepcopy(value)
+    configs = normalized.get("model_configs")
+    if not isinstance(configs, list):
+        configs = []
+    normalized["model_configs"] = [normalize_model_config(item) for item in configs]
+    return normalized
 
 
 def get_app_data_dir() -> Path:
@@ -39,7 +154,7 @@ DEFAULT_MODEL_CONFIGS = [
         "system_prompt": "You are a helpful assistant.",
         "context_length": 1000000,
         "compact_threshold": 600000,
-        "use_full_url": False,
+        "api_type": "deepseek",
     },
     {
         "name": "DeepSeek V4 Flash",
@@ -49,7 +164,7 @@ DEFAULT_MODEL_CONFIGS = [
         "system_prompt": "You are a helpful assistant.",
         "context_length": 1000000,
         "compact_threshold": 600000,
-        "use_full_url": False,
+        "api_type": "deepseek",
     },
     {
         "name": "DeepSeek V3.2",
@@ -59,7 +174,7 @@ DEFAULT_MODEL_CONFIGS = [
         "system_prompt": "You are a helpful assistant.",
         "context_length": 128000,
         "compact_threshold": 80000,
-        "use_full_url": False,
+        "api_type": "deepseek",
     },
     {
         "name": "OpenAI",
@@ -69,7 +184,7 @@ DEFAULT_MODEL_CONFIGS = [
         "system_prompt": "You are a helpful assistant.",
         "context_length": 128000,
         "compact_threshold": 80000,
-        "use_full_url": False,
+        "api_type": "openai_chat",
     },
     {
         "name": "本地 Ollama",
@@ -79,7 +194,7 @@ DEFAULT_MODEL_CONFIGS = [
         "system_prompt": "You are a helpful assistant.",
         "context_length": 128000,
         "compact_threshold": 80000,
-        "use_full_url": False,
+        "api_type": "openai_chat",
     },
 ]
 
@@ -126,17 +241,21 @@ def load_config() -> dict:
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # 补全缺失的顶层 key
-            for k, v in DEFAULT_CONFIG.items():
-                if k not in data:
-                    data[k] = v
-            return data
+            normalized = normalize_config(data)
         except Exception:
-            pass
-    return dict(DEFAULT_CONFIG)
+            return normalize_config(DEFAULT_CONFIG)
+        if normalized != data:
+            try:
+                with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                    json.dump(normalized, f, ensure_ascii=False, indent=2)
+            except OSError:
+                pass
+        return normalized
+    return normalize_config(DEFAULT_CONFIG)
 
 
 def save_config(config: dict) -> None:
+    config = normalize_config(config)
     with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False, indent=2)
 

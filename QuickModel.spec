@@ -9,6 +9,7 @@ from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 # 否则运行时报 "No such file or directory: .../rapidocr_onnxruntime/config.yaml"
 _rapidocr_datas = collect_data_files('rapidocr_onnxruntime')
 _mcp_datas = copy_metadata('mcp')
+_anthropic_datas = copy_metadata('anthropic')
 _mcp_hiddenimports = [
     'mcp.types',
     'mcp.client.session',
@@ -26,7 +27,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=_openssl_binaries,
-    datas=[('app/static', 'app/static'), ('icon.ico', '.')] + _rapidocr_datas + _mcp_datas,
+    datas=[('app/static', 'app/static'), ('icon.ico', '.')] + _rapidocr_datas + _mcp_datas + _anthropic_datas,
     hiddenimports=[
         'app.agent',
         'app.tools',
@@ -39,6 +40,11 @@ a = Analysis(
         'app.conversation',
         'app.vision',
         'app.mcp_client',
+        'app.model_protocol',
+        'anthropic',
+        'anthropic._client',
+        'anthropic.resources.messages',
+        'anthropic.types',
     ] + _mcp_hiddenimports,
     hookspath=[],
     hooksconfig={},

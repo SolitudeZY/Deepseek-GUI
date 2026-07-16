@@ -2,9 +2,6 @@ import json
 import threading
 from typing import Callable, Optional
 
-# Lazy imports — these are heavy and slow down startup
-OpenAI = None  # will be imported on first use
-
 from app.tools import TOOLS_SCHEMA, CONFIRM_REQUIRED, dispatch
 from app.advanced_tools import (
     ADVANCED_TOOLS_SCHEMA, TodoManager, TaskManager, BackgroundManager,
@@ -12,47 +9,8 @@ from app.advanced_tools import (
 )
 from app.team import TEAM, WORKTREES, BUS
 from app.skills import skill_list, skill_list_str, skill_read, memory_read, memory_write, memory_list
-
-
-def _get_openai():
-    global OpenAI
-    if OpenAI is None:
-        from openai import OpenAI as _OpenAI
-        OpenAI = _OpenAI
-    return OpenAI
-
-
-def _usage_value(usage, *names: str) -> int:
-    """Read token usage from either OpenAI SDK objects or dict-like proxy responses."""
-    for name in names:
-        try:
-            if isinstance(usage, dict):
-                value = usage.get(name)
-            else:
-                value = getattr(usage, name, None)
-            if value is not None:
-                return int(value or 0)
-        except Exception:
-            continue
-    return 0
-
-
-def _estimate_round_usage(full_messages: list[dict], assistant_content: str, thinking_content: str, current_tool_calls: dict) -> tuple[int, int]:
-    """Estimate prompt/completion tokens when a provider omits or mislabels usage.
-
-    Some OpenAI-compatible streaming endpoints return a non-empty ``usage`` object
-    whose field names are not compatible with the OpenAI SDK. Treating that as a
-    real zero would suppress token recording entirely, so keep this fallback small
-    and deterministic.
-    """
-    prompt_tokens = estimate_tokens(full_messages)
-    completion_payload = [{"role": "assistant", "content": assistant_content}]
-    if thinking_content:
-        completion_payload[0]["reasoning_content"] = thinking_content
-    if current_tool_calls:
-        completion_payload[0]["tool_calls"] = list(current_tool_calls.values())
-    completion_tokens = max(1, estimate_tokens(completion_payload))
-    return prompt_tokens, completion_tokens
+from app.config import normalize_model_config
+from app.model_protocol import create_model_adapter, model_config_fingerprint
 
 
 # Token threshold for auto-compact (approx)
@@ -68,7 +26,8 @@ class _Callbacks:
     """Simple namespace to bundle callbacks."""
     __slots__ = ('on_token', 'on_tool_start', 'on_tool_result', 'on_confirm',
                  'on_done', 'on_error', 'on_todo_update', 'on_context_update',
-                 'on_thinking', 'on_usage', 'on_ask_user', 'on_secret_input')
+                 'on_thinking', 'on_usage', 'on_ask_user', 'on_secret_input',
+                 'on_notice')
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
@@ -112,10 +71,17 @@ class Agent:
         context_length: int = 0,
         vision_config: dict = None,
         project_path: str = "",
-        use_full_url: bool = False,
         mcp_manager=None,
+        model_config: dict = None,
+        provider_state: dict = None,
     ):
-        self.model = model
+        self.model_config = normalize_model_config(model_config or {
+            "name": model,
+            "api_key": api_key,
+            "base_url": base_url,
+            "model": model,
+        })
+        self.model = self.model_config.get("model", model)
         self.search_config = search_config or {}
         self.vision_config = vision_config or {}
         self.project_path = project_path or ""
@@ -130,10 +96,12 @@ class Agent:
         self.compact_threshold = compact_threshold or AUTO_COMPACT_THRESHOLD
         self.search_enabled = search_enabled
         self._model_configs: list = []
-        # Normalize base_url before passing to SDK
-        normalized_url = self._normalize_base_url(base_url or "", use_full_url)
-        self._client = _get_openai()(api_key=api_key, base_url=normalized_url)
-        self._base_url = normalized_url.rstrip("/")
+        self._adapter = create_model_adapter(self.model_config)
+        self._base_url = self._adapter.config.base_url.rstrip("/")
+        self.provider_state: dict = dict(provider_state or {})
+        expected_fingerprint = model_config_fingerprint(self.model_config)
+        if self.provider_state.get("config_fingerprint") != expected_fingerprint:
+            self.provider_state = {}
         self._stop_flag = threading.Event()
         self._todo = todo_manager or TodoManager()
         self._tasks = task_manager or TaskManager()
@@ -250,108 +218,12 @@ class Agent:
         return prompt
 
     def _provider(self) -> str:
-        """Detect provider from base_url."""
-        url = self._base_url.lower()
-        if "deepseek" in url:
-            return "deepseek"
-        if "anthropic" in url or "claude" in url:
-            return "anthropic"
-        return "openai"
+        """Return the explicit provider profile/protocol for UI and diagnostics."""
+        profile = self.model_config.get("provider_profile", "generic")
+        return profile if profile != "generic" else self.model_config.get("api_protocol", "openai_chat")
 
     def _is_reasoner(self) -> bool:
-        """True when this call should use extended thinking / reasoning."""
-        if self.thinking == "off":
-            return False
-        p = self._provider()
-        if p == "deepseek":
-            return True
-        if p in ("openai", "anthropic"):
-            return True
-        return False
-
-    def _build_stream(self, messages: list) -> tuple:
-        """Return (stream, provider). Handles provider-specific params.
-        If the request is blocked (content filter), retries without tools.
-        """
-        kwargs: dict = dict(
-            model=self.model,
-            messages=messages,
-            stream=True,
-            stream_options={"include_usage": True},
-        )
-        provider = self._provider()
-
-        if self._is_reasoner():
-            effort = "high" if self.thinking == "high" else "high"
-            if provider == "deepseek":
-                kwargs["reasoning_effort"] = effort
-                kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
-                kwargs["tools"] = self._all_tools()
-                kwargs["tool_choice"] = "auto"
-            elif provider == "openai":
-                kwargs["extra_body"] = {"reasoning_effort": effort}
-                kwargs["tools"] = self._all_tools()
-                kwargs["tool_choice"] = "auto"
-            elif provider == "anthropic":
-                budget = 32000 if self.thinking == "max" else 8000
-                kwargs["extra_body"] = {"thinking": {"type": "enabled", "budget_tokens": budget}}
-                kwargs["tools"] = self._all_tools()
-                kwargs["tool_choice"] = "auto"
-        else:
-            kwargs["tools"] = self._all_tools()
-            kwargs["tool_choice"] = "auto"
-
-        try:
-            return self._client.chat.completions.create(**kwargs), provider
-        except Exception as e:
-            err_msg = str(e).lower()
-            # If blocked by content filter or tools not supported, retry without tools
-            if any(kw in err_msg for kw in ("blocked", "content_filter", "invalid_tool", "not support")):
-                kwargs.pop("tools", None)
-                kwargs.pop("tool_choice", None)
-                # Strip tool_calls and tool messages from history for compatibility
-                kwargs["messages"] = self._strip_tool_messages(kwargs["messages"])
-                return self._client.chat.completions.create(**kwargs), provider
-            raise
-
-    @staticmethod
-    def _normalize_base_url(base_url: str, use_full_url: bool = False) -> str:
-        """Normalize base_url for OpenAI SDK.
-
-        If use_full_url is True, the URL is used as-is (user has a complete endpoint
-        like https://xxx.com/v1/chat/completions). The SDK will still append its own
-        path, but some proxy services need this.
-
-        If use_full_url is False (default), we strip trailing API paths that the SDK
-        would otherwise double-append (e.g. /chat/completions, /images/generations).
-        This ensures the SDK's own path concatenation works correctly.
-        """
-        url = base_url.strip().rstrip("/")
-        if not url:
-            return url
-        if use_full_url:
-            return url
-        # Strip known API endpoint suffixes so SDK can append cleanly
-        for suffix in ("/chat/completions", "/images/generations", "/completions", "/models"):
-            if url.endswith(suffix):
-                url = url[: -len(suffix)]
-                break
-        return url
-
-    @staticmethod
-    def _strip_tool_messages(messages: list[dict]) -> list[dict]:
-        """Remove tool-related content from messages for providers that don't support tools."""
-        cleaned = []
-        for m in messages:
-            if m.get("role") == "tool":
-                continue
-            if m.get("role") == "assistant" and m.get("tool_calls"):
-                # Keep the message but remove tool_calls, keep content only
-                cleaned_msg = {"role": "assistant", "content": m.get("content") or ""}
-                cleaned.append(cleaned_msg)
-            else:
-                cleaned.append(m)
-        return cleaned
+        return self.thinking != "off"
 
     def stop(self):
         self._stop_flag.set()
@@ -400,9 +272,7 @@ class Agent:
             "background_check": lambda a: self._bg.check(a.get("task_id")),
             "subagent": lambda a: run_subagent(
                 prompt=a.get("prompt", ""),
-                api_key=self._client.api_key,
-                base_url=str(self._client.base_url),
-                model=self.model,
+                model_config=self.model_config,
                 agent_type=a.get("agent_type", "Explore")),
             "rlm_query": self._handle_rlm_query,
             "team_spawn": self._handle_team_spawn,
@@ -432,20 +302,14 @@ class Agent:
             return f"TodoWrite 错误：{e}"
 
     def _handle_rlm_query(self, args: dict) -> str:
-        flash_model = "deepseek-v4-flash"
-        rlm_api_key = self._client.api_key
-        rlm_base_url = str(self._client.base_url)
+        rlm_config = self.model_config
         if self._model_configs:
             flash_mc = next((c for c in self._model_configs if "flash" in c.get("model", "").lower()), None)
             if flash_mc:
-                rlm_api_key = flash_mc.get("api_key") or rlm_api_key
-                rlm_base_url = flash_mc.get("base_url") or rlm_base_url
-                flash_model = flash_mc.get("model") or flash_model
+                rlm_config = flash_mc
         return run_rlm(
             prompts=args.get("prompts", []),
-            api_key=rlm_api_key,
-            base_url=rlm_base_url,
-            model=flash_model,
+            model_config=rlm_config,
             system_prompt=args.get("system_prompt", ""),
         )
 
@@ -455,16 +319,12 @@ class Agent:
             mc = next((c for c in self._model_configs if c.get("name") == mc_name), None)
         else:
             mc = None
-        api_key = mc["api_key"] if mc else self._client.api_key
-        base_url = mc["base_url"] if mc else str(self._client.base_url)
-        model = mc["model"] if mc else self.model
+        selected_config = mc or self.model_config
         return TEAM.spawn(
             name=args.get("name", ""),
             role=args.get("role", ""),
             prompt=args.get("prompt", ""),
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
+            model_config=selected_config,
         )
 
     def _handle_team_read_inbox(self, args: dict) -> str:
@@ -504,6 +364,7 @@ class Agent:
         on_usage: Optional[Callable[[dict], None]] = None,
         on_ask_user: Optional[Callable[[dict], str]] = None,
         on_secret_input: Optional[Callable[[dict], str]] = None,
+        on_notice: Optional[Callable[[str], None]] = None,
     ):
         """在调用线程中同步运行（应在后台线程调用）。"""
         self._stop_flag.clear()
@@ -517,6 +378,7 @@ class Agent:
             on_todo_update=on_todo_update, on_context_update=on_context_update,
             on_thinking=on_thinking, on_usage=on_usage, on_ask_user=on_ask_user,
             on_secret_input=on_secret_input,
+            on_notice=on_notice,
         )
 
         session_usage = {
@@ -582,19 +444,13 @@ class Agent:
             })
         return all_messages
 
-    def _summary_client_model(self):
-        """返回用于上下文压缩摘要的 (client, model)：优先用便宜的 flash 模型配置，
-        回退主模型。摘要是内部一次性调用，用便宜模型省钱提速。"""
+    def _summary_model_config(self) -> dict:
+        """Return the complete config for the preferred low-cost summary model."""
         if self._model_configs:
             flash_mc = next((c for c in self._model_configs if "flash" in c.get("model", "").lower()), None)
             if flash_mc and flash_mc.get("api_key") and flash_mc.get("base_url"):
-                try:
-                    from openai import OpenAI
-                    c = OpenAI(api_key=flash_mc["api_key"], base_url=flash_mc["base_url"])
-                    return c, flash_mc.get("model") or self.model
-                except Exception:
-                    pass
-        return self._client, self.model
+                return flash_mc
+        return self.model_config
 
     def _manage_context(self, all_messages: list[dict], threshold: int, cb) -> list[dict]:
         """Apply auto_compact, push context usage.
@@ -605,9 +461,11 @@ class Agent:
         一次性折叠中段、保持 system 前缀稳定）兜底，缓存命中更高。
         """
         if estimate_tokens(all_messages) > threshold:
-            s_client, s_model = self._summary_client_model()
-            all_messages = auto_compact(all_messages, self._client, self.model,
-                                        summary_client=s_client, summary_model=s_model)
+            all_messages = auto_compact(
+                all_messages,
+                self.model_config,
+                summary_model_config=self._summary_model_config(),
+            )
         if cb.on_context_update:
             cb.on_context_update(estimate_tokens(all_messages), threshold)
         return all_messages
@@ -630,114 +488,63 @@ class Agent:
                         "tool_call_id": tc.get("id", ""),
                         "content": "用户已停止",
                     })
-        full_messages = self._apply_window(all_messages)
-        if self._is_reasoner() and self._provider() == "deepseek":
-            full_messages = [
-                {**msg, "reasoning_content": msg.get("reasoning_content") or ""}
-                if msg.get("role") == "assistant" else msg
-                for msg in full_messages
-            ]
-        elif not self._is_reasoner() and self._provider() == "deepseek":
-            full_messages = [
-                {k: v for k, v in msg.items() if k != "reasoning_content"}
-                if msg.get("role") == "assistant" else msg
-                for msg in full_messages
-            ]
-        return full_messages
+        return self._apply_window(all_messages)
 
     def _stream_and_parse(self, full_messages: list[dict], cb, session_usage: dict) -> _StreamResult:
-        """Stream LLM response and parse into content + tool calls."""
-        assistant_content = ""
-        thinking_content = ""
-        round_usage = None
+        """Run one provider round and keep only the normalized result."""
+        previous_response_id = ""
+        incremental_messages = None
+        if (
+            self.model_config.get("api_protocol") == "openai_responses"
+            and self.model_config.get("responses_server_state") is True
+            and self.provider_state.get("response_id")
+        ):
+            previous_response_id = str(self.provider_state["response_id"])
+            incremental_messages = self._messages_after_latest_assistant(full_messages)
 
-        stream, provider = self._build_stream(full_messages)
-        current_tool_calls: dict[int, dict] = {}
+        result = self._adapter.stream_round(
+            full_messages,
+            tools=self._all_tools(),
+            thinking=self.thinking,
+            stop_event=self._stop_flag,
+            on_text=cb.on_token,
+            on_thinking=cb.on_thinking,
+            previous_response_id=previous_response_id,
+            incremental_messages=incremental_messages,
+        )
 
-        for chunk in stream:
-            if self._stop_flag.is_set():
-                break
-            if hasattr(chunk, 'usage') and chunk.usage:
-                round_usage = chunk.usage
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if delta is None:
-                continue
-            rc = getattr(delta, "reasoning_content", None)
-            if rc:
-                thinking_content += rc
-                if cb.on_thinking:
-                    cb.on_thinking(rc)
-            if delta.content:
-                assistant_content += delta.content
-                cb.on_token(delta.content)
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    idx = tc.index
-                    if idx not in current_tool_calls:
-                        current_tool_calls[idx] = {
-                            "id": "", "type": "function",
-                            "function": {"name": "", "arguments": ""},
-                        }
-                    if tc.id:
-                        current_tool_calls[idx]["id"] = tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            current_tool_calls[idx]["function"]["name"] += tc.function.name
-                        if tc.function.arguments:
-                            current_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+        if result.provider_state_update is not None:
+            self.provider_state = result.provider_state_update.as_dict()
+        elif self.model_config.get("api_protocol") == "openai_responses" and self._stop_flag.is_set():
+            # A partial stopped response is not represented by the previous response ID.
+            self.provider_state = {}
 
-        # Push usage stats. Some OpenAI-compatible proxy endpoints ignore
-        # stream_options.include_usage and never send the final usage chunk. In that
-        # case, still record an approximate value so the daily usage heatmap is not
-        # blank for those models.
-        if cb.on_usage:
-            estimated = False
-            if round_usage:
-                pt = _usage_value(round_usage, 'prompt_tokens', 'input_tokens', 'promptTokens', 'inputTokens')
-                ct = _usage_value(round_usage, 'completion_tokens', 'output_tokens', 'completionTokens', 'outputTokens')
-                ch = _usage_value(round_usage, 'prompt_cache_hit_tokens', 'cache_hit_tokens', 'promptCacheHitTokens', 'cacheHitTokens')
-                cm = _usage_value(round_usage, 'prompt_cache_miss_tokens', 'cache_miss_tokens', 'promptCacheMissTokens', 'cacheMissTokens')
-                total = _usage_value(round_usage, 'total_tokens', 'totalTokens')
-                if pt <= 0 and ct <= 0 and total > 0:
-                    pt = total
-                if pt <= 0 and ct <= 0:
-                    estimated = True
-                    pt, ct = _estimate_round_usage(full_messages, assistant_content, thinking_content, current_tool_calls)
-                    ch = 0
-                    cm = 0
-            else:
-                estimated = True
-                pt, ct = _estimate_round_usage(full_messages, assistant_content, thinking_content, current_tool_calls)
-                ch = 0
-                cm = 0
+        if result.downgrade_notice and cb.on_notice:
+            cb.on_notice(result.downgrade_notice)
 
-            if pt > 0 or ct > 0:
-                session_usage["prompt_tokens"] += pt
-                session_usage["completion_tokens"] += ct
-                session_usage["cache_hit_tokens"] += ch
-                session_usage["cache_miss_tokens"] += cm
-                cb.on_usage({
-                    "round": {
-                        "prompt": pt, "completion": ct,
-                        "cache_hit": ch, "cache_miss": cm,
-                        "estimated": estimated,
-                    },
-                    "session": dict(session_usage),
-                })
-
-        tool_calls_accumulated = list(current_tool_calls.values())
-
-        assistant_msg: dict = {"role": "assistant", "content": assistant_content}
-        if self._is_reasoner() and provider == "deepseek":
-            assistant_msg["reasoning_content"] = thinking_content
-        if tool_calls_accumulated:
-            assistant_msg["tool_calls"] = tool_calls_accumulated
+        usage = result.usage
+        if cb.on_usage and (usage.prompt_tokens > 0 or usage.completion_tokens > 0):
+            session_usage["prompt_tokens"] += usage.prompt_tokens
+            session_usage["completion_tokens"] += usage.completion_tokens
+            session_usage["cache_hit_tokens"] += usage.cache_hit_tokens
+            session_usage["cache_miss_tokens"] += usage.cache_miss_tokens
+            cb.on_usage({
+                "round": usage.as_dict(),
+                "session": dict(session_usage),
+            })
 
         return _StreamResult(
-            assistant_msg=assistant_msg,
-            tool_calls=tool_calls_accumulated,
-            provider=provider,
+            assistant_msg=result.assistant_message,
+            tool_calls=result.tool_calls,
+            provider=self._provider(),
         )
+
+    @staticmethod
+    def _messages_after_latest_assistant(messages: list[dict]) -> list[dict]:
+        for index in range(len(messages) - 1, -1, -1):
+            if messages[index].get("role") == "assistant":
+                return messages[index + 1:]
+        return messages
 
     def _execute_tools(
         self, tool_calls: list[dict], all_messages: list[dict],
@@ -767,9 +574,11 @@ class Agent:
                     "role": "tool", "tool_call_id": tc["id"],
                     "content": "正在压缩上下文…",
                 })
-                s_client, s_model = self._summary_client_model()
-                compact_result = auto_compact(all_messages, self._client, self.model,
-                                              summary_client=s_client, summary_model=s_model)
+                compact_result = auto_compact(
+                    all_messages,
+                    self.model_config,
+                    summary_model_config=self._summary_model_config(),
+                )
                 all_messages.clear()
                 all_messages.extend(compact_result)
                 cb.on_tool_result(tool_name, "上下文已压缩")

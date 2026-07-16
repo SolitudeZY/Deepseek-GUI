@@ -192,7 +192,10 @@ class TeammateManager:
             del self._threads[name]
 
     def spawn(self, name: str, role: str, prompt: str,
-              api_key: str, base_url: str, model: str) -> str:
+              model_config: dict) -> str:
+        from app.config import normalize_model_config
+        model_config = normalize_model_config(model_config)
+        model = model_config.get("model", "")
         self._cleanup_threads()
         m = self._find(name)
         if m:
@@ -207,7 +210,7 @@ class TeammateManager:
         self._save_config()
         t = threading.Thread(
             target=self._loop,
-            args=(name, role, prompt, api_key, base_url, model),
+            args=(name, role, prompt, model_config),
             daemon=True,
         )
         self._threads[name] = t
@@ -215,9 +218,9 @@ class TeammateManager:
         return f"已启动成员 '{name}'（角色：{role}，模型：{model}）"
 
     def _loop(self, name: str, role: str, prompt: str,
-              api_key: str, base_url: str, model: str):
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key, base_url=base_url)
+              model_config: dict):
+        from app.model_protocol import create_model_adapter
+        adapter = create_model_adapter(model_config)
         team_name = self._config["team_name"]
         sys_prompt = (
             f"你是 '{name}'，角色：{role}，团队：{team_name}。"
@@ -227,8 +230,6 @@ class TeammateManager:
         )
         messages = [{"role": "user", "content": prompt}]
         tools = self._teammate_tools()
-        is_deepseek = "deepseek" in (base_url or "").lower()
-
         while True:
             # WORK PHASE
             for _ in range(MAX_ROUNDS):
@@ -240,54 +241,33 @@ class TeammateManager:
                         return
                     messages.append({"role": "user", "content": json.dumps(msg, ensure_ascii=False)})
 
-                # DeepSeek V4 requires reasoning_content on all assistant messages
-                # when thinking mode is active (V4 enables it by default).
-                # Patch: ensure every assistant message has reasoning_content.
-                send_messages = [{"role": "system", "content": sys_prompt}]
-                for m in messages:
-                    if m.get("role") == "assistant" and is_deepseek:
-                        send_messages.append({**m, "reasoning_content": m.get("reasoning_content") or ""})
-                    else:
-                        send_messages.append(m)
+                send_messages = [{"role": "system", "content": sys_prompt}] + messages
 
                 try:
-                    resp = client.chat.completions.create(
-                        model=model, messages=send_messages,
-                        tools=tools, tool_choice="auto",
-                    )
+                    round_result = adapter.stream_round(send_messages, tools=tools, stateless=True)
                 except Exception as e:
                     self._set_status(name, "idle")
                     self._notify(f"[{name}] API 错误：{e}")
                     return
-                assistant_msg = {"role": "assistant", "content": resp.choices[0].message.content or ""}
-                # DeepSeek V4 may return reasoning_content even without explicit thinking mode
-                rc = getattr(resp.choices[0].message, "reasoning_content", None)
-                if rc:
-                    assistant_msg["reasoning_content"] = rc
-                tcs = resp.choices[0].message.tool_calls or []
-                if tcs:
-                    assistant_msg["tool_calls"] = [
-                        {"id": tc.id, "type": "function",
-                         "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                        for tc in tcs
-                    ]
-                messages.append(assistant_msg)
+                tcs = round_result.tool_calls
+                messages.append(round_result.assistant_message)
                 if not tcs:
                     break
                 idle_requested = False
                 results = []
                 for tc in tcs:
                     try:
-                        args = json.loads(tc.function.arguments or "{}")
+                        args = json.loads(tc["function"]["arguments"] or "{}")
                     except Exception:
                         args = {}
-                    if tc.function.name == "idle":
+                    tool_name = tc["function"]["name"]
+                    if tool_name == "idle":
                         idle_requested = True
                         out = "进入空闲状态，等待新任务。"
                     else:
-                        out = self._exec(name, tc.function.name, args)
-                    self._notify(f"[{name}] {tc.function.name}: {str(out)[:120]}")
-                    results.append({"role": "tool", "tool_call_id": tc.id, "content": str(out)})
+                        out = self._exec(name, tool_name, args)
+                    self._notify(f"[{name}] {tool_name}: {str(out)[:120]}")
+                    results.append({"role": "tool", "tool_call_id": tc["id"], "content": str(out)})
                 messages.extend(results)
                 if idle_requested:
                     break

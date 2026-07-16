@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlsplit, urlunsplit
 
+
 try:
     import tomllib as _toml
 except ModuleNotFoundError:  # Python 3.10 runtime
@@ -346,7 +347,10 @@ def _claude_model_candidates(
                     source_label = f"Claude 当前项目 {filename}"
 
     env = _string_map(merged.get("env"))
-    detected_api_key = env.get("ANTHROPIC_API_KEY") or env.get("ANTHROPIC_AUTH_TOKEN") or ""
+    explicit_api_key = env.get("ANTHROPIC_API_KEY") or ""
+    explicit_auth_token = env.get("ANTHROPIC_AUTH_TOKEN") or ""
+    detected_api_key = explicit_api_key or explicit_auth_token
+    auth_mode = "auth_token" if explicit_auth_token and not explicit_api_key else "api_key"
     api_key = detected_api_key if include_secrets else ""
     base_url = env.get("ANTHROPIC_BASE_URL", "")
     slots = [
@@ -364,7 +368,7 @@ def _claude_model_candidates(
         seen_models.add(model)
         candidate_id = _candidate_id("model", "claude", slot)
         name = f"Claude · {slot.capitalize()}"
-        warnings = ["检测到 Anthropic Messages 配置；QuickModel 当前仅支持 OpenAI Chat Completions，请确认中转兼容"]
+        warnings = []
         payload = {
             "_import_id": candidate_id,
             "name": name,
@@ -374,7 +378,12 @@ def _claude_model_candidates(
             "system_prompt": "You are a helpful assistant.",
             "context_length": 1_000_000,
             "compact_threshold": 600_000,
-            "use_full_url": False,
+            "api_type": "anthropic",
+            "api_protocol": "anthropic_messages",
+            "provider_profile": "generic",
+            "auth_mode": auth_mode,
+            "client_profile": "generic",
+            "responses_server_state": False,
         }
         candidates.append(_Candidate(
             candidate_id, "model", "claude", source_label, name, payload,
@@ -382,7 +391,7 @@ def _claude_model_candidates(
         ))
     if not candidates and (detected_api_key or base_url):
         candidate_id = _candidate_id("model", "claude", "default")
-        warnings = ["未检测到模型名，导入后需要手动填写", "Claude 配置可能使用 Anthropic Messages 协议"]
+        warnings = ["未检测到模型名，导入后需要手动填写"]
         candidates.append(_Candidate(
             candidate_id, "model", "claude", source_label, "Claude 本地配置",
             {
@@ -394,7 +403,12 @@ def _claude_model_candidates(
                 "system_prompt": "You are a helpful assistant.",
                 "context_length": 1_000_000,
                 "compact_threshold": 600_000,
-                "use_full_url": False,
+                "api_type": "anthropic",
+                "api_protocol": "anthropic_messages",
+                "provider_profile": "generic",
+                "auth_mode": auth_mode,
+                "client_profile": "generic",
+                "responses_server_state": False,
             },
             protocol="anthropic_messages", has_api_key=bool(detected_api_key), warnings=warnings,
         ))
@@ -445,8 +459,6 @@ def _codex_model_candidates(
     wire_api = str(provider.get("wire_api", "responses")).strip().lower() or "responses"
     protocol = "openai_chat" if wire_api in ("chat", "chat_completions", "chat-completions") else "openai_responses"
     warnings: list[str] = []
-    if protocol != "openai_chat":
-        warnings.append("检测到 Codex Responses API 配置；QuickModel 当前使用 Chat Completions，请确认服务端兼容")
     if not model:
         warnings.append("未检测到模型名，导入后需要手动填写")
     has_api_key, api_key = _codex_api_key(home, provider_name, provider, errors, include_secrets)
@@ -477,7 +489,12 @@ def _codex_model_candidates(
         "system_prompt": "You are a helpful assistant.",
         "context_length": 1_000_000,
         "compact_threshold": 600_000,
-        "use_full_url": False,
+        "api_type": "codex_chat" if protocol == "openai_chat" else "codex_responses",
+        "api_protocol": protocol,
+        "provider_profile": "generic",
+        "auth_mode": "api_key",
+        "client_profile": "codex",
+        "responses_server_state": False,
     }
     return [_Candidate(
         candidate_id, "model", "codex", source_label, name, payload,

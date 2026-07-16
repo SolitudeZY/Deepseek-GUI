@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import (
-    load_config, save_config, get_active_model_config,
+    load_config, save_config, get_active_model_config, normalize_config,
     load_allowed_commands, save_allowed_commands, is_command_allowed, add_allowed_command,
     APP_VERSION, GITHUB_REPO, IS_WIN,
 )
@@ -34,6 +34,7 @@ from app.external_config import (
     import_external_mcp_configs,
     import_external_model_configs,
 )
+from app.model_protocol import create_model_adapter, complete_text, list_model_ids
 
 # Lazy-loaded heavy modules (deferred to first use for faster startup)
 _agent_module = None
@@ -211,6 +212,7 @@ class API:
         # Track command prefix approvals for wildcard suggestion
         self._cmd_prefix_counts: dict[str, int] = {}
         self._debate_stop = False
+        self._debate_stop_event = threading.Event()
         self._team_initialized = False
         self._window_visible = True  # tracks page visibility from JS
         self._active_model_name = ""
@@ -309,6 +311,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         return self._config
 
     def save_config(self, config: dict) -> dict:
+        config = normalize_config(config)
         try:
             normalized = normalize_server_configs(config.get("mcp_servers", []))
             self._mcp.apply_config(normalized)
@@ -766,6 +769,16 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         except Exception as e:
             return {'ok': False, 'error': str(e)}
 
+    def list_text_models(self, model_config: dict) -> dict:
+        """List text models using the selected API type and normalized URL."""
+        try:
+            models = list_model_ids(model_config)
+            if not models:
+                return {'ok': False, 'error': '服务端未返回模型'}
+            return {'ok': True, 'models': models}
+        except Exception as exc:
+            return {'ok': False, 'error': str(exc)}
+
     # ── Agent / send ──────────────────────────────────────────────
     def send_message(self, conv_id: str, text: str, files: list) -> None:
         if self._running:
@@ -851,8 +864,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             context_length=mc.get('context_length', 0),
             vision_config=self._build_vision_config(),
             project_path=conv.get('project_path', ''),
-            use_full_url=mc.get('use_full_url', False),
             mcp_manager=self._mcp,
+            model_config=mc,
+            provider_state=conv.get('provider_state', {}).get('openai_responses', {}),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
@@ -872,6 +886,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 on_usage=self._on_usage,
                 on_ask_user=self._on_ask_user,
                 on_secret_input=self._on_secret_input,
+                on_notice=self._on_notice,
             )
 
         threading.Thread(target=run, daemon=True).start()
@@ -903,8 +918,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             context_length=mc.get('context_length', 0),
             vision_config=self._build_vision_config(),
             project_path=conv.get('project_path', ''),
-            use_full_url=mc.get('use_full_url', False),
             mcp_manager=self._mcp,
+            model_config=mc,
+            provider_state=conv.get('provider_state', {}).get('openai_responses', {}),
         )
         self._agent._model_configs = self._config.get('model_configs', [])
         self._running = True
@@ -925,6 +941,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 on_usage=self._on_usage,
                 on_ask_user=self._on_ask_user,
                 on_secret_input=self._on_secret_input,
+                on_notice=self._on_notice,
             )
 
         threading.Thread(target=run, daemon=True).start()
@@ -933,6 +950,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         if self._agent:
             self._agent.stop()
         self._debate_stop = True
+        self._debate_stop_event.set()
 
     def undo_last_message(self, conv_id: str) -> Optional[str]:
         """Remove the last user+assistant exchange, return the user's text."""
@@ -947,6 +965,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         # Remove trailing assistant message(s) and tool messages
         while messages and messages[-1]['role'] in ('assistant', 'tool'):
             messages.pop()
+        conv.pop('provider_state', None)
         # Now remove the last user message and return its content
         if messages and messages[-1]['role'] == 'user':
             user_msg = messages.pop()
@@ -998,27 +1017,29 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
         self._running = True
         self._debate_stop = False
+        self._debate_stop_event.clear()
 
         def run():
-            from openai import OpenAI
-            client = OpenAI(api_key=mc.get('api_key', ''), base_url=mc.get('base_url', ''))
             try:
-                response = client.chat.completions.create(
-                    model=mc.get('model', ''),
-                    messages=[{"role": "user", "content": review_prompt}],
-                    stream=True,
-                )
                 full_response = ''
-                for chunk in response:
+
+                def append(delta: str):
+                    nonlocal full_response
                     if self._debate_stop:
-                        break
-                    delta = chunk.choices[0].delta if chunk.choices else None
-                    if delta and delta.content:
-                        self._js(f'Chat.appendToken({json.dumps(delta.content)})')
-                        full_response += delta.content
+                        return
+                    self._js(f'Chat.appendToken({json.dumps(delta)})')
+                    full_response += delta
+
+                create_model_adapter(mc).stream_round(
+                    [{"role": "user", "content": review_prompt}],
+                    on_text=append,
+                    stop_event=self._debate_stop_event,
+                    stateless=True,
+                )
                 # Save the debate result as a message in conversation
                 debate_label = f"[模型辩论 - 评审模型: {mc.get('name', model_config_name)}]\n\n"
                 conv['messages'].append({'role': 'assistant', 'content': debate_label + full_response})
+                conv.pop('provider_state', None)
                 save_conversation(conv)
                 self._js('Chat.finishMessage()')
             except Exception as e:
@@ -1040,6 +1061,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def _on_thinking(self, token: str):
         self._js(f'Chat.appendThinking({json.dumps(token)})')
+
+    def _on_notice(self, message: str):
+        self._js(f'Chat.showNotice({json.dumps(message)})')
 
     def _on_usage(self, usage_data: dict):
         self._js(f'Chat.updateUsage({json.dumps(usage_data)})')
@@ -1359,6 +1383,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def _on_done(self, conv: dict, updated_messages: list):
         conv['messages'] = updated_messages
+        self._merge_agent_provider_state(conv)
         self._merge_disk_file_tracking(conv)
         save_conversation(conv)
         self._running = False
@@ -1386,20 +1411,18 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         mc = get_active_model_config(self._config)
         if not mc:
             return
-        from openai import OpenAI
-        client = OpenAI(api_key=mc.get('api_key', ''), base_url=mc.get('base_url', ''))
         try:
             conv_text = '\n'.join(
                 f"{'用户' if m['role'] == 'user' else 'AI'}: {str(m['content'])[:300]}"
                 for m in sample
             )
-            resp = client.chat.completions.create(
-                model=mc.get('model', ''),
-                messages=[{"role": "user", "content":
+            generated = complete_text(
+                mc,
+                [{"role": "user", "content":
                     f"请根据以下对话内容，用不超过20个字生成一个简洁的标题，只输出标题本身，不要加引号或其他内容：\n\n{conv_text}"}],
                 max_tokens=60,
             )
-            title = (resp.choices[0].message.content or '').strip().strip('"\'')
+            title = (generated or '').strip().strip('"\'')
             if title:
                 conv['title'] = title
                 save_conversation(conv)
@@ -1422,8 +1445,21 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             if latest.get('file_baselines'):
                 conv['file_baselines'] = latest['file_baselines']
 
+    def _merge_agent_provider_state(self, conv: dict) -> None:
+        if not self._agent:
+            return
+        state = dict(getattr(self._agent, 'provider_state', {}) or {})
+        provider_state = conv.setdefault('provider_state', {})
+        if state:
+            provider_state['openai_responses'] = state
+        else:
+            provider_state.pop('openai_responses', None)
+        if not provider_state:
+            conv.pop('provider_state', None)
+
     def _on_error(self, conv: dict, error: str, messages: list):
         conv['messages'] = messages
+        self._merge_agent_provider_state(conv)
         self._merge_disk_file_tracking(conv)
         save_conversation(conv)
         self._running = False

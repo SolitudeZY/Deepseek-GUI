@@ -462,6 +462,8 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .tool-fold-body .bubble-tool-call { margin: 0; }
 #chat-messages.hide-tools .tool-fold { display: none; }
 .bubble-error { background: var(--error-bubble); border: 1px solid var(--danger); color: var(--danger); user-select: text; cursor: text; }
+.bubble-notice { background: var(--bg3); border: 1px solid #d29b38; color: var(--text); user-select: text; cursor: text; }
+.bubble-notice .bubble-label { color: #d29b38; }
 .bubble-label { font-size: 11px; font-weight: 700; color: var(--text-muted); margin-bottom: 4px; }
 .bubble-content { line-height: 1.65; }
 
@@ -762,6 +764,11 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .tab-panel textarea { resize: vertical; }
 .hint { font-size: 11px; color: var(--text-muted); }
 .form-row { display: flex; gap: 8px; }
+.model-api-summary {
+  min-height: 18px; padding: 4px 7px; border-left: 2px solid var(--accent);
+  color: var(--text-muted); font-size: 11px; background: var(--bg2);
+}
+#mc-auth-mode-wrap.hidden, #mc-responses-state-wrap.hidden { display: none; }
 .modal-footer {
   display: flex; justify-content: flex-end; gap: 8px;
   padding: 10px 18px 14px; border-top: 1px solid var(--border);
@@ -793,6 +800,12 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 #model-config-list li:hover { background: var(--bg3); }
 #model-config-list li.active { background: var(--bg3); color: var(--text); }
 .model-form-col { flex: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
+@media (max-width: 620px) {
+  #settings-modal { min-width: 0; width: calc(100vw - 20px); }
+  .model-layout { height: auto; min-height: 380px; }
+  .model-list-col { width: 120px; }
+  .context-size-row { flex-direction: column; }
+}
 
 /* ── External Claude / Codex import ── */
 .external-import-panel {
