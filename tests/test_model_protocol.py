@@ -1,9 +1,10 @@
 import json
 import unittest
 from types import SimpleNamespace as NS
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.model_protocol import (
+    DEFAULT_REQUEST_RETRIES,
     AnthropicMessagesAdapter,
     OpenAIChatAdapter,
     OpenAIResponsesAdapter,
@@ -145,6 +146,56 @@ class ConfigurationTests(unittest.TestCase):
 
 
 class ChatAdapterTests(unittest.TestCase):
+    @patch("app.model_protocol.time.sleep", return_value=None)
+    def test_retry_recreates_owned_sdk_client(self, _sleep):
+        first_create = FakeCreate(ConnectionError("Connection error"))
+        first_client = NS(
+            chat=NS(completions=first_create),
+            close=Mock(),
+        )
+        second_create = FakeCreate(FakeStream([NS(choices=[NS(delta=NS(
+            content="reconnected", reasoning_content=None, tool_calls=None,
+        ))], usage=None)]))
+        second_client = NS(chat=NS(completions=second_create), close=Mock())
+
+        with patch("openai.OpenAI", side_effect=[first_client, second_client]) as constructor:
+            result = OpenAIChatAdapter(config()).stream_round([
+                {"role": "user", "content": "hi"},
+            ])
+
+        self.assertEqual(result.assistant_message["content"], "reconnected")
+        self.assertEqual(constructor.call_count, 2)
+        first_client.close.assert_called_once_with()
+
+    @patch("app.model_protocol.time.sleep", return_value=None)
+    def test_connection_failure_retries_five_times_then_succeeds(self, _sleep):
+        failures = [ConnectionError("Connection error") for _ in range(DEFAULT_REQUEST_RETRIES)]
+        success = FakeStream([NS(choices=[NS(delta=NS(
+            content="recovered", reasoning_content=None, tool_calls=None,
+        ))], usage=None)])
+        client, create = chat_client(*failures, success)
+
+        result = OpenAIChatAdapter(config(), client).stream_round([
+            {"role": "user", "content": "hi"},
+        ])
+
+        self.assertEqual(result.assistant_message["content"], "recovered")
+        self.assertEqual(len(create.calls), DEFAULT_REQUEST_RETRIES + 1)
+        self.assertEqual(_sleep.call_count, DEFAULT_REQUEST_RETRIES)
+
+    @patch("app.model_protocol.time.sleep", return_value=None)
+    def test_connection_failure_stops_after_five_retries(self, _sleep):
+        failures = [ConnectionError("Connection error") for _ in range(DEFAULT_REQUEST_RETRIES + 1)]
+        client, create = chat_client(*failures)
+
+        with self.assertRaises(ProviderRequestError) as raised:
+            OpenAIChatAdapter(config(), client).stream_round([
+                {"role": "user", "content": "hi"},
+            ])
+
+        self.assertEqual(len(create.calls), DEFAULT_REQUEST_RETRIES + 1)
+        self.assertIn("已自动重试 5 次", str(raised.exception))
+
     def test_stream_normalizes_text_reasoning_tools_and_usage(self):
         events = [
             NS(choices=[NS(delta=NS(content=None, reasoning_content="think ", tool_calls=None))], usage=None),
@@ -214,6 +265,18 @@ class ChatAdapterTests(unittest.TestCase):
             )
         self.assertEqual(len(create.calls), 1)
 
+        connection_lost = ConnectionError("connection reset")
+        partial = FakeStream([
+            NS(choices=[NS(delta=NS(content="partial", reasoning_content=None, tool_calls=None))], usage=None)
+        ], final_error=connection_lost)
+        client, create = chat_client(partial)
+        with patch("app.model_protocol.time.sleep", return_value=None):
+            with self.assertRaises(ProviderRequestError):
+                OpenAIChatAdapter(config(), client).stream_round(
+                    [{"role": "user", "content": "hi"}]
+                )
+        self.assertEqual(len(create.calls), 1)
+
         partial = FakeStream([
             NS(choices=[NS(delta=NS(content="partial", reasoning_content=None, tool_calls=None))], usage=None)
         ], final_error=failure)
@@ -234,6 +297,12 @@ class ChatAdapterTests(unittest.TestCase):
 
 
 class ResponsesAdapterTests(unittest.TestCase):
+    def test_openai_clients_disable_sdk_retries_for_single_retry_owner(self):
+        fake = NS(responses=NS(create=lambda **kwargs: FakeStream([])))
+        with patch("openai.OpenAI", return_value=fake) as constructor:
+            OpenAIResponsesAdapter(config("openai_responses"))._get_client()
+        self.assertEqual(constructor.call_args.kwargs["max_retries"], 0)
+
     def test_codex_client_profile_sets_explicit_compatibility_headers(self):
         fake = NS(responses=NS(create=lambda **kwargs: FakeStream([])))
         with patch("openai.OpenAI", return_value=fake) as constructor:

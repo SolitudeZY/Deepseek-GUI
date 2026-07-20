@@ -7,6 +7,7 @@ import json
 import platform
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Optional
@@ -16,6 +17,9 @@ from app.config import normalize_model_config
 
 
 TextCallback = Optional[Callable[[str], None]]
+
+DEFAULT_REQUEST_RETRIES = 5
+_RETRY_DELAYS = (0.5, 1.0, 2.0, 4.0, 8.0)
 
 
 def _value(obj: Any, name: str, default: Any = None) -> Any:
@@ -193,6 +197,10 @@ class ProviderRequestError(ModelProtocolError):
     pass
 
 
+class _RetryExhaustedError(RuntimeError):
+    pass
+
+
 def _redact(text: Any, secrets: list[str]) -> str:
     rendered = str(text or "")
     for secret in secrets:
@@ -223,6 +231,51 @@ def _is_stale_response_id(exc: Exception) -> bool:
     text = str(exc).lower()
     return "previous_response_id" in text and any(word in text for word in (
         "not found", "invalid", "expired", "unknown", "does not exist",
+    ))
+
+
+def _status_code(exc: Exception) -> Optional[int]:
+    value = getattr(exc, "status_code", None)
+    if value is None:
+        value = getattr(getattr(exc, "response", None), "status_code", None)
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _is_retryable_request_error(exc: Exception) -> bool:
+    """Return whether a failed request is safe to retry before output starts."""
+    if isinstance(exc, ModelProtocolError):
+        return False
+
+    status = _status_code(exc)
+    if status is not None:
+        return status in (408, 409, 425, 429) or status >= 500
+
+    retryable_names = {
+        "APIConnectionError", "APITimeoutError", "ConnectError", "ConnectTimeout",
+        "ConnectionClosed", "ConnectionResetError", "InternalServerError",
+        "NetworkError", "OverloadedError", "PoolTimeout", "RateLimitError",
+        "ReadError", "ReadTimeout", "RemoteProtocolError", "TimeoutException",
+        "WriteError", "WriteTimeout",
+    }
+    current: Optional[BaseException] = exc
+    visited: set[int] = set()
+    while current is not None and id(current) not in visited:
+        visited.add(id(current))
+        if isinstance(current, (ConnectionError, TimeoutError)):
+            return True
+        if current.__class__.__name__ in retryable_names:
+            return True
+        current = current.__cause__ or current.__context__
+
+    message = str(exc).lower()
+    return any(signal in message for signal in (
+        "connection error", "connection reset", "connection closed",
+        "connection aborted", "server disconnected", "remote protocol error",
+        "temporarily unavailable", "timed out", "timeout", "overloaded",
+        "rate limit", "too many requests",
     ))
 
 
@@ -265,6 +318,7 @@ class ModelAdapter:
         self.raw_config = normalize_model_config(model_config)
         self.config = ModelRuntimeConfig.from_dict(self.raw_config)
         self._client = client
+        self._owns_client = client is None
 
     def stream_round(
         self,
@@ -283,7 +337,7 @@ class ModelAdapter:
         tools = list(tools or [])
         seen: list[str] = []
         try:
-            return self._stream_once(
+            return self._stream_with_retries(
                 messages, tools, thinking, stop_event, on_text, on_thinking,
                 previous_response_id, incremental_messages, max_tokens, seen, stateless,
             )
@@ -292,7 +346,7 @@ class ModelAdapter:
                 if tools_required:
                     raise ProviderCapabilityError("当前模型端点明确拒绝工具调用，无法完成必须使用工具的任务。")
                 try:
-                    result = self._stream_once(
+                    result = self._stream_with_retries(
                         _strip_tool_history(messages), [], thinking, stop_event, on_text, on_thinking,
                         "", None, max_tokens, seen, stateless,
                     )
@@ -305,6 +359,50 @@ class ModelAdapter:
             if isinstance(exc, ModelProtocolError):
                 raise
             raise self._request_error(exc) from None
+
+    def _stream_with_retries(
+        self, messages, tools, thinking, stop_event, on_text, on_thinking,
+        previous_response_id, incremental_messages, max_tokens, seen, stateless,
+    ) -> ModelRoundResult:
+        retry_count = 0
+        while True:
+            try:
+                return self._stream_once(
+                    messages, tools, thinking, stop_event, on_text, on_thinking,
+                    previous_response_id, incremental_messages, max_tokens, seen, stateless,
+                )
+            except Exception as exc:
+                can_retry = (
+                    retry_count < DEFAULT_REQUEST_RETRIES
+                    and not seen
+                    and _is_retryable_request_error(exc)
+                    and not (stop_event is not None and stop_event.is_set())
+                )
+                if not can_retry:
+                    if retry_count and _is_retryable_request_error(exc):
+                        raise _RetryExhaustedError(
+                            f"{exc}（已自动重试 {retry_count} 次）"
+                        ) from exc
+                    raise
+                self._reset_client_for_retry()
+                delay = _RETRY_DELAYS[min(retry_count, len(_RETRY_DELAYS) - 1)]
+                retry_count += 1
+                if stop_event is not None:
+                    if stop_event.wait(delay):
+                        raise
+                else:
+                    time.sleep(delay)
+
+    def _reset_client_for_retry(self) -> None:
+        if not self._owns_client or self._client is None:
+            return
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+        self._client = None
 
     def complete_text(
         self,
