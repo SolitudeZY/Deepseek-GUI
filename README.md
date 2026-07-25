@@ -37,7 +37,8 @@ Windows / macOS 桌面 AI 助手，支持通过 OpenAI 兼容 API 接入多家 L
 | `edit_image` | 在已有图片上按文字指令编辑（替换物体、增删元素、改文字等，基于 Qwen-Image-Edit） |
 | `ocr_image` | 本地离线 OCR（RapidOCR）识别图片中的文字 |
 | `web_search` | 多引擎网络搜索，自动降级 |
-| `web_read` | 抓取并读取完整网页内容 |
+| `web_read` | 读取论坛/网页、远程 PDF、Word 与图片，并列出网页图片候选 |
+| `extract_images` | 提取网页图片、PDF 页面或 Word 内嵌图片，可直接 OCR 或继续视觉分析 |
 | `rlm_query` | 并行派发 1-16 个子任务到低成本模型 |
 | `compact` | 手动触发上下文压缩 |
 | `todo_write` | 维护结构化任务清单 |
@@ -55,9 +56,16 @@ Windows / macOS 桌面 AI 助手，支持通过 OpenAI 兼容 API 接入多家 L
 - **软限制** — 单轮超过 5 次搜索后提示模型整合结果
 - **手动/自动模式** — Auto 由模型决定是否搜索；Manual 通过工具栏开关控制
 
+### 图文联合检索
+
+- **论坛正文保留结构** — `web_read` 使用正文优先解析，保留段落换行，并识别 `srcset` 与常见懒加载图片
+- **远程文档直读** — URL 指向 PDF 或 DOCX 时自动识别、缓存并提取文字，PDF 文字带页码标记
+- **文档图片提取** — `extract_images` 可按页渲染 PDF（保留图、图注与版式），也可仅提取内嵌位图或 Word 媒体
+- **OCR 优先、视觉按需** — `extract_images(ocr=true)` 可在提取后直接运行现有 RapidOCR；文字型截图和扫描件无需视觉 API，只有场景、布局、趋势或空间关系才调用 `analyze_image`
+
 ### 图片工具
 
-- **针对性图片分析** — 发送图片时仅附绝对路径，主模型按当前对话上下文撰写贴合问题的 `question` 调用 `analyze_image`，获得有针对性的结果（人物表情、图表数值、代码截图文字、特定区域细节等），而非泛泛的全景描述
+- **针对性图片分析** — 发送图片时仅附绝对路径；文字型内容优先使用本地 OCR，人物表情、图表趋势、布局和特定区域等视觉语义再由主模型调用 `analyze_image`。视觉请求可设置 10-300 秒超时，且不会因 SDK 自动重试叠加等待
 - **反幻觉约束** — 视觉模型被强制只报告实际可见内容、区分观察与推测、文字/数值逐字符照读、看不清就说不清，降低错误结论风险
 - **图片生成** — 调用 `generate_image` 经 OpenAI 兼容 `/v1/images/generations` 生成图片，支持 New API / sub2api 等中转，保存到本地并在对话中显示缩略图卡片
 - **图片编辑（指令式）** — 调用 `edit_image` 在已有图片上按文字指令编辑（如「把图里的猫换成狗」、增删元素、改图中文字、风格迁移），基于阿里 Qwen-Image-Edit，复用图片生成的配置
@@ -184,7 +192,7 @@ git clone https://github.com/SolitudeZY/Deepseek-GUI.git
 cd Deepseek-GUI
 
 # Windows
-pip install openai pywebview tavily-python duckduckgo-search firecrawl-py
+pip install -r requirements.txt
 
 # macOS（额外需要 pyobjc 提供 cocoa/WebKit 后端）
 pip install -r requirements.txt
@@ -233,6 +241,7 @@ quick_model/
 ├── app/
 │   ├── agent.py         # 核心 Agent 循环（拆分为流式解析/工具执行/上下文管理）
 │   ├── tools.py         # 内置工具实现（文件、搜索、命令）
+│   ├── retrieval.py     # 网页/远程文档解析与图片提取
 │   ├── advanced_tools.py # 子 Agent、任务、后台任务、Todo 管理
 │   ├── skills.py        # 技能 CRUD、导入、记忆持久化
 │   ├── team.py          # 多 Agent 团队、消息总线（线程安全）、Worktree

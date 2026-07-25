@@ -31,6 +31,8 @@ tests/*
 !tests/test_model_config.py
 !tests/test_model_protocol.py
 !tests/test_responses_state.py
+!tests/test_retrieval.py
+!tests/test_vision.py
 *_generated_*.png
 矩阵运算*.md
 newton_bisection.tex

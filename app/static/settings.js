@@ -706,6 +706,7 @@ function fillSettingsFields(cfg) {
   $('vision-key').value = cfg.vision_api_key || '';
   $('vision-url').value = cfg.vision_base_url || '';
   $('vision-model').value = cfg.vision_model || '';
+  $('vision-timeout').value = cfg.vision_timeout || 90;
   $('imagegen-key').value = cfg.imagegen_api_key || '';
   $('imagegen-url').value = cfg.imagegen_base_url || '';
   $('imagegen-model').value = cfg.imagegen_model || '';
@@ -736,6 +737,7 @@ async function saveSettings() {
   state.config.vision_api_key = $('vision-key').value.trim();
   state.config.vision_base_url = $('vision-url').value.trim();
   state.config.vision_model = $('vision-model').value.trim();
+  state.config.vision_timeout = Math.max(10, Math.min(parseInt($('vision-timeout').value) || 90, 300));
   state.config.imagegen_api_key = $('imagegen-key').value.trim();
   state.config.imagegen_base_url = $('imagegen-url').value.trim();
   state.config.imagegen_model = $('imagegen-model').value.trim();

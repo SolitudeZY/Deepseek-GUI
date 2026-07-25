@@ -568,6 +568,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             "vision_api_key": self._config.get("vision_api_key", ""),
             "vision_base_url": self._config.get("vision_base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
             "vision_model": self._config.get("vision_model", "qwen-vl-max"),
+            "vision_timeout": self._config.get("vision_timeout", 90),
             "imagegen_api_key": self._config.get("imagegen_api_key", ""),
             "imagegen_base_url": self._config.get("imagegen_base_url", ""),
             "imagegen_model": self._config.get("imagegen_model", "gpt-image-2"),
@@ -726,6 +727,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             api_key=self._config.get('vision_api_key', ''),
             base_url=self._config.get('vision_base_url', 'https://dashscope.aliyuncs.com/compatible-mode/v1'),
             model=self._config.get('vision_model', 'qwen-vl-max'),
+            timeout=self._config.get('vision_timeout', 90),
         )
 
     def list_models(self, api_key: str, base_url: str) -> dict:
@@ -806,11 +808,15 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             ext = Path(name).suffix.lower().lstrip('.')
             is_img = ext in {'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'}
             if is_img:
-                # 不再发送时预生成"通用描述"，而是把图片路径告知主模型，
-                # 由它用贴合当前问题的措辞按需调用 analyze_image 工具进行针对性分析。
+                # 不再发送时预生成"通用描述"，而是把图片路径告知主模型。
+                # 文字提取走本地 OCR；确需视觉语义时才调用远端视觉模型。
                 if path:
                     abs_path = str(Path(path).expanduser().resolve())
-                    parts.append(f"[图片: {name} 路径: {abs_path}]\n（如需了解此图内容，请使用 analyze_image 工具，并根据我的问题撰写针对性的 question。）")
+                    parts.append(
+                        f"[图片: {name} 路径: {abs_path}]\n"
+                        "（若需读取图片文字，优先使用本地 ocr_image；只有需要理解场景、"
+                        "布局、趋势或空间关系时，才使用 analyze_image 并根据我的问题撰写针对性的 question。）"
+                    )
                 elif content:
                     # 无路径（如纯 base64 来源）时回退到已有描述
                     parts.append(f"[图片: {name}]\n{content}")

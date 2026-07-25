@@ -23,6 +23,7 @@ def describe_image(
     api_key: str = "",
     base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
     model: str = "qwen-vl-plus",
+    timeout: int = 90,
 ) -> str:
     # 清洗 key：去掉首尾空白、误粘贴的 "Bearer " 前缀和换行
     api_key = (api_key or "").strip()
@@ -30,12 +31,23 @@ def describe_image(
         api_key = api_key[7:].strip()
     base_url = (base_url or "").strip().rstrip("/")
     model = (model or "").strip()
+    try:
+        timeout = max(10, min(int(timeout), 300))
+    except (TypeError, ValueError):
+        timeout = 90
 
     if not api_key:
         return f"[图片：{Path(path).name}]（未配置 Vision API Key，无法解析图片内容）"
     try:
         from openai import OpenAI
-        client = OpenAI(api_key=api_key, base_url=base_url)
+        # Vision latency is provider-bound. Bound it here and disable SDK retries so
+        # one slow request cannot silently turn into several consecutive waits.
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+            max_retries=0,
+        )
         b64, mime = _encode_image(path)
         # 反幻觉系统约束：视觉模型每次调用都是无状态的，且容易"脑补"图中没有的内容。
         # 强制它只报告实际可见信息、区分观察与推测、不确定就明说，降低错误结论风险。
@@ -63,6 +75,11 @@ def describe_image(
         )
         return resp.choices[0].message.content or "（无返回内容）"
     except Exception as e:
+        if "timeout" in type(e).__name__.lower() or "timed out" in str(e).lower():
+            return (
+                f"[图片解析超时：超过 {timeout} 秒]"
+                "可在设置中提高图片理解超时；若图片主要包含文字，请改用本地 ocr_image。"
+            )
         # 尽量暴露原始 HTTP 状态码与响应体，方便定位 401/404 等问题
         status = getattr(e, "status_code", None)
         body = ""

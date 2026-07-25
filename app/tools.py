@@ -112,7 +112,7 @@ def _resolve(path: str, cwd: str = "") -> Path:
     return p
 
 
-def read_file(path: str, cwd: str = "") -> str:
+def read_file(path: str, cwd: str = "", pages: str = "") -> str:
     p = _resolve(path, cwd)
     if not p.exists():
         return f"错误：文件不存在 — {path}"
@@ -123,7 +123,7 @@ def read_file(path: str, cwd: str = "") -> str:
 
     try:
         if suffix == ".pdf":
-            return _read_pdf(p)
+            return _read_pdf(p, pages=pages)
         elif suffix == ".docx":
             return _read_docx(p)
         elif suffix in (".xlsx", ".xls"):
@@ -135,16 +135,23 @@ def read_file(path: str, cwd: str = "") -> str:
         return f"读取文件失败：{e}"
 
 
-def _read_pdf(p: Path) -> str:
+def _read_pdf(p: Path, pages: str = "") -> str:
     if not _check_pdf():
         return _missing_pkg_msg("pdfplumber", "PDF")
     import pdfplumber
+    from app.retrieval import parse_pages
     text_parts = []
     with pdfplumber.open(p) as pdf:
-        for page in pdf.pages:
+        limit = min(len(pdf.pages), 100) if pages else len(pdf.pages)
+        selected = parse_pages(pages, len(pdf.pages), limit)
+        if not selected:
+            return f"错误：指定页码超出范围（PDF 共 {len(pdf.pages)} 页）"
+        for page_index in selected:
+            page_number = page_index + 1
+            page = pdf.pages[page_index]
             t = page.extract_text()
             if t:
-                text_parts.append(t)
+                text_parts.append(f"=== 第 {page_number} 页 ===\n{t}")
     return _truncate("\n".join(text_parts), str(p))
 
 
@@ -153,7 +160,12 @@ def _read_docx(p: Path) -> str:
         return _missing_pkg_msg("python-docx", "Word 文档")
     from docx import Document as DocxDocument
     doc = DocxDocument(str(p))
-    text = "\n".join(para.text for para in doc.paragraphs)
+    parts = [para.text for para in doc.paragraphs if para.text.strip()]
+    for table_number, table in enumerate(doc.tables, 1):
+        parts.append(f"=== 表格 {table_number} ===")
+        for row in table.rows:
+            parts.append("\t".join(cell.text.strip() for cell in row.cells))
+    text = "\n".join(parts)
     return _truncate(text, str(p))
 
 
@@ -648,6 +660,7 @@ def analyze_image(path: str, question: str = "", vision_config: dict = None) -> 
         api_key=vc.get("vision_api_key", ""),
         base_url=vc.get("vision_base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
         model=vc.get("vision_model", "qwen-vl-max"),
+        timeout=vc.get("vision_timeout", 90),
     )
 
 
@@ -940,7 +953,10 @@ def _enrich_with_full_content(search_result: str, engine: str, query: str,
     def _fetch(i_url):
         i, url = i_url
         try:
-            content = web_read(url, max_chars=read_chars)
+            content = web_read(
+                url, max_chars=read_chars,
+                include_images=False, include_links=False,
+            )
             if content and not content.startswith("读取失败"):
                 return i, url, content
         except Exception:
@@ -1198,39 +1214,77 @@ def _search_searxng(query: str, max_results: int, base_url: str) -> str:
         return f"搜索失败：{e}"
 
 
-def web_read(url: str, max_chars: int = 20000) -> str:
-    """Fetch a URL and return its text content (HTML stripped to readable text)."""
+def web_read(url: str, max_chars: int = 20000, include_images: bool = True,
+             include_links: bool = True, pages: str = "") -> str:
+    """Read HTML, text, PDF, DOCX, or image URLs with source-aware parsing."""
     try:
-        import urllib.request
-        import re as _re
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        })
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            raw = resp.read()
-        # Try utf-8 first, then detect from headers
-        charset = "utf-8"
-        ct = resp.headers.get("Content-Type", "")
-        if "charset=" in ct:
-            charset = ct.split("charset=")[-1].strip().split(";")[0]
-        try:
-            html = raw.decode(charset)
-        except Exception:
-            html = raw.decode("utf-8", errors="replace")
-        # Strip HTML tags, scripts, styles
-        html = _re.sub(r'<script[^>]*>[\s\S]*?</script>', '', html, flags=_re.IGNORECASE)
-        html = _re.sub(r'<style[^>]*>[\s\S]*?</style>', '', html, flags=_re.IGNORECASE)
-        html = _re.sub(r'<[^>]+>', ' ', html)
-        # Collapse whitespace
-        text = _re.sub(r'\s+', ' ', html).strip()
-        # Decode HTML entities
-        import html as _html_mod
-        text = _html_mod.unescape(text)
-        if len(text) > max_chars:
-            text = text[:max_chars] + f"\n\n[内容已截断，共 {len(text)} 字符，显示前 {max_chars} 字符]"
-        return text if text else "（页面无文本内容）"
+        from app.config import get_app_data_dir
+        from app.retrieval import (
+            cache_bytes, decode_text, fetch_remote, html_to_readable, source_kind,
+        )
+
+        payload = fetch_remote(url)
+        kind = source_kind(payload.data, payload.content_type, payload.final_url)
+        if kind == "html":
+            html = decode_text(payload.data, payload.encoding)
+            return html_to_readable(
+                html, payload.final_url, max_chars=max_chars,
+                include_images=include_images, include_links=include_links,
+            )
+        if kind == "text":
+            text = decode_text(payload.data, payload.encoding)
+            if len(text) > max_chars:
+                return text[:max_chars] + f"\n\n[内容已截断，共 {len(text)} 字符，显示前 {max_chars} 字符]"
+            return text
+
+        cache_dir = get_app_data_dir() / "retrieved_media"
+        local_path = cache_bytes(
+            payload.data, payload.final_url, payload.content_type, cache_dir,
+        )
+        if kind == "pdf":
+            text = _read_pdf(local_path, pages=pages)
+            if len(text) > max_chars:
+                text = text[:max_chars] + f"\n\n[内容已截断，共 {len(text)} 字符，显示前 {max_chars} 字符]"
+            return (
+                f"[远程 PDF 已缓存：{local_path}]\n"
+                "需要查看图表、扫描页或版式时，请对该 URL 或本地路径调用 extract_images，"
+                "并用 pages 指定相关页码。\n\n" + text
+            )
+        if kind == "docx":
+            text = _read_docx(local_path)
+            return (
+                f"[远程 Word 文档已缓存：{local_path}]\n"
+                "需要查看文档内图片时，请对该 URL 或本地路径调用 extract_images。\n\n" + text
+            )
+        if kind == "image":
+            return (
+                f"[图片: {local_path.name} 路径: {local_path}]\n"
+                "若任务是读取文字，优先调用 ocr_image；只有需要场景、布局或图表语义时才调用 analyze_image。"
+            )
+        return f"读取失败：不支持的内容类型 {payload.content_type or '未知'}"
     except Exception as e:
         return f"读取失败：{e}"
+
+
+def extract_images_tool(source: str, pages: str = "", max_images: int = 6,
+                        mode: str = "page", use_ocr: bool = False,
+                        cwd: str = "") -> str:
+    """Extract web/document images, optionally running local OCR in one call."""
+    from urllib.parse import urlparse
+    from app.config import get_app_data_dir
+    from app.retrieval import extract_images
+
+    resolved = source
+    if urlparse(source).scheme not in ("http", "https"):
+        resolved = str(_resolve(source, cwd))
+    return extract_images(
+        resolved,
+        output_dir=get_app_data_dir() / "retrieved_media",
+        pages=pages,
+        max_images=max_images,
+        mode=mode,
+        use_ocr=use_ocr,
+    )
 
 
 def write_file(path: str, content: str, cwd: str = "") -> str:
@@ -1373,11 +1427,12 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "读取本地文件内容，支持 txt/md/py/json/csv/pdf/docx/xlsx 等格式",
+            "description": "读取本地文件内容，支持 txt/md/py/json/csv/pdf/docx/xlsx 等格式。长 PDF 可用 pages 分段读取文字；需要查看图片或版式时再调用 extract_images。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "文件的绝对或相对路径"},
+                    "pages": {"type": "string", "description": "PDF 页码（从 1 开始），如 3、1-4、2,5；其他文件忽略", "default": ""},
                 },
                 "required": ["path"],
             },
@@ -1508,7 +1563,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "使用 Tavily 搜索互联网获取实时信息。每次搜索消耗 API 配额，请高效使用：先用一个精准的关键词搜索，根据结果判断是否需要补充搜索。通常 1-5 次搜索即可满足需求，避免对同一主题反复搜索。如果搜索结果的摘要不够详细，请使用 web_read 工具读取具体网页的完整内容，而不是继续搜索。",
+            "description": "使用已配置的搜索引擎搜索互联网，并在失败时自动降级。每次搜索可能消耗 API 配额，请先用精准关键词搜索；通常 1-5 次即可。摘要不够详细时用 web_read 读取具体网页，不要对同一主题反复搜索。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1523,13 +1578,35 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "web_read",
-            "description": "读取指定 URL 的网页完整内容（HTML 转纯文本）。当 web_search 的摘要不够详细时，用此工具获取完整页面。",
+            "description": "读取指定 URL 的完整内容。支持论坛/文章 HTML、纯文本、PDF、DOCX 和图片；HTML 会保留段落结构并列出带 alt/图注的图片候选，PDF/Word 会缓存到本地。搜索摘要不够详细时优先使用。需要读取网页或文档图片文字时，调用 extract_images 并设置 ocr=true；只有需要场景、布局、曲线趋势或空间关系时才使用 analyze_image。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "url": {"type": "string", "description": "要读取的网页 URL"},
+                    "max_chars": {"type": "integer", "description": "最多返回的正文字符数，默认 20000", "default": 20000},
+                    "include_images": {"type": "boolean", "description": "是否列出网页图片候选，默认 true", "default": True},
+                    "include_links": {"type": "boolean", "description": "是否列出正文中的链接候选，默认 true", "default": True},
+                    "pages": {"type": "string", "description": "读取远程 PDF 的指定页码，如 20-30；非 PDF 忽略", "default": ""},
                 },
                 "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "extract_images",
+            "description": "从网页、远程或本地 PDF、DOCX、单张图片中提取图片到本地。网页会处理 src/srcset 和常见懒加载属性；PDF 默认把指定页整页渲染以保留图、图注和版式。文字型截图、扫描件、表格优先设置 ocr=true，在同一次调用中用本地 RapidOCR 返回文字，无需配置视觉模型；只有需要理解场景、布局、曲线趋势或空间关系时，才对相关路径调用 analyze_image。推荐先 web_read 定位正文/页码，再调用本工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source": {"type": "string", "description": "http(s) URL，或本地 PDF/DOCX/图片路径"},
+                    "pages": {"type": "string", "description": "PDF 页码（从 1 开始），如 3、1-4、2,5；留空时从首页开始", "default": ""},
+                    "max_images": {"type": "integer", "description": "最多提取数量，默认 6，最大 12", "default": 6},
+                    "mode": {"type": "string", "enum": ["page", "embedded"], "description": "PDF 提取方式：page=整页渲染（推荐），embedded=仅内嵌位图", "default": "page"},
+                    "ocr": {"type": "boolean", "description": "是否同时对提取结果运行本地 RapidOCR。截图、扫描页和文字型图片建议设为 true", "default": False},
+                },
+                "required": ["source"],
             },
         },
     },
@@ -1658,7 +1735,7 @@ CONFIRM_REQUIRED = {"run_command", "ssh_exec", "write_file", "apply_patch"}
 def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: int = 30, stop_flag=None, vision_config: dict = None, cwd: str = "") -> str:
     """执行工具调用，返回字符串结果。cwd 为项目目录，相对路径以此为基准。"""
     if tool_name == "read_file":
-        return read_file(args.get("path", ""), cwd=cwd)
+        return read_file(args.get("path", ""), cwd=cwd, pages=args.get("pages", ""))
     elif tool_name == "analyze_image":
         return analyze_image(args.get("path", ""), args.get("question", ""), vision_config=vision_config)
     elif tool_name == "generate_image":
@@ -1690,7 +1767,22 @@ def dispatch(tool_name: str, args: dict, search_config: dict = None, timeout: in
             fallback=sc.get("fallback", True),
         )
     elif tool_name == "web_read":
-        return web_read(args.get("url", ""))
+        return web_read(
+            args.get("url", ""),
+            max_chars=max(1000, min(int(args.get("max_chars", 20000)), MAX_FILE_CHARS)),
+            include_images=bool(args.get("include_images", True)),
+            include_links=bool(args.get("include_links", True)),
+            pages=args.get("pages", ""),
+        )
+    elif tool_name == "extract_images":
+        return extract_images_tool(
+            args.get("source", ""),
+            pages=args.get("pages", ""),
+            max_images=args.get("max_images", 6),
+            mode=args.get("mode", "page"),
+            use_ocr=bool(args.get("ocr", False)),
+            cwd=cwd,
+        )
     elif tool_name == "ssh_connect":
         password = args.get("_password", "")
         if password:

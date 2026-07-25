@@ -32,7 +32,8 @@ A desktop AI assistant for Windows and macOS supporting multiple LLM vendors via
 | `analyze_image` | Analyze a local image with the vision model for a specific question |
 | `generate_image` | Generate an image with an image model and save it locally |
 | `web_search` | Search the internet via multiple engines with auto-fallback |
-| `web_read` | Fetch and read full webpage content (HTML to plain text) |
+| `web_read` | Read forums/pages, remote PDFs, Word documents, and images; list page image candidates |
+| `extract_images` | Extract web images, PDF pages, or embedded Word images for direct OCR or vision analysis |
 | `rlm_query` | Dispatch 1-16 sub-tasks to a low-cost model in parallel |
 | `compact` | Manually trigger context compression |
 | `todo_write` | Maintain a structured task list for multi-step work tracking |
@@ -50,9 +51,16 @@ A desktop AI assistant for Windows and macOS supporting multiple LLM vendors via
 - **Soft limit** — After 5 searches in one turn, the agent is nudged to consolidate results
 - **Manual / Auto modes** — Auto lets the model decide; manual gives you a toolbar toggle
 
+### Joint Text and Image Retrieval
+
+- **Forum-aware text extraction** — `web_read` prioritizes readable content, preserves paragraph boundaries, and recognizes `srcset` and common lazy-load image attributes
+- **Direct remote document reading** — PDF and DOCX URLs are detected, cached, and parsed automatically; PDF text includes page markers
+- **Document image extraction** — `extract_images` can render selected PDF pages (preserving figures, captions, and layout), extract embedded PDF bitmaps, or unpack Word media
+- **OCR first, vision on demand** — `extract_images(ocr=true)` runs the bundled RapidOCR immediately; text-heavy screenshots and scans need no vision API, while scenes, layouts, trends, and spatial relationships can still use `analyze_image`
+
 ### Image Tools
 
-- **Targeted image analysis** — Only the absolute path is attached on send; the main model writes a context-aware `question` and calls `analyze_image` to get focused results (facial expressions, chart values, text in code screenshots, specific regions) instead of a generic full-scene description
+- **Targeted image analysis** — Only the absolute path is attached on send. Text-heavy images use local OCR first; the main model calls `analyze_image` only for visual semantics such as expressions, chart trends, layout, and specific regions. Vision requests have a configurable 10-300 second timeout and do not stack SDK retries
 - **Anti-hallucination constraints** — The vision model is forced to report only what is actually visible, distinguish observation from speculation, read text/numbers verbatim, and say so when something is unclear — reducing wrong conclusions
 - **Image generation** — `generate_image` calls an OpenAI-compatible `/v1/images/generations` endpoint (supports relays like New API / sub2api), saves locally, and renders a thumbnail card inline
 - **Fetch model list** — One click in settings pulls the available model list from your vision/image-gen provider; click to fill it in
@@ -177,7 +185,7 @@ git clone https://github.com/SolitudeZY/Deepseek-GUI.git
 cd Deepseek-GUI
 
 # Windows
-pip install openai pywebview tavily-python duckduckgo-search firecrawl-py
+pip install -r requirements.txt
 
 # macOS (also needs pyobjc for the cocoa/WebKit backend)
 pip install -r requirements.txt
@@ -226,6 +234,7 @@ quick_model/
 ├── app/
 │   ├── agent.py         # Core agent loop (split into stream/parse, tool exec, context mgmt)
 │   ├── tools.py         # Built-in tool implementations (file, search, shell)
+│   ├── retrieval.py     # Web/remote document parsing and image extraction
 │   ├── advanced_tools.py # Sub-agent, task, background task, todo management
 │   ├── skills.py        # Skill CRUD, import, memory persistence
 │   ├── team.py          # Multi-agent team, message bus (thread-safe), worktree

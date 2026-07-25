@@ -814,7 +814,7 @@ function addToolCallBubble(toolName, args) {
   const div = document.createElement('div');
   div.className = 'bubble bubble-tool-call';
   const argsStr = JSON.stringify(args, null, 2);
-  const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', ssh_connect:'🔐', ssh_exec:'🖥️', ssh_close:'🔌', ssh_list_sessions:'📡', write_file:'✏️', list_directory:'📁' };
+  const icons = { web_search:'🔍', web_read:'🌐', extract_images:'🖼', analyze_image:'👁', ocr_image:'🔤', read_file:'📄', run_command:'⚙️', ssh_connect:'🔐', ssh_exec:'🖥️', ssh_close:'🔌', ssh_list_sessions:'📡', write_file:'✏️', list_directory:'📁' };
   const icon = icons[toolName] || '🔧';
   div.innerHTML = `
     <div class="tool-header" onclick="this.parentElement.classList.toggle('tool-expanded')">
@@ -836,7 +836,7 @@ function addToolCallBubble(toolName, args) {
 
 // 只有这些工具的结果按图片缩略图渲染（其余工具结果即便文本里含 "[图片: ...]"
 // 也按普通文本截断折叠，避免 read_file 读到讲解附件格式的文档时铺开整个文件）。
-const _IMAGE_TOOLS = new Set(['generate_image', 'edit_image']);
+const _IMAGE_TOOLS = new Set(['generate_image', 'edit_image', 'extract_images']);
 const _isImageResultTool = toolName => _IMAGE_TOOLS.has(toolName) || toolName.startsWith('mcp__');
 
 function addToolResultBubble(toolName, result) {
@@ -872,7 +872,7 @@ function addToolResultBubble(toolName, result) {
   // fallback: orphaned result bubble
   const div = document.createElement('div');
   div.className = 'bubble bubble-tool-call';
-  const icons = { web_search:'🔍', read_file:'📄', run_command:'⚙️', ssh_connect:'🔐', ssh_exec:'🖥️', ssh_close:'🔌', ssh_list_sessions:'📡', write_file:'✏️', apply_patch:'🩹', list_directory:'📁', glob_files:'🔎', grep_files:'🔎' };
+  const icons = { web_search:'🔍', web_read:'🌐', extract_images:'🖼', analyze_image:'👁', ocr_image:'🔤', read_file:'📄', run_command:'⚙️', ssh_connect:'🔐', ssh_exec:'🖥️', ssh_close:'🔌', ssh_list_sessions:'📡', write_file:'✏️', apply_patch:'🩹', list_directory:'📁', glob_files:'🔎', grep_files:'🔎' };
   const icon = icons[toolName] || '🔧';
   // 含图片标记且是图片生成工具 → 展开并渲染缩略图
   if (_isImageResultTool(toolName) && /\[图片: .+?(?: 路径: [^\]]*)?\]/.test(result || '')) {

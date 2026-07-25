@@ -43,6 +43,7 @@
 - `app/webview_app.py` — Python↔JS 桥（`API` 类），消息构建、Agent 生命周期
 - `app/agent.py` — `Agent` 类，工具循环、上下文压缩、调用 `dispatch`
 - `app/tools.py` — 工具实现 + `TOOLS_SCHEMA` + `dispatch` 分发
+- `app/retrieval.py` — 网页/远程文档解析、PDF 页面渲染、图片提取与 OCR 联动
 - `app/vision.py` — 视觉模型调用（`describe_image`）
 - `app/config.py` — 配置默认值与读写
 - `app/static/` — 全部前端（HTML/CSS/JS）；UI 改动都在这里。**JS 已按功能拆分为多个普通 `<script>`（无打包器/模块），加载顺序见下「前端 JS 模块拆分」**。
@@ -106,8 +107,8 @@ vendor/* → core.js → render.js → drag.js → dialogs.js → settings.js �
 
 设计：**不在发送时预生成通用描述**，而是发送图片时只附**绝对路径**，由主模型按当前问题调用 `analyze_image(path, question)` 工具做针对性分析。
 
-- `webview_app.py` `send_message`：图片附 `[图片: 名称 路径: 绝对路径]`，提示主模型用 analyze_image。
-- `tools.py` `analyze_image(path, question, vision_config)`：把贴合问题的 `question` 透传给 `describe_image`；带路径/格式校验，无 key 优雅降级。
+- `webview_app.py` `send_message`：图片附 `[图片: 名称 路径: 绝对路径]`；文字提取提示主模型优先用 `ocr_image`，视觉语义才用 `analyze_image`。
+- `tools.py` `analyze_image(path, question, vision_config)`：把贴合问题的 `question` 透传给 `describe_image`；带路径/格式校验，无 key 优雅降级。视觉请求使用可配置的 `vision_timeout`（10-300 秒，默认 90）且关闭 SDK 自动重试，避免慢请求叠加等待。
 - **视觉模型无状态、无记忆（关键约定）**：每次 `describe_image` 都是独立单次 `chat.completions.create`，只含当轮 user 消息（图 + prompt），不带对话历史、调用间互不相通。上下文由**主模型**持有，视觉模型职责仅是"就这一个 question 看这一张图"。因此：①`analyze_image` 的 schema 引导主模型把**对话背景补进 question**（背景+聚焦区域+具体问题），不要只问"描述图片"；②同一张图多个问题应**合并进一次调用**（question 内 ①②③ 编号），而非拆成多次失忆调用——也省 token（图片 base64 大，且按缓存约定绝不进主上下文）。
 - **反幻觉约束**：`describe_image` 给视觉模型加了 system prompt，强制只报实际可见内容、区分观察与推测、文字/数值逐字符读取、看不清就说不清、宁可保守少答。`webview_app.py`/`gui.py` 的 `describe_image` 调用自动继承此约束。
 - `app.js`：拖拽图片后不再预调 `describe_image`，仅标记 🖼。
@@ -138,6 +139,7 @@ vendor/* → core.js → render.js → drag.js → dialogs.js → settings.js �
 
 - `vision.py` `ocr_image(image_path)`：用 `rapidocr_onnxruntime.RapidOCR`，**模块级单例懒加载**（`_RAPID_OCR`，模型加载慢只做一次；`_RAPID_OCR_FAILED` 标记避免反复重试）。返回按行拼接的识别文本。缺包返回引导（用 ai_api 解释器 + 重启）。
 - `tools.py` `ocr_image_tool(image_path)` + schema（image_path）+ dispatch 分支（无需 vision_config）。
+- 图文检索联动：`extract_images(source, ..., ocr=true)` 在提取网页/PDF/DOCX 图片后直接复用 `ocr_image`，同一次工具调用返回本地路径和 OCR 文字。文字型截图、扫描件、表格优先走该路径；只有场景、布局、曲线趋势或空间关系才继续调用 `analyze_image`，避免慢速视觉请求拖住 Agent。
 - 依赖：`rapidocr-onnxruntime` 已加入 `requirements.txt`（用户确认进打包，体积 +30~50MB）。
 - ⚠ **打包必须收集 rapidocr 数据文件（已确认并修复）**：PyInstaller 默认不收集 rapidocr 的 `config.yaml` 和 `models/*.onnx`，编译版运行 OCR 报 `No such file: .../rapidocr_onnxruntime/config.yaml`（v1.7.0 编译版实测复现）。两个 spec（`QuickModel.spec`/`main_mac.spec`）都已加 `from PyInstaller.utils.hooks import collect_data_files` + `collect_data_files('rapidocr_onnxruntime')` 拼入 datas（v1.7.2 修复）。本地源码运行（ai_api 环境）不受影响。
 - 不照搬参考的 Umi-OCR：它是插件化架构，引擎是打包的 RapidOCR 插件，源码只有调度层，直接用 `rapidocr-onnxruntime` 包更简单。

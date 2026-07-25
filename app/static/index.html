@@ -369,12 +369,13 @@
         </div>
         <!-- 子页：图片理解 -->
         <div class="subtab-panel active" id="subtab-understand">
-          <p class="hint">附加图片时，主模型可调用 analyze_image 工具按你的问题解析图片内容。</p>
+          <p class="hint">文字型图片优先使用本地 RapidOCR；需要场景、布局或图表语义时才调用 analyze_image。</p>
           <label>Vision API Key<input type="password" id="vision-key" placeholder="sk-..."></label>
           <label>Base URL<input type="text" id="vision-url" placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"></label>
           <p class="hint">拼接规则：填到 <code>/v1</code> 即可，系统自动补 <code>/chat/completions</code> 发起请求。<br>
              示例：填 <code>https://dashscope.aliyuncs.com/compatible-mode/v1</code> → 实际请求 <code>.../v1/chat/completions</code>；中转站填 <code>https://your-relay.com/v1</code>。</p>
           <label>模型名<input type="text" id="vision-model" placeholder="qwen-vl-max"></label>
+          <label>请求超时（秒）<input type="number" id="vision-timeout" min="10" max="300" step="5" value="90"></label>
           <div class="form-row">
             <button id="btn-vision-models" class="btn-secondary">读取模型列表</button>
           </div>

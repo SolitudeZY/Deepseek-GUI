@@ -9,6 +9,8 @@ tomli>=2,<3; python_version < "3.11"
 tavily-python>=0.3.0
 ddgs>=9.0
 firecrawl-py>=0.0.1
+beautifulsoup4>=4.12.0
+PyMuPDF>=1.24.0
 
 # Document reading (read_file: pdf / docx / xlsx)
 pdfplumber>=0.10.0
