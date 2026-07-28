@@ -13,6 +13,9 @@ let state = {
   dragSrcId: null,     // 拖拽中会话 id（id-based，重排序后仍稳定）
   selectedMcIdx: null,
   collapsedGroups: {},  // { [project_path]: true } 折叠状态
+  expandedConversationGroups: {},
+  showArchived: false,
+  searchSerial: 0,
 };
 
 // ── DOM refs ──────────────────────────────────────────────────────

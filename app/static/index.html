@@ -16,6 +16,7 @@
 <aside id="sidebar">
   <div id="sidebar-top">
     <button id="btn-new-conv" class="btn-primary">+ 新对话</button>
+    <button id="btn-archive-view" class="btn-ghost" title="查看已归档会话">归档</button>
   </div>
   <div id="conv-list-wrap">
     <ul id="conv-list"></ul>
@@ -28,7 +29,7 @@
       <div id="context-bar-hint"></div>
     </div>
     <div id="cost-bar">
-      <span id="cost-round">本轮: 0</span> | <span id="cost-session">会话: 0</span> | <span id="cost-cache">缓存: -</span>
+      <span id="cost-round">本轮输出: 0</span> | <span id="cost-session">本次输出: 0</span> | <span id="cost-cache">缓存: -</span>
     </div>
   </div>
 </aside>
@@ -136,19 +137,44 @@
 
 <!-- ── Token 用量热力图 ── -->
 <div id="usage-overlay" class="overlay hidden">
-  <div id="usage-modal" class="modal">
+  <div id="usage-modal" class="modal usage-dashboard">
     <div class="modal-header">
-      <h2>Token 用量热力图</h2>
+      <h2>Token 用量</h2>
       <button class="btn-close" id="btn-usage-close">✕</button>
     </div>
+    <div class="usage-switches">
+      <div class="usage-segment" id="usage-period-switch">
+        <button class="active" data-period="month">月度</button>
+        <button data-period="week">周度</button>
+      </div>
+      <div class="usage-segment" id="usage-metric-switch">
+        <button class="active" data-metric="output_tokens" title="模型实际生成的 token">输出</button>
+        <button data-metric="total_tokens" title="输入与输出 token 总和">总量</button>
+        <button data-metric="input_tokens" title="每次模型请求携带的输入 token">输入</button>
+      </div>
+    </div>
     <div class="usage-toolbar">
-      <button id="btn-usage-prev" class="btn-secondary">‹ 上月</button>
+      <button id="btn-usage-prev" class="btn-secondary" title="上一周期">‹</button>
       <strong id="usage-month-label">-</strong>
-      <button id="btn-usage-next" class="btn-secondary">下月 ›</button>
+      <button id="btn-usage-next" class="btn-secondary" title="下一周期">›</button>
     </div>
     <div id="usage-stats" class="usage-stats"></div>
-    <div class="usage-legend"><span>少</span><i data-level="0"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><span>多</span></div>
-    <div id="usage-heatmap" class="usage-heatmap"></div>
+    <div class="usage-content">
+      <section class="usage-calendar-panel">
+        <div id="usage-month-chart">
+          <div class="usage-legend"><span>少</span><i data-level="0"></i><i data-level="1"></i><i data-level="2"></i><i data-level="3"></i><i data-level="4"></i><span>多</span></div>
+          <div id="usage-heatmap" class="usage-heatmap"></div>
+        </div>
+        <div id="usage-week-chart" class="usage-week-chart hidden"></div>
+      </section>
+      <section class="usage-model-panel">
+        <h3>模型占比</h3>
+        <div class="usage-model-layout">
+          <div id="usage-donut" class="usage-donut"><span>0</span></div>
+          <div id="usage-model-legend" class="usage-model-legend"></div>
+        </div>
+      </section>
+    </div>
   </div>
   <div id="usage-tooltip" class="usage-tooltip hidden"></div>
 </div>

@@ -252,3 +252,11 @@ vendor/* → core.js → render.js → drag.js → dialogs.js → settings.js �
 - 左下角上下文估算（`get_context_usage`）走的是 `estimate_tokens(会话消息)`，**与用量统计是两条完全独立的链路**。上下文估算正常不能说明用量统计正常。
 - 先检查 `token_usage.jsonl` 是否有数据，空文件 = 写入链路断了。
 
+## 会话归档、搜索与用量面板（2026-07-28）
+
+- **归档不移动文件**：会话 JSON 用可选字段 `archived_at` 表示归档状态；恢复时删除该字段。`set_project_archived` 只是批量更新同一 `project_path` 下的会话，不删除会话、不修改项目路径。`list_conversations` 摘要同时返回 `archived_at` 和布尔值 `archived`。
+- **侧边栏收纳规则**：普通视图和归档视图分开；每个项目（含未分类）默认只显示前 5 条会话，其余由组内按钮展开。项目组头支持整组归档/恢复，单条会话操作区支持归档/恢复。
+- **搜索范围**：`conversation.search_conversations` 只搜索标题以及 `user` / `assistant` 正文，刻意忽略不可见的 `tool` 结果。前端内容搜索使用递增序号丢弃过期异步结果，避免旧关键词结果覆盖当前搜索。
+- **用量口径**：`token_usage.jsonl` 每次模型调用记录 input/output/total/cache hit/cache miss/estimated。ReAct 每轮都会重新发送上下文，因此 `total_tokens` 会真实累计重复输入；用量面板默认展示 `output_tokens`，并允许切换到总量或输入。左下角显示“本轮输出 / 本次输出”，其中“本次”是当前一次 Agent.run，不是整个历史会话。
+- **聚合与图表**：`aggregate_month` 和 `aggregate_week` 共用日期范围聚合，返回每天及每模型的完整指标。前端月度使用热力图，周度使用每日柱状图，当前周期模型分布使用环图。
+

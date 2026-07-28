@@ -97,7 +97,10 @@ pre, code,
   flex-direction: column;
   overflow: hidden;
 }
-#sidebar-top { padding: 10px 8px 6px; }
+#sidebar-top { padding: 10px 8px 6px; display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+#sidebar-top #btn-new-conv { min-width: 0; }
+#btn-archive-view { min-width: 52px; padding-inline: 8px; }
+#btn-archive-view.active { color: var(--accent); background: var(--glow-accent); border-color: var(--accent); }
 #conv-list-wrap { flex: 1; overflow-y: auto; padding: 0 4px; }
 #conv-list { list-style: none; }
 #conv-list li {
@@ -138,6 +141,10 @@ pre, code,
 #conv-list li .conv-title-wrap .conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #conv-list li .conv-title-wrap .conv-time { font-size: 10px; color: var(--text-muted); opacity: 0.75; margin-top: 1px; }
 #conv-list li.search-content-match { border-left: 2px solid var(--accent); }
+.conv-list-empty { padding: 18px 10px; color: var(--text-muted); font-size: 12px; text-align: center; }
+.archive-empty-state{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--text-muted)}
+.archive-empty-state b{font-size:14px;color:var(--text)}
+.archive-empty-state span{font-size:12px}
 
 /* ── 侧边栏项目分组 ── */
 .conv-group { margin-bottom: 6px; }
@@ -158,14 +165,23 @@ pre, code,
   border-radius: 8px; padding: 0 6px; min-width: 16px; text-align: center;
 }
 .conv-group-items { list-style: none; margin: 0; padding: 0; }
-.conv-group-header .cg-add {
+.conv-group-header .cg-add,
+.conv-group-header .cg-archive {
   font-size: 14px; line-height: 1; width: 18px; height: 18px; flex-shrink: 0;
   border: none; border-radius: 4px; cursor: pointer; padding: 0;
   background: transparent; color: var(--text-muted);
   opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s;
 }
-.conv-group-header:hover .cg-add { opacity: 1; }
-.conv-group-header .cg-add:hover { background: var(--accent); color: #fff; }
+.conv-group-header:hover .cg-add,
+.conv-group-header:hover .cg-archive { opacity: 1; }
+.conv-group-header .cg-add:hover,
+.conv-group-header .cg-archive:hover { background: var(--accent); color: #fff; }
+.conv-group-more {
+  width: calc(100% - 12px); height: 26px; margin: 2px 6px 5px;
+  border: 0; border-top: 1px solid var(--border); background: transparent;
+  color: var(--text-muted); cursor: pointer; font-size: 11px;
+}
+.conv-group-more:hover { color: var(--accent); background: var(--hover); }
 
 /* ── 拖拽排序视觉反馈 ── */
 #conv-list li.dragging { opacity: 0.35; }
@@ -215,7 +231,7 @@ body.conv-dragging, body.conv-dragging * { user-select: none !important; cursor:
 .home-section-label { font-size: 12px; color: var(--text-muted); font-weight: 600; margin: 18px 0 10px; }
 .home-empty { font-size: 12px; color: var(--text-muted); }
 .home-project-card {
-  position: relative; padding: 12px 14px; margin-bottom: 8px;
+  position: relative; padding: 12px 280px 12px 14px; margin-bottom: 8px;
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--surface); cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
@@ -267,6 +283,13 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
   flex-direction: column;
   overflow: hidden;
   background: var(--bg);
+}
+@media (max-width: 620px) {
+  #home-inner { padding: 28px 16px; }
+  .home-project-card { padding-right: 14px; }
+  .home-project-card .hp-actions {
+    position: static; transform: none; margin-top: 10px; flex-wrap: wrap;
+  }
 }
 [data-theme="dark"][data-starfield="on"] body {
   background:

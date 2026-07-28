@@ -18,9 +18,11 @@ window.addEventListener('pywebviewready', async () => {
   initThinkingBtn(uiState.thinking);
   initSearchBtn(uiState.search_mode, uiState.search_enabled);
   state.conversations = await window.pywebview.api.list_conversations();
+  updateArchiveViewButton();
   renderConvList();
-  if (state.conversations.length > 0) {
-    await openConversation(state.conversations[0].id);
+  const firstActiveConversation = state.conversations.find(conv => !conv.archived);
+  if (firstActiveConversation) {
+    await openConversation(firstActiveConversation.id);
   } else {
     await newConversation();
   }
@@ -115,11 +117,19 @@ function _makeConvLi(conv, idx) {
   btnRename.textContent = '✏';
   btnRename.title = '重命名';
   btnRename.addEventListener('click', e => { e.stopPropagation(); showRenameDialog(conv.id, conv.title); });
+  const btnArchive = document.createElement('button');
+  btnArchive.textContent = conv.archived ? '↩' : '▣';
+  btnArchive.title = conv.archived ? '恢复会话' : '归档会话';
+  btnArchive.addEventListener('click', e => {
+    e.stopPropagation();
+    archiveConversation(conv.id, !conv.archived);
+  });
   const btnDel = document.createElement('button');
   btnDel.textContent = '🗑';
   btnDel.title = '删除';
   btnDel.addEventListener('click', e => { e.stopPropagation(); deleteConversation(conv.id); });
   actions.appendChild(btnRename);
+  actions.appendChild(btnArchive);
   actions.appendChild(btnDel);
   li.appendChild(actions);
 
@@ -145,20 +155,34 @@ function _makeConvLi(conv, idx) {
   return li;
 }
 
-function renderConvList(filter = '') {
+function renderConvList(filter = '', contentResults = []) {
   convList.innerHTML = '';
   const kw = filter.toLowerCase();
+  const resultIds = new Set(contentResults.map(result => result.id));
+  const contentMatches = new Map(
+    contentResults.filter(result => result.match === 'content')
+      .map(result => [result.id, result])
+  );
 
   // 按 project_path 分组（保持 state.conversations 的全局顺序）
   const groups = new Map();  // path -> [{conv, idx}]
   state.conversations.forEach((conv, idx) => {
-    if (kw && !(conv.title || '').toLowerCase().includes(kw)) return;
+    if (Boolean(conv.archived) !== state.showArchived) return;
+    if (kw && !(conv.title || '').toLowerCase().includes(kw) && !resultIds.has(conv.id)) return;
     const key = conv.project_path || '';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push({ conv, idx });
   });
 
-  if (groups.size === 0) return;
+  if (groups.size === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'conv-list-empty';
+    empty.textContent = kw
+      ? '没有匹配的会话'
+      : (state.showArchived ? '暂无归档会话' : '暂无会话');
+    convList.appendChild(empty);
+    return;
+  }
 
   const projName = path => {
     if (!path) return '未分类';
@@ -183,7 +207,7 @@ function renderConvList(filter = '') {
     });
     // 真实项目组（path 非空）加「+新对话」按钮：直接在该项目下开新会话。
     // 用 addEventListener + stopPropagation，避免触发折叠；不用内联 onclick（Windows 路径转义坑）。
-    if (path) {
+    if (path && !state.showArchived) {
       const addBtn = document.createElement('button');
       addBtn.className = 'cg-add';
       addBtn.textContent = '+';
@@ -194,6 +218,18 @@ function renderConvList(filter = '') {
       });
       header.appendChild(addBtn);
     }
+
+    if (path) {
+      const archiveProjectBtn = document.createElement('button');
+      archiveProjectBtn.className = 'cg-archive';
+      archiveProjectBtn.textContent = state.showArchived ? '↩' : '▣';
+      archiveProjectBtn.title = state.showArchived ? '恢复整个项目' : '归档整个项目';
+      archiveProjectBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        archiveProject(path, !state.showArchived, projName(path));
+      });
+      header.appendChild(archiveProjectBtn);
+    }
     // 供手动拖拽 _updateDropTarget 命中组标题时读取目标组（拖到组头=归入该组）
     header._groupKey = path;
     group.appendChild(header);
@@ -201,7 +237,31 @@ function renderConvList(filter = '') {
     if (!collapsed) {
       const ul = document.createElement('ul');
       ul.className = 'conv-group-items';
-      items.forEach(({ conv, idx }) => ul.appendChild(_makeConvLi(conv, idx)));
+      const expanded = Boolean(state.expandedConversationGroups[path]);
+      const visibleItems = (kw || expanded) ? items : items.slice(0, 5);
+      visibleItems.forEach(({ conv, idx }) => {
+        const item = _makeConvLi(conv, idx);
+        const match = contentMatches.get(conv.id);
+        if (match) {
+          item.classList.add('search-content-match');
+          const snippet = document.createElement('div');
+          snippet.className = 'conv-snippet';
+          snippet.textContent = match.snippet || '';
+          item.querySelector('.conv-title-wrap').appendChild(snippet);
+        }
+        ul.appendChild(item);
+      });
+      if (!kw && items.length > 5) {
+        const more = document.createElement('button');
+        more.className = 'conv-group-more';
+        more.textContent = expanded ? '收起较早会话' : `显示另外 ${items.length - 5} 条`;
+        more.addEventListener('click', e => {
+          e.stopPropagation();
+          state.expandedConversationGroups[path] = !expanded;
+          renderConvList(searchInput.value);
+        });
+        ul.appendChild(more);
+      }
       group.appendChild(ul);
     }
     convList.appendChild(group);
@@ -210,6 +270,7 @@ function renderConvList(filter = '') {
 
 searchInput.addEventListener('input', () => {
   const kw = searchInput.value.trim();
+  state.searchSerial += 1;
   // Instant title filter for responsiveness
   renderConvList(kw);
   // Debounced content search for deeper matches
@@ -220,7 +281,9 @@ searchInput.addEventListener('input', () => {
 
 async function _runContentSearch(kw) {
   if (!kw) return;
+  const serial = state.searchSerial;
   const results = await window.pywebview.api.search_conversations(kw);
+  if (serial !== state.searchSerial || searchInput.value.trim() !== kw) return;
   _applyContentSearchResults(results, kw);
 }
 
@@ -232,41 +295,9 @@ function _clearSearchHighlights() {
 function _applyContentSearchResults(results, kw) {
   _clearSearchHighlights();
   if (!results || results.length === 0) return;
-  const visibleIds = new Set([...convList.querySelectorAll('li[data-id]')].map(li => li.dataset.id));
-  const contentMatches = results.filter(r => r.match === 'content');
-
-  // For already-visible items, add snippet
-  for (const r of contentMatches) {
-    const li = convList.querySelector(`li[data-id="${r.id}"]`);
-    if (li) {
-      li.classList.add('search-content-match');
-      const snippet = document.createElement('div');
-      snippet.className = 'conv-snippet';
-      snippet.textContent = r.snippet || '';
-      li.appendChild(snippet);
-    }
-  }
-
-  // For items not visible (title didn't match but content did), append them
-  for (const r of contentMatches) {
-    if (visibleIds.has(r.id)) continue;
-    const li = document.createElement('li');
-    li.dataset.id = r.id;
-    li.classList.add('search-content-match');
-
-    const titleSpan = document.createElement('span');
-    titleSpan.textContent = r.title || '新对话';
-    titleSpan.style.flex = '1';
-    li.appendChild(titleSpan);
-
-    const snippet = document.createElement('div');
-    snippet.className = 'conv-snippet';
-    snippet.textContent = r.snippet || '';
-    li.appendChild(snippet);
-
-    li.addEventListener('click', () => openConversation(r.id));
-    convList.appendChild(li);
-  }
+  results = results.filter(result => Boolean(result.archived) === state.showArchived);
+  if (results.length === 0) return;
+  renderConvList(kw, results);
 }
 
 async function openConversation(convId) {
@@ -275,6 +306,15 @@ async function openConversation(convId) {
   hideHome();
   state.currentConvId = convId;
   convTitle.textContent = conv.title;
+  const summary = state.conversations.find(item => item.id === convId);
+  if (summary) {
+    const groupPath = summary.project_path || '';
+    const groupIndex = state.conversations
+      .filter(item => (item.project_path || '') === groupPath
+        && Boolean(item.archived) === state.showArchived)
+      .findIndex(item => item.id === convId);
+    if (groupIndex >= 5) state.expandedConversationGroups[groupPath] = true;
+  }
   const kw = searchInput.value.trim();
   renderConvList(kw);
   // Re-apply content search results so the list doesn't disappear
@@ -377,8 +417,15 @@ async function newConversation() {
 
 // 真正创建会话（绑定可选的项目目录）并进入
 async function startConvWithProject(projectPath = '') {
+  state.showArchived = false;
+  updateArchiveViewButton();
   const conv = await window.pywebview.api.new_conversation(projectPath);
-  state.conversations.unshift({ id: conv.id, title: conv.title, project_path: conv.project_path || '' });
+  state.conversations.unshift({
+    id: conv.id,
+    title: conv.title,
+    project_path: conv.project_path || '',
+    archived: false,
+  });
   state.currentConvId = conv.id;
   convTitle.textContent = conv.title;
   hideHome();
@@ -403,7 +450,8 @@ async function showHome() {
 async function renderHomeProjects() {
   const box = $('home-project-list');
   box.innerHTML = '<span class="home-empty">加载中...</span>';
-  const projects = await window.pywebview.api.list_recent_projects();
+  const projects = (await window.pywebview.api.list_recent_projects())
+    .filter(project => !project.archived);
   box.innerHTML = '';
   if (!projects.length) {
     box.innerHTML = '<span class="home-empty">暂无最近项目，点击上方“添加新项目”。</span>';
@@ -430,6 +478,14 @@ async function renderHomeProjects() {
     editBtn.textContent = '✏ 改地址';
     editBtn.title = '修改项目目录（该项目下所有会话一并改绑）';
     editBtn.addEventListener('click', e => { e.stopPropagation(); editProjectPath(p.path, p.name); });
+    const archiveBtn = document.createElement('button');
+    archiveBtn.className = 'hp-archive btn-secondary';
+    archiveBtn.textContent = '归档';
+    archiveBtn.title = '归档该项目下的全部会话';
+    archiveBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      archiveProject(p.path, true, p.name);
+    });
     const delBtn = document.createElement('button');
     delBtn.className = 'hp-del btn-danger';
     delBtn.textContent = '🗑 移除';
@@ -437,6 +493,7 @@ async function renderHomeProjects() {
     delBtn.addEventListener('click', e => { e.stopPropagation(); removeProject(p.path, p.name); });
     acts.appendChild(startBtn);
     acts.appendChild(editBtn);
+    acts.appendChild(archiveBtn);
     acts.appendChild(delBtn);
     card.appendChild(acts);
     box.appendChild(card);
@@ -504,7 +561,84 @@ async function deleteConversation(convId) {
   renderConvList(searchInput.value);
 }
 
+function updateArchiveViewButton() {
+  const button = $('btn-archive-view');
+  if (!button) return;
+  const archivedCount = state.conversations.filter(conv => conv.archived).length;
+  button.classList.toggle('active', state.showArchived);
+  button.textContent = state.showArchived ? '返回' : `归档${archivedCount ? ` ${archivedCount}` : ''}`;
+  button.title = state.showArchived ? '返回当前会话' : '查看已归档会话';
+}
+
+async function showFirstConversationInCurrentView() {
+  const first = state.conversations.find(
+    conv => Boolean(conv.archived) === state.showArchived
+  );
+  if (first) {
+    await openConversation(first.id);
+    return;
+  }
+  state.currentConvId = null;
+  convTitle.textContent = '';
+  chatMessages.innerHTML = '';
+  if (state.showArchived) {
+    hideHome();
+    chatMessages.innerHTML = '<div class="archive-empty-state"><b>暂无归档会话</b></div>';
+  } else {
+    await showHome();
+  }
+}
+
+async function archiveConversation(convId, archived) {
+  if (state.running && convId === state.currentConvId) {
+    alert('请先停止当前生成，再归档该会话。');
+    return;
+  }
+  const result = await window.pywebview.api.set_conversation_archived(convId, archived);
+  if (!result || !result.ok) return;
+  state.conversations = await window.pywebview.api.list_conversations();
+  updateArchiveViewButton();
+  renderConvList(searchInput.value);
+  const current = state.conversations.find(conv => conv.id === state.currentConvId);
+  if (!current || Boolean(current.archived) !== state.showArchived) {
+    await showFirstConversationInCurrentView();
+  }
+}
+
+async function archiveProject(path, archived, name) {
+  const current = state.conversations.find(conv => conv.id === state.currentConvId);
+  if (state.running && current && (current.project_path || '') === path) {
+    alert('请先停止当前生成，再归档这个项目。');
+    return;
+  }
+  const action = archived ? '归档' : '恢复';
+  if (!confirm(`${action}项目“${name}”的全部会话？`)) return;
+  const result = await window.pywebview.api.set_project_archived(path, archived);
+  if (!result || !result.ok) return;
+  state.conversations = await window.pywebview.api.list_conversations();
+  updateArchiveViewButton();
+  renderConvList(searchInput.value);
+  if (!$('home-view').classList.contains('hidden')) {
+    await renderHomeProjects();
+    return;
+  }
+  const visibleCurrent = state.conversations.find(conv =>
+    conv.id === state.currentConvId && Boolean(conv.archived) === state.showArchived
+  );
+  if (!visibleCurrent) await showFirstConversationInCurrentView();
+}
+
+async function toggleArchiveView() {
+  state.showArchived = !state.showArchived;
+  searchInput.value = '';
+  state.searchSerial += 1;
+  updateArchiveViewButton();
+  renderConvList();
+  await showFirstConversationInCurrentView();
+}
+
 $('btn-new-conv').addEventListener('click', newConversation);
+$('btn-archive-view').addEventListener('click', toggleArchiveView);
 $('btn-token-heatmap').addEventListener('click', openUsageHeatmap);
 $('btn-home-add').addEventListener('click', async () => {
   const proj = await window.pywebview.api.choose_project_folder();
@@ -515,6 +649,10 @@ $('btn-home-noproject').addEventListener('click', () => startConvWithProject('')
 // ── Token 用量热力图 ─────────────────────────────────────────────
 let _usageMonth = new Date();
 _usageMonth.setDate(1);
+let _usageWeek = new Date();
+let _usagePeriod = 'month';
+let _usageMetric = 'output_tokens';
+let _usageData = null;
 
 function _fmtTokens(n) {
   n = Number(n || 0);
@@ -534,43 +672,137 @@ function closeUsageHeatmap() {
 }
 
 async function renderUsageHeatmap() {
-  const y = _usageMonth.getFullYear();
-  const m = _usageMonth.getMonth() + 1;
-  $('usage-month-label').textContent = `${y} 年 ${String(m).padStart(2, '0')} 月`;
-  const data = await window.pywebview.api.get_token_usage_month(y, m);
-  const stats = data.stats || {};
-  $('usage-stats').innerHTML = `
-    <div><b>${_fmtTokens(stats.total_tokens)}</b><span>本月总量</span></div>
-    <div><b>${_fmtTokens(stats.average_per_day)}</b><span>日均</span></div>
-    <div><b>${stats.top_model ? escapeHtml(stats.top_model) : '-'}</b><span>主要模型</span></div>
-    <div><b>${stats.peak_date || '-'}</b><span>峰值日期</span></div>`;
+  if (_usagePeriod === 'month') {
+    const year = _usageMonth.getFullYear();
+    const month = _usageMonth.getMonth() + 1;
+    $('usage-month-label').textContent = `${year} 年 ${String(month).padStart(2, '0')} 月`;
+    _usageData = await window.pywebview.api.get_token_usage_month(year, month);
+  } else {
+    const anchor = _localDateKey(_usageWeek);
+    _usageData = await window.pywebview.api.get_token_usage_week(anchor);
+    $('usage-month-label').textContent = `${_usageData.start_date || '-'}  -  ${_usageData.end_date || '-'}`;
+  }
+  renderUsageDashboard(_usageData || {});
+}
 
-  const box = $('usage-heatmap');
-  box.innerHTML = '';
+function _localDateKey(date) {
+  const pad = value => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function renderUsageDashboard(data) {
+  const stats = data.stats || {};
+  const metricLabels = {
+    output_tokens: '模型输出',
+    total_tokens: 'Token 总量',
+    input_tokens: '输入 Token',
+  };
+  const cacheTotal = Number(stats.cache_hit_tokens || 0) + Number(stats.cache_miss_tokens || 0);
+  const cacheRate = cacheTotal > 0
+    ? `${Math.round(Number(stats.cache_hit_tokens || 0) / cacheTotal * 100)}%`
+    : '-';
+  $('usage-stats').innerHTML = `
+    <div><b>${_fmtTokens(stats[_usageMetric])}</b><span>${metricLabels[_usageMetric]}</span></div>
+    <div><b>${_fmtTokens(stats.input_tokens)}</b><span>输入</span></div>
+    <div><b>${_fmtTokens(stats.output_tokens)}</b><span>输出</span></div>
+    <div><b>${cacheRate}</b><span>缓存命中</span></div>`;
+
   if (data.error) {
-    box.innerHTML = `<div class="usage-empty">读取失败：${escapeHtml(data.error)}</div>`;
+    $('usage-heatmap').innerHTML = `<div class="usage-empty">读取失败：${escapeHtml(data.error)}</div>`;
+    $('usage-week-chart').innerHTML = '';
+    renderUsageModels({});
     return;
   }
+  const isMonth = _usagePeriod === 'month';
+  $('usage-month-chart').classList.toggle('hidden', !isMonth);
+  $('usage-week-chart').classList.toggle('hidden', isMonth);
+  if (isMonth) renderUsageMonth(data);
+  else renderUsageWeek(data);
+  renderUsageModels(data.models || {});
+}
+
+function renderUsageMonth(data) {
+  const box = $('usage-heatmap');
+  box.innerHTML = '';
   const days = data.days || {};
+  const values = Object.values(days).map(item => Number(item[_usageMetric] || 0));
+  const maxValue = Math.max(0, ...values);
   for (let day = 1; day <= (data.days_in_month || 31); day++) {
-    const date = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const item = days[date] || { date, total_tokens: 0, models: {} };
-    const total = Number(item.total_tokens || 0);
-    // 绝对阈值分级：0 / 1-10K / 10K-100K / 100K-1M / 1M+
-    let level = 0;
-    if (total >= 1000000) level = 4;
-    else if (total >= 100000) level = 3;
-    else if (total >= 10000) level = 2;
-    else if (total > 0) level = 1;
+    const date = `${data.year}-${String(data.month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const item = days[date] || { date, total_tokens: 0, input_tokens: 0, output_tokens: 0 };
+    const value = Number(item[_usageMetric] || 0);
+    const level = value <= 0 || maxValue <= 0 ? 0 : Math.max(1, Math.ceil(value / maxValue * 4));
     const cell = document.createElement('div');
     cell.className = 'usage-cell';
     cell.dataset.level = level;
     cell.textContent = day;
-    cell.addEventListener('mouseenter', e => showUsageTooltip(e, item));
+    cell.addEventListener('mouseenter', event => showUsageTooltip(event, item));
     cell.addEventListener('mousemove', moveUsageTooltip);
     cell.addEventListener('mouseleave', hideUsageTooltip);
     box.appendChild(cell);
   }
+}
+
+function renderUsageWeek(data) {
+  const box = $('usage-week-chart');
+  box.innerHTML = '';
+  const order = data.day_order || Object.keys(data.days || {});
+  const items = order.map(key => (data.days || {})[key]).filter(Boolean);
+  const maxValue = Math.max(0, ...items.map(item => Number(item[_usageMetric] || 0)));
+  const weekday = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  items.forEach((item, index) => {
+    const value = Number(item[_usageMetric] || 0);
+    const column = document.createElement('div');
+    column.className = 'usage-bar-column';
+    const bar = document.createElement('div');
+    bar.className = 'usage-bar';
+    bar.style.height = value > 0 && maxValue > 0 ? `${Math.max(4, value / maxValue * 100)}%` : '2px';
+    bar.title = `${item.date}: ${_fmtTokens(value)}`;
+    const valueLabel = document.createElement('b');
+    valueLabel.textContent = _fmtTokens(value);
+    const dayLabel = document.createElement('span');
+    dayLabel.textContent = weekday[index] || item.date.slice(5);
+    const dateLabel = document.createElement('small');
+    dateLabel.textContent = item.date.slice(5);
+    column.appendChild(valueLabel);
+    column.appendChild(bar);
+    column.appendChild(dayLabel);
+    column.appendChild(dateLabel);
+    box.appendChild(column);
+  });
+}
+
+function renderUsageModels(models) {
+  const palette = ['#35c78a', '#4d8df7', '#f2b84b', '#e56b6f', '#8f78d7', '#27a9b8'];
+  const entries = Object.entries(models)
+    .map(([name, metrics]) => [name, Number((metrics || {})[_usageMetric] || 0)])
+    .filter(([, value]) => value > 0)
+    .sort((a, b) => b[1] - a[1]);
+  const top = entries.slice(0, 5);
+  const rest = entries.slice(5).reduce((sum, item) => sum + item[1], 0);
+  if (rest > 0) top.push(['其他', rest]);
+  const total = top.reduce((sum, item) => sum + item[1], 0);
+  const donut = $('usage-donut');
+  const legend = $('usage-model-legend');
+  legend.innerHTML = '';
+  if (total <= 0) {
+    donut.style.background = 'var(--bg3)';
+    donut.innerHTML = '<span>0</span>';
+    legend.innerHTML = '<div class="usage-empty">暂无模型用量</div>';
+    return;
+  }
+  let cursor = 0;
+  const stops = [];
+  top.forEach(([name, value], index) => {
+    const start = cursor;
+    cursor += value / total * 100;
+    stops.push(`${palette[index]} ${start}% ${cursor}%`);
+    const row = document.createElement('div');
+    row.innerHTML = `<i style="background:${palette[index]}"></i><span title="${escapeHtml(name)}">${escapeHtml(name)}</span><b>${_fmtTokens(value)}</b>`;
+    legend.appendChild(row);
+  });
+  donut.style.background = `conic-gradient(${stops.join(',')})`;
+  donut.innerHTML = `<span>${_fmtTokens(total)}</span>`;
 }
 
 function getUsageTooltip() {
@@ -584,13 +816,14 @@ function getUsageTooltip() {
 }
 
 function showUsageTooltip(e, item) {
-  const models = Object.entries(item.models || {})
+  const models = Object.entries(item.model_metrics || {})
+    .map(([name, metrics]) => [name, Number((metrics || {})[_usageMetric] || 0)])
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6)
     .map(([name, tokens]) => `<div><span>${escapeHtml(name)}</span><b>${_fmtTokens(tokens)}</b></div>`)
     .join('') || '<div><span>无调用记录</span><b>0</b></div>';
   const tip = getUsageTooltip();
-  tip.innerHTML = `<strong>${escapeHtml(item.date || '')}</strong><p>总计：${_fmtTokens(item.total_tokens || 0)} tokens</p>${models}`;
+  tip.innerHTML = `<strong>${escapeHtml(item.date || '')}</strong><p>${_fmtTokens(item[_usageMetric] || 0)} tokens</p>${models}`;
   tip.classList.remove('hidden');
   moveUsageTooltip(e);
 }
@@ -621,12 +854,32 @@ $('usage-overlay').addEventListener('mousemove', e => {
 
 $('btn-usage-close').addEventListener('click', closeUsageHeatmap);
 $('btn-usage-prev').addEventListener('click', async () => {
-  _usageMonth.setMonth(_usageMonth.getMonth() - 1);
+  if (_usagePeriod === 'month') _usageMonth.setMonth(_usageMonth.getMonth() - 1);
+  else _usageWeek.setDate(_usageWeek.getDate() - 7);
   await renderUsageHeatmap();
 });
 $('btn-usage-next').addEventListener('click', async () => {
-  _usageMonth.setMonth(_usageMonth.getMonth() + 1);
+  if (_usagePeriod === 'month') _usageMonth.setMonth(_usageMonth.getMonth() + 1);
+  else _usageWeek.setDate(_usageWeek.getDate() + 7);
   await renderUsageHeatmap();
+});
+$('usage-period-switch').addEventListener('click', async event => {
+  const button = event.target.closest('button[data-period]');
+  if (!button) return;
+  _usagePeriod = button.dataset.period;
+  $('usage-period-switch').querySelectorAll('button').forEach(item =>
+    item.classList.toggle('active', item === button)
+  );
+  await renderUsageHeatmap();
+});
+$('usage-metric-switch').addEventListener('click', event => {
+  const button = event.target.closest('button[data-metric]');
+  if (!button) return;
+  _usageMetric = button.dataset.metric;
+  $('usage-metric-switch').querySelectorAll('button').forEach(item =>
+    item.classList.toggle('active', item === button)
+  );
+  renderUsageDashboard(_usageData || {});
 });
 
 // ── History rendering ─────────────────────────────────────────────
@@ -949,6 +1202,9 @@ let _streamNodes = [];        // all DOM nodes added during this streaming sessi
 
 function startAssistantStream() {
   removeTypingIndicator();
+  $('cost-round').textContent = '本轮输出: 0';
+  $('cost-session').textContent = '本次输出: 0';
+  $('cost-cache').textContent = '缓存: -';
   _streamContent = '';
   _streamingConvId = state.currentConvId;
   _streamNodes = [];
@@ -1075,16 +1331,16 @@ window.Chat = {
   updateUsage(data) {
     const r = data.round || {};
     const s = data.session || {};
-    const roundTotal = (r.prompt || 0) + (r.completion || 0);
-    const sessionTotal = (s.prompt_tokens || 0) + (s.completion_tokens || 0);
+    const roundOutput = r.completion || 0;
+    const sessionOutput = s.completion_tokens || 0;
     const cacheHit = s.cache_hit_tokens || 0;
     const cacheMiss = s.cache_miss_tokens || 0;
     const cacheRate = (cacheHit + cacheMiss) > 0
       ? Math.round(cacheHit / (cacheHit + cacheMiss) * 100) + '%'
       : '-';
     const fmt = n => n >= 1000 ? (n/1000).toFixed(1)+'k' : String(n);
-    $('cost-round').textContent = `本轮: ${fmt(roundTotal)}`;
-    $('cost-session').textContent = `会话: ${fmt(sessionTotal)}`;
+    $('cost-round').textContent = `本轮输出: ${fmt(roundOutput)}`;
+    $('cost-session').textContent = `本次输出: ${fmt(sessionOutput)}`;
     $('cost-cache').textContent = `缓存: ${cacheRate}`;
   },
   appendThinking(token) {

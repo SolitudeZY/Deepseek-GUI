@@ -33,6 +33,8 @@ tests/*
 !tests/test_responses_state.py
 !tests/test_retrieval.py
 !tests/test_vision.py
+!tests/test_conversation_management.py
+!tests/test_token_usage.py
 *_generated_*.png
 矩阵运算*.md
 newton_bisection.tex

@@ -61,6 +61,33 @@ def set_conversation_project(conv_id: str, project_path: str) -> None:
         save_conversation(conv)
 
 
+def set_conversation_archived(conv_id: str, archived: bool = True) -> bool:
+    """Archive or restore one conversation without moving or deleting its file."""
+    conv = load_conversation(conv_id)
+    if not conv:
+        return False
+    if archived:
+        conv["archived_at"] = datetime.now().isoformat()
+    else:
+        conv.pop("archived_at", None)
+    save_conversation(conv)
+    return True
+
+
+def set_project_archived(project_path: str, archived: bool = True) -> int:
+    """Archive or restore every conversation bound to one exact project path."""
+    target = (project_path or "").strip()
+    if not target:
+        return 0
+    matched = [
+        item for item in list_conversations()
+        if (item.get("project_path", "") or "").strip() == target
+    ]
+    for item in matched:
+        set_conversation_archived(item["id"], archived)
+    return len(matched)
+
+
 def list_conversations() -> list[dict]:
     """返回所有对话摘要。
     排序规则：
@@ -81,6 +108,8 @@ def list_conversations() -> list[dict]:
                 "sort_order": data.get("sort_order", -1),
                 "model_config": data.get("model_config", ""),
                 "project_path": data.get("project_path", ""),
+                "archived_at": data.get("archived_at", ""),
+                "archived": bool(data.get("archived_at")),
             })
         except Exception:
             continue
@@ -90,6 +119,48 @@ def list_conversations() -> list[dict]:
     unpinned.sort(key=lambda c: c["updated_at"], reverse=True)
     pinned.sort(key=lambda c: c["sort_order"])
     return unpinned + pinned
+
+
+def search_conversations(keyword: str) -> list[dict]:
+    """Search titles and user-visible user/assistant message text only."""
+    kw = (keyword or "").casefold().strip()
+    if not kw:
+        return []
+    results: list[dict] = []
+    for path in get_conversations_dir().glob("conv_*.json"):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            title = str(data.get("title", "") or "")
+            base = {
+                "id": data["id"],
+                "title": title,
+                "project_path": data.get("project_path", ""),
+                "archived": bool(data.get("archived_at")),
+            }
+            if kw in title.casefold():
+                results.append({**base, "match": "title"})
+                continue
+            for message in data.get("messages", []):
+                if message.get("role") not in ("user", "assistant"):
+                    continue
+                content = str(message.get("content", "") or "")
+                folded = content.casefold()
+                if kw not in folded:
+                    continue
+                index = folded.index(kw)
+                start = max(0, index - 20)
+                end = min(len(content), index + len(keyword) + 40)
+                snippet = content[start:end].replace("\n", " ")
+                if start > 0:
+                    snippet = "..." + snippet
+                if end < len(content):
+                    snippet += "..."
+                results.append({**base, "match": "content", "snippet": snippet})
+                break
+        except Exception:
+            continue
+    return results
 
 
 def update_sort_orders(ordered_ids: list[str]) -> None:

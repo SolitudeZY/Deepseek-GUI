@@ -16,6 +16,8 @@ from app.conversation import (
     delete_conversation, rename_conversation, list_conversations,
     update_sort_orders, auto_title_from_message, export_conversation_md,
     import_conversation_from_file, set_conversation_project,
+    search_conversations as search_conversation_data,
+    set_conversation_archived, set_project_archived,
 )
 from app.sync import (
     upload_conversation, upload_all_conversations,
@@ -26,7 +28,7 @@ from app.sync import (
 from app.tools import read_file as _read_file, get_file_op_log
 from app.vision import is_image, describe_image
 from app.skills import skill_list, skill_save, skill_delete, skill_read, memory_list, memory_read, memory_write, memory_delete, skill_import_from_path
-from app.token_usage import aggregate_month, record_usage
+from app.token_usage import aggregate_month, aggregate_week, record_usage
 from app.mcp_client import MCPManager, normalize_server_configs
 from app.external_config import (
     discover_external_mcp_configs,
@@ -412,37 +414,16 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def search_conversations(self, keyword: str) -> list:
         """Search conversations by title and message content. Returns matching conv summaries."""
-        from app.conversation import get_conversations_dir
-        kw = keyword.lower().strip()
-        if not kw:
-            return []
-        results = []
-        for p in get_conversations_dir().glob("conv_*.json"):
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                title = data.get("title", "")
-                if kw in title.lower():
-                    results.append({"id": data["id"], "title": title, "match": "title"})
-                    continue
-                # Search in message content
-                for msg in data.get("messages", []):
-                    content = msg.get("content", "") or ""
-                    if kw in content.lower():
-                        # Extract a snippet around the match
-                        idx = content.lower().index(kw)
-                        start = max(0, idx - 20)
-                        end = min(len(content), idx + len(kw) + 40)
-                        snippet = content[start:end].replace("\n", " ")
-                        if start > 0:
-                            snippet = "…" + snippet
-                        if end < len(content):
-                            snippet = snippet + "…"
-                        results.append({"id": data["id"], "title": title, "match": "content", "snippet": snippet})
-                        break
-            except Exception:
-                continue
-        return results
+        return search_conversation_data(keyword)
+
+    def set_conversation_archived(self, conv_id: str, archived: bool = True) -> dict:
+        return {"ok": set_conversation_archived(conv_id, bool(archived))}
+
+    def set_project_archived(self, project_path: str, archived: bool = True) -> dict:
+        return {
+            "ok": True,
+            "updated": set_project_archived(project_path, bool(archived)),
+        }
 
     def set_thinking(self, level: str) -> None:
         """level: 'off' | 'high' | 'max'"""
@@ -665,6 +646,12 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             return aggregate_month(int(year), int(month))
         except Exception as e:
             return {"error": str(e), "year": year, "month": month, "days": {}, "stats": {}}
+
+    def get_token_usage_week(self, anchor_date: str) -> dict:
+        try:
+            return aggregate_week(anchor_date)
+        except Exception as e:
+            return {"error": str(e), "days": {}, "models": {}, "stats": {}}
 
     def get_context_usage(self, conv_id: str) -> dict:
         """计算指定对话的上下文 token 使用量。"""
@@ -1081,6 +1068,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 int(r.get('completion') or 0),
                 source='chat',
                 model_config=self._active_model_config_name,
+                cache_hit_tokens=int(r.get('cache_hit') or 0),
+                cache_miss_tokens=int(r.get('cache_miss') or 0),
+                estimated=r.get('estimated') is True,
             )
         except Exception as e:
             print(f"[token_usage] record failed: {e}")
@@ -1450,6 +1440,11 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 conv['file_ops'] = latest['file_ops']
             if latest.get('file_baselines'):
                 conv['file_baselines'] = latest['file_baselines']
+            for field in ('archived_at', 'project_path'):
+                if field in latest:
+                    conv[field] = latest[field]
+                else:
+                    conv.pop(field, None)
 
     def _merge_agent_provider_state(self, conv: dict) -> None:
         if not self._agent:
@@ -1540,6 +1535,13 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         ② 所有会话里实际出现的 project_path（防止某些项目因旧数据/异常未登记 recent_projects，
         导致侧边栏有分组但主页看不到、进不去）。以 recent_projects 顺序优先，会话独有的补在后面。
         """
+        all_conversations = list_conversations()
+        project_conversations = {}
+        for conversation in all_conversations:
+            project_path = (conversation.get('project_path', '') or '').strip()
+            if project_path:
+                project_conversations.setdefault(project_path, []).append(conversation)
+
         out = []
         seen = set()
         for p in self._config.get('recent_projects', []):
@@ -1551,9 +1553,13 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             seen.add(path)
             item = dict(p)
             item['exists'] = Path(path).expanduser().is_dir()
+            conversations = project_conversations.get(path, [])
+            item['archived'] = bool(conversations) and all(
+                conversation.get('archived') for conversation in conversations
+            )
             out.append(item)
         # 补上会话里有、但 recent_projects 没记录的项目
-        for c in list_conversations():
+        for c in all_conversations:
             path = (c.get('project_path', '') or '').strip()
             if not path or path in seen:
                 continue
@@ -1563,6 +1569,10 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 'name': Path(path).name or path,
                 'last_used': 0,
                 'exists': Path(path).expanduser().is_dir(),
+                'archived': bool(project_conversations.get(path)) and all(
+                    conversation.get('archived')
+                    for conversation in project_conversations[path]
+                ),
             })
         return out
 
@@ -1580,7 +1590,8 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         """返回指定项目下的会话摘要（project_path 为空时返回未分类会话）。"""
         target = (project_path or '').strip()
         return [c for c in list_conversations()
-                if (c.get('project_path', '') or '') == target]
+                if (c.get('project_path', '') or '') == target
+                and not c.get('archived')]
 
     def remove_recent_project(self, path: str) -> dict:
         """从最近项目列表移除一个项目（仅移除条目，不删会话）。
