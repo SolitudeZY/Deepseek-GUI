@@ -84,6 +84,77 @@ function _fmtConvTime(iso, full = false) {
                   : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+function setTemporaryMode(temporary) {
+  state.temporaryConversation = Boolean(temporary);
+  $('temporary-badge').classList.toggle('hidden', !state.temporaryConversation);
+}
+
+function updateBatchConversationBar() {
+  $('batch-conversation-bar').classList.toggle('hidden', !state.conversationManageMode);
+  $('btn-manage-convs').classList.toggle('active', state.conversationManageMode);
+  $('btn-manage-convs').textContent = state.conversationManageMode ? '完成' : '管理';
+  $('batch-selected-count').textContent = `已选 ${state.selectedConversationIds.size}`;
+  $('btn-batch-archive').textContent = state.showArchived ? '恢复' : '归档';
+  const hasSelection = state.selectedConversationIds.size > 0;
+  $('btn-batch-clear').disabled = !hasSelection;
+  $('btn-batch-archive').disabled = !hasSelection;
+  $('btn-batch-delete').disabled = !hasSelection;
+}
+
+function setConversationSelected(convId, selected, li = null) {
+  if (selected) state.selectedConversationIds.add(convId);
+  else state.selectedConversationIds.delete(convId);
+  if (li) {
+    li.classList.toggle('batch-selected', selected);
+    const checkbox = li.querySelector('.conv-batch-check');
+    if (checkbox) checkbox.checked = selected;
+  }
+  updateBatchConversationBar();
+}
+
+function toggleConversationManageMode(force) {
+  state.conversationManageMode = typeof force === 'boolean'
+    ? force : !state.conversationManageMode;
+  state.selectedConversationIds.clear();
+  updateBatchConversationBar();
+  renderConvList(searchInput.value);
+}
+
+async function refreshConversationsAfterBulkAction() {
+  state.conversations = await window.pywebview.api.list_conversations();
+  state.selectedConversationIds.clear();
+  updateArchiveViewButton();
+  renderConvList(searchInput.value);
+  if (state.temporaryConversation) return;
+  const current = state.conversations.find(item => item.id === state.currentConvId);
+  if (!current || Boolean(current.archived) !== state.showArchived) {
+    await showFirstConversationInCurrentView();
+  }
+}
+
+async function bulkArchiveSelected() {
+  const ids = [...state.selectedConversationIds];
+  if (!ids.length) return;
+  const result = await window.pywebview.api.bulk_archive_conversations(ids, !state.showArchived);
+  if (!result || !result.ok) {
+    alert((result && result.error) || '批量操作失败');
+    return;
+  }
+  await refreshConversationsAfterBulkAction();
+}
+
+async function bulkDeleteSelected() {
+  const ids = [...state.selectedConversationIds];
+  if (!ids.length) return;
+  if (!confirm(`确定永久删除选中的 ${ids.length} 条会话吗？\n\n此操作不可撤销。`)) return;
+  const result = await window.pywebview.api.bulk_delete_conversations(ids);
+  if (!result || !result.ok) {
+    alert((result && result.error) || '批量删除失败');
+    return;
+  }
+  await refreshConversationsAfterBulkAction();
+}
+
 function _makeConvLi(conv, idx) {
   const li = document.createElement('li');
   li.dataset.id = conv.id;
@@ -92,6 +163,19 @@ function _makeConvLi(conv, idx) {
     li.classList.add('active');
     li.style.borderLeftColor = _randomConvColor();
     li.style.boxShadow = `inset 4px 0 0 ${li.style.borderLeftColor}, 0 0 12px ${li.style.borderLeftColor}33`;
+  }
+  if (state.conversationManageMode) {
+    li.classList.add('manage-selecting');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'conv-batch-check';
+    checkbox.checked = state.selectedConversationIds.has(conv.id);
+    li.classList.toggle('batch-selected', checkbox.checked);
+    checkbox.addEventListener('click', event => {
+      event.stopPropagation();
+      setConversationSelected(conv.id, checkbox.checked, li);
+    });
+    li.appendChild(checkbox);
   }
 
   const titleWrap = document.createElement('div');
@@ -131,9 +215,13 @@ function _makeConvLi(conv, idx) {
   actions.appendChild(btnRename);
   actions.appendChild(btnArchive);
   actions.appendChild(btnDel);
-  li.appendChild(actions);
+  if (!state.conversationManageMode) li.appendChild(actions);
 
   li.addEventListener('click', () => {
+    if (state.conversationManageMode) {
+      setConversationSelected(conv.id, !state.selectedConversationIds.has(conv.id), li);
+      return;
+    }
     // 刚结束一次拖拽时抑制点击（mouseup 与 click 会连续触发）
     if (_drag.justDragged) { _drag.justDragged = false; return; }
     openConversation(conv.id);
@@ -148,6 +236,7 @@ function _makeConvLi(conv, idx) {
   // 只在 dragstart 上挡；文本选中触发的拖放由 CSS user-select/-webkit-user-drag 兜底。
   li.addEventListener('dragstart', e => e.preventDefault());
   li.addEventListener('mousedown', e => {
+    if (state.conversationManageMode) return;
     if (e.button !== 0) return;            // 仅左键
     if (e.target.closest('.conv-actions')) return;  // 点重命名/删除按钮不触发拖拽
     _beginDragCandidate(conv.id, li, e);
@@ -157,6 +246,7 @@ function _makeConvLi(conv, idx) {
 
 function renderConvList(filter = '', contentResults = []) {
   convList.innerHTML = '';
+  state.visibleConversationIds = [];
   const kw = filter.toLowerCase();
   const resultIds = new Set(contentResults.map(result => result.id));
   const contentMatches = new Map(
@@ -173,6 +263,9 @@ function renderConvList(filter = '', contentResults = []) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push({ conv, idx });
   });
+  state.visibleConversationIds = [...groups.values()]
+    .flatMap(items => items.map(item => item.conv.id));
+  updateBatchConversationBar();
 
   if (groups.size === 0) {
     const empty = document.createElement('div');
@@ -207,7 +300,7 @@ function renderConvList(filter = '', contentResults = []) {
     });
     // 真实项目组（path 非空）加「+新对话」按钮：直接在该项目下开新会话。
     // 用 addEventListener + stopPropagation，避免触发折叠；不用内联 onclick（Windows 路径转义坑）。
-    if (path && !state.showArchived) {
+    if (path && !state.showArchived && !state.conversationManageMode) {
       const addBtn = document.createElement('button');
       addBtn.className = 'cg-add';
       addBtn.textContent = '+';
@@ -219,7 +312,7 @@ function renderConvList(filter = '', contentResults = []) {
       header.appendChild(addBtn);
     }
 
-    if (path) {
+    if (path && !state.conversationManageMode) {
       const archiveProjectBtn = document.createElement('button');
       archiveProjectBtn.className = 'cg-archive';
       archiveProjectBtn.textContent = state.showArchived ? '↩' : '▣';
@@ -238,7 +331,7 @@ function renderConvList(filter = '', contentResults = []) {
       const ul = document.createElement('ul');
       ul.className = 'conv-group-items';
       const expanded = Boolean(state.expandedConversationGroups[path]);
-      const visibleItems = (kw || expanded) ? items : items.slice(0, 5);
+      const visibleItems = (kw || expanded || state.conversationManageMode) ? items : items.slice(0, 5);
       visibleItems.forEach(({ conv, idx }) => {
         const item = _makeConvLi(conv, idx);
         const match = contentMatches.get(conv.id);
@@ -251,7 +344,7 @@ function renderConvList(filter = '', contentResults = []) {
         }
         ul.appendChild(item);
       });
-      if (!kw && items.length > 5) {
+      if (!kw && !state.conversationManageMode && items.length > 5) {
         const more = document.createElement('button');
         more.className = 'conv-group-more';
         more.textContent = expanded ? '收起较早会话' : `显示另外 ${items.length - 5} 条`;
@@ -301,10 +394,18 @@ function _applyContentSearchResults(results, kw) {
 }
 
 async function openConversation(convId) {
+  if (state.temporaryConversation && state.currentConvId !== convId) {
+    const discarded = await window.pywebview.api.discard_temporary_conversation(state.currentConvId);
+    if (!discarded || !discarded.ok) {
+      alert((discarded && discarded.error) || '临时会话仍在生成，暂时无法切换');
+      return;
+    }
+  }
   const conv = await window.pywebview.api.open_conversation(convId);
   if (!conv) return;
   hideHome();
   state.currentConvId = convId;
+  setTemporaryMode(conv.temporary === true);
   convTitle.textContent = conv.title;
   const summary = state.conversations.find(item => item.id === convId);
   if (summary) {
@@ -343,6 +444,8 @@ async function openConversation(convId) {
   // Highlight and scroll to keyword match in chat
   if (kw) {
     requestAnimationFrame(() => _highlightAndScrollTo(kw));
+  } else {
+    requestAnimationFrame(() => scrollToBottom(true));
   }
 }
 
@@ -412,12 +515,47 @@ function _highlightAndScrollTo(keyword) {
 
 // 点击"+ 新对话"：先显示主页选择项目，而非直接建会话
 async function newConversation() {
+  if (state.running) {
+    alert('请先停止当前生成，再开始新对话。');
+    return;
+  }
+  if (state.temporaryConversation && state.currentConvId) {
+    await window.pywebview.api.discard_temporary_conversation(state.currentConvId);
+    state.currentConvId = null;
+    convTitle.textContent = '';
+  }
+  setTemporaryMode(false);
   await showHome();
+}
+
+async function startTemporaryConversation() {
+  if (state.running) {
+    alert('请先停止当前生成，再开始临时对话。');
+    return;
+  }
+  const conv = await window.pywebview.api.new_temporary_conversation();
+  state.showArchived = false;
+  state.currentConvId = conv.id;
+  setTemporaryMode(true);
+  toggleConversationManageMode(false);
+  updateArchiveViewButton();
+  convTitle.textContent = conv.title || '临时对话';
+  hideHome();
+  chatMessages.innerHTML = '';
+  renderConvList(searchInput.value);
+  updateContextBar(0, 80000);
+  msgInput.focus();
 }
 
 // 真正创建会话（绑定可选的项目目录）并进入
 async function startConvWithProject(projectPath = '') {
+  if (state.running) {
+    alert('请先停止当前生成，再开始新对话。');
+    return;
+  }
   state.showArchived = false;
+  setTemporaryMode(false);
+  toggleConversationManageMode(false);
   updateArchiveViewButton();
   const conv = await window.pywebview.api.new_conversation(projectPath);
   state.conversations.unshift({
@@ -554,6 +692,7 @@ async function deleteConversation(convId) {
   if (state.currentConvId === convId) {
     chatMessages.innerHTML = '';
     state.currentConvId = null;
+    setTemporaryMode(false);
     convTitle.textContent = '';
     if (state.conversations.length > 0) await openConversation(state.conversations[0].id);
     else await newConversation();
@@ -579,6 +718,7 @@ async function showFirstConversationInCurrentView() {
     return;
   }
   state.currentConvId = null;
+  setTemporaryMode(false);
   convTitle.textContent = '';
   chatMessages.innerHTML = '';
   if (state.showArchived) {
@@ -614,7 +754,10 @@ async function archiveProject(path, archived, name) {
   const action = archived ? '归档' : '恢复';
   if (!confirm(`${action}项目“${name}”的全部会话？`)) return;
   const result = await window.pywebview.api.set_project_archived(path, archived);
-  if (!result || !result.ok) return;
+  if (!result || !result.ok) {
+    alert((result && result.error) || `${action}项目失败`);
+    return;
+  }
   state.conversations = await window.pywebview.api.list_conversations();
   updateArchiveViewButton();
   renderConvList(searchInput.value);
@@ -629,7 +772,17 @@ async function archiveProject(path, archived, name) {
 }
 
 async function toggleArchiveView() {
+  if (state.temporaryConversation && state.currentConvId) {
+    const discarded = await window.pywebview.api.discard_temporary_conversation(state.currentConvId);
+    if (!discarded || !discarded.ok) {
+      alert((discarded && discarded.error) || '临时会话仍在生成，暂时无法切换');
+      return;
+    }
+    state.currentConvId = null;
+    setTemporaryMode(false);
+  }
   state.showArchived = !state.showArchived;
+  state.selectedConversationIds.clear();
   searchInput.value = '';
   state.searchSerial += 1;
   updateArchiveViewButton();
@@ -638,7 +791,21 @@ async function toggleArchiveView() {
 }
 
 $('btn-new-conv').addEventListener('click', newConversation);
+$('btn-temp-conv').addEventListener('click', startTemporaryConversation);
 $('btn-archive-view').addEventListener('click', toggleArchiveView);
+$('btn-manage-convs').addEventListener('click', () => toggleConversationManageMode());
+$('btn-batch-select-all').addEventListener('click', () => {
+  state.visibleConversationIds.forEach(id => state.selectedConversationIds.add(id));
+  updateBatchConversationBar();
+  renderConvList(searchInput.value);
+});
+$('btn-batch-clear').addEventListener('click', () => {
+  state.selectedConversationIds.clear();
+  updateBatchConversationBar();
+  renderConvList(searchInput.value);
+});
+$('btn-batch-archive').addEventListener('click', bulkArchiveSelected);
+$('btn-batch-delete').addEventListener('click', bulkDeleteSelected);
 $('btn-token-heatmap').addEventListener('click', openUsageHeatmap);
 $('btn-home-add').addEventListener('click', async () => {
   const proj = await window.pywebview.api.choose_project_folder();
@@ -915,7 +1082,7 @@ function loadHistory(messages) {
       addToolResultBubble(name, content);
     }
   });
-  scrollToBottom();
+  scrollToBottom(true);
   // Re-enable animations after history is rendered
   requestAnimationFrame(() => chatMessages.classList.remove('no-animate'));
 }
@@ -1518,6 +1685,7 @@ $('btn-retry').addEventListener('click', async () => {
   // Resend
   addUserBubble(text);
   startAssistantStream();
+  scrollToBottom(true);
   setRunning(true);
   _undoUsed = false;
   $('btn-undo').disabled = false;
@@ -1589,6 +1757,7 @@ $('btn-debate-send').addEventListener('click', async () => {
   $('debate-overlay').classList.add('hidden');
   // Show stream bubble for the debate response
   startAssistantStream();
+  scrollToBottom(true);
   setRunning(true);
   await window.pywebview.api.debate_review(state.currentConvId, indices, modelName, userPrompt);
 });
@@ -1597,7 +1766,8 @@ async function sendMessage() {
   if (state.running) return;
   const text = msgInput.value.trim();
   if (!text && state.attachedFiles.length === 0) return;
-  if (!state.currentConvId) await newConversation();
+  const isHomeVisible = !$('home-view').classList.contains('hidden');
+  if (isHomeVisible || !state.currentConvId) await startConvWithProject('');
 
   // Reset undo state — user sent a new message, allow undo again
   _undoUsed = false;
@@ -1616,6 +1786,7 @@ async function sendMessage() {
   const bubbleText = [...markers, text].filter(Boolean).join('\n\n');
   addUserBubble(bubbleText || '[附件]');
   startAssistantStream();
+  scrollToBottom(true);
   setRunning(true);
 
   const files = state.attachedFiles.map(f => ({ name: f.name, path: f.path, content: f.content }));

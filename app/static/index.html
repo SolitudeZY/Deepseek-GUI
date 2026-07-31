@@ -16,7 +16,18 @@
 <aside id="sidebar">
   <div id="sidebar-top">
     <button id="btn-new-conv" class="btn-primary">+ 新对话</button>
+    <button id="btn-temp-conv" class="btn-ghost" title="开始不保存到历史的临时对话">临时</button>
     <button id="btn-archive-view" class="btn-ghost" title="查看已归档会话">归档</button>
+    <button id="btn-manage-convs" class="btn-ghost" title="批量管理会话">管理</button>
+  </div>
+  <div id="batch-conversation-bar" class="hidden">
+    <div class="batch-conversation-summary"><span id="batch-selected-count">已选 0</span></div>
+    <div class="batch-conversation-actions">
+      <button id="btn-batch-select-all" class="btn-ghost">全选</button>
+      <button id="btn-batch-clear" class="btn-ghost">清空</button>
+      <button id="btn-batch-archive" class="btn-secondary">归档</button>
+      <button id="btn-batch-delete" class="btn-danger">删除</button>
+    </div>
   </div>
   <div id="conv-list-wrap">
     <ul id="conv-list"></ul>
@@ -40,6 +51,7 @@
   <header id="toolbar">
     <select id="model-select"></select>
     <span id="conv-title"></span>
+    <span id="temporary-badge" class="hidden">临时</span>
     <div id="toolbar-right">
       <button id="btn-thinking" class="btn-ghost" title="切换思考模式">💭 思考</button>
       <button id="btn-toggle-tools" class="btn-ghost" title="显示/隐藏工具调用">🔧 工具</button>
@@ -275,7 +287,20 @@
               </label>
             </div>
             <p class="hint">参考值：Claude 4.6/4.7 = 1M, DeepSeek V4 = 1M, Qwen 3.6 = 1M, GPT-5.5 = 1M, Gemini 3.5 = 1M, DeepSeek V3 = 128K。压缩阈值建议设为上下文长度的 60%。</p>
-            <label>系统提示词<textarea id="mc-system" rows="4"></textarea></label>
+            <div class="form-row prompt-template-row">
+              <label style="flex:1">提示词模板
+                <select id="mc-prompt-template">
+                  <option value="general">通用助手</option>
+                  <option value="explore">探索研究</option>
+                  <option value="docs">文档整理</option>
+                  <option value="coding">代码编写</option>
+                  <option value="review">代码审查</option>
+                  <option value="custom">自定义</option>
+                </select>
+              </label>
+              <button id="btn-apply-prompt-template" class="btn-secondary" type="button">应用模板</button>
+            </div>
+            <label>系统提示词<textarea id="mc-system" rows="6"></textarea></label>
             <div class="form-row">
               <button id="btn-save-mc" class="btn-primary">保存此配置</button>
               <button id="btn-del-mc" class="btn-danger">删除</button>

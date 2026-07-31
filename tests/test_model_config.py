@@ -9,6 +9,17 @@ from app import config as config_module
 
 
 class ModelConfigTests(unittest.TestCase):
+    def test_legacy_default_prompt_upgrades_without_overwriting_custom_prompt(self):
+        legacy = config_module.normalize_model_config({
+            "system_prompt": "You are a helpful assistant.",
+        })
+        custom = config_module.normalize_model_config({
+            "system_prompt": "Keep this custom instruction.",
+        })
+
+        self.assertEqual(legacy["system_prompt"], config_module.DEFAULT_SYSTEM_PROMPT)
+        self.assertEqual(custom["system_prompt"], "Keep this custom instruction.")
+
     def test_legacy_config_migrates_once_and_preserves_values(self):
         legacy = {
             "name": "Legacy DeepSeek",

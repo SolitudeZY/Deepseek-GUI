@@ -4,6 +4,13 @@
 
 ## 运行 / 构建
 
+## Conversation Management Invariants
+
+- Project archive matching uses a normalized path key and never requires the project directory to exist locally. Windows drive-letter case, slash direction, trailing separators, and whitespace are normalized before comparison.
+- Batch archive, restore, and delete APIs operate on conversation IDs. The actively generating conversation is rejected by batch operations and project archive operations.
+- Temporary conversations are stored only in `API._temporary_conversations`. They are excluded from disk persistence, sidebar listing, search, archive operations, and cloud sync. Starting or switching to a persistent conversation discards temporary state after generation has stopped.
+- Opening a conversation and sending a new message force the chat viewport to the latest message. Streaming only follows the viewport while the user is already near the bottom, preserving manual upward reading.
+
 - Conda 环境：`ai_api`，解释器 `D:/miniconda/envs/ai_api/python.exe`
   - 注意：直接 `python main.py` 会用到 base 环境（`D:/miniconda/python.exe`），那里**没装 pywebview**，会报 `ModuleNotFoundError: No module named 'webview'`。必须用 `ai_api` 解释器。
 - 入口：`D:/miniconda/envs/ai_api/python.exe E:/quick_model/main.py`
@@ -184,6 +191,7 @@ vendor/* → core.js → render.js → drag.js → dialogs.js → settings.js �
 - 前端：点"+ 新对话"先显示主页 `#home-view`（覆盖 `#chat-area`），选最近项目/添加新项目/无项目快速开始/查看项目历史会话 → `startConvWithProject(path)` 才真正建会话。侧边栏 `renderConvList` 按 `project_path` 分组折叠（`.conv-group*`，折叠态存 `state.collapsedGroups`，搜索命中强制展开），会话项构建抽成 `_makeConvLi`。
 - **路径失效与重设**：project_path 存绝对路径，跨机器同步后本机可能不存在。`open_conversation` 返回 `project_exists`（无 project_path 时为 True，不误报）；失效时 chatMessages 顶部插 `.project-missing-banner` + "重设目录"按钮 → `resetConversationProject` → 后端 `set_conversation_project(conv_id, path='')`（空则弹文件夹对话框）。`list_recent_projects` 每项带 `exists`，主页失效卡片标 `.hp-missing`。**重设会让该会话 prompt 缓存失效一次**（项目目录在系统提示前缀，改动使其后缓存失效，下条消息重算，之后恢复）——确认弹窗已告知用户此权衡。
 - **缓存影响通则**：项目目录注入系统提示词（上下文位置 0），任何改动 project_path 的操作都会一次性失效该会话整个缓存前缀。
+- **模型提示词模板**：`config.py` 提供增强的通用默认系统提示词，并将精确匹配旧默认句的配置迁移到该提示词；`settings.js` 在模型配置页提供通用、探索研究、文档整理、代码编写、代码审查五种可应用模板。模板只在用户点击应用时替换 `system_prompt`，不会按每轮消息自动改写，以保持 prompt cache 前缀稳定。
 - **跨组拖拽排序（已修复，手动鼠标拖拽）**：侧边栏会话支持跨项目分组拖拽。**⚠ 关键：不能用 HTML5 原生拖放**（draggable/dragstart/dragover/drop）——本 WebView2 环境对其支持不可靠（与 CSS transition 失效同源，见 memory `css-transition-bug`），实测占位块与 drop 完全不触发。改用 **`mousedown`/`mousemove`/`mouseup` 手动实现**（`_drag` 状态机 + `_DRAG_THRESHOLD=4px` 区分点击与拖拽）。流程：`mousedown` 记候选 → 移动越阈值 `_activateDrag` 创建跟随鼠标的浮动幽灵 `.conv-drag-ghost`（`position:fixed; pointer-events:none`）+ 给 `body` 加 `.conv-dragging` 禁选中 → `mousemove` 用 `document.elementFromPoint` 命中目标，会话项→`_showPlaceholderAt` 插入**占位块 `.conv-placeholder`**（真实 DOM，挤开后续会话腾出落点、显示被拖标题），组标题→`.cg-drop-target` 高亮（拖到组头=归入该组）→ `mouseup` 按 `_drag.drop` 落点调 `_handleConvDrop`/`_handleHeaderDrop`。`justDragged` 标志抑制拖拽后的误触 click（每次 mousedown 复位）。组标题存 `header._groupKey` 供命中读取。id-based 追踪（`state.dragSrcId`）避免重排后索引失效。跨组 drop 先 `await move_conversation_to_project(id, targetGroupPath)` 改 `project_path`（空串=未分类，**不弹对话框**，区别于会弹对话框的 `set_conversation_project`），再 `_regroupContiguous` 把 `state.conversations` 重排成「分组连续」后 `reorder_conversations` 持久化——保证落盘 sort_order 也分组连续，根治旧版「整组沉底」（旧 bug：全量 0-based sort_order + 扁平 splice 让分组顺序随被拖项首次出现位置漂移）。两个后端写操作须 await 串行（都做整文件 load→改→save，并发互相覆盖字段）。
 
 ## 文件改动追踪与 diff 查看（fileops 面板）

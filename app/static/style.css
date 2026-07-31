@@ -97,10 +97,20 @@ pre, code,
   flex-direction: column;
   overflow: hidden;
 }
-#sidebar-top { padding: 10px 8px 6px; display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+#sidebar-top { padding: 10px 8px 6px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 5px; }
 #sidebar-top #btn-new-conv { min-width: 0; }
-#btn-archive-view { min-width: 52px; padding-inline: 8px; }
+#btn-temp-conv, #btn-manage-convs { min-width: 40px; padding-inline: 6px; }
+#btn-archive-view { min-width: 46px; padding-inline: 6px; }
 #btn-archive-view.active { color: var(--accent); background: var(--glow-accent); border-color: var(--accent); }
+#btn-manage-convs.active { color: var(--accent); background: var(--glow-accent); border-color: var(--accent); }
+#batch-conversation-bar {
+  margin: 0 8px 6px; padding: 7px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg3); display: grid; gap: 6px;
+}
+#batch-conversation-bar.hidden { display: none; }
+.batch-conversation-summary { font-size: 11px; color: var(--text-muted); }
+.batch-conversation-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.batch-conversation-actions button { min-width: 0; padding: 4px 3px; font-size: 11px; }
 #conv-list-wrap { flex: 1; overflow-y: auto; padding: 0 4px; }
 #conv-list { list-style: none; }
 #conv-list li {
@@ -141,10 +151,19 @@ pre, code,
 #conv-list li .conv-title-wrap .conv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #conv-list li .conv-title-wrap .conv-time { font-size: 10px; color: var(--text-muted); opacity: 0.75; margin-top: 1px; }
 #conv-list li.search-content-match { border-left: 2px solid var(--accent); }
+#conv-list li.manage-selecting { padding-left: 7px; }
+#conv-list li.manage-selecting:hover { transform: none; }
+#conv-list li.batch-selected { background: var(--glow-accent); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+.conv-batch-check { width: 16px; height: 16px; flex: 0 0 16px; accent-color: var(--accent); }
 .conv-list-empty { padding: 18px 10px; color: var(--text-muted); font-size: 12px; text-align: center; }
 .archive-empty-state{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--text-muted)}
 .archive-empty-state b{font-size:14px;color:var(--text)}
 .archive-empty-state span{font-size:12px}
+#temporary-badge {
+  flex: 0 0 auto; padding: 2px 6px; border: 1px solid #e0af68; border-radius: 4px;
+  color: #e0af68; font-size: 10px; line-height: 1.2;
+}
+#temporary-badge.hidden { display: none; }
 
 /* ── 侧边栏项目分组 ── */
 .conv-group { margin-bottom: 6px; }
@@ -787,6 +806,8 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 .tab-panel textarea { resize: vertical; }
 .hint { font-size: 11px; color: var(--text-muted); }
 .form-row { display: flex; gap: 8px; }
+.prompt-template-row { align-items: flex-end; }
+.prompt-template-row #btn-apply-prompt-template { flex: 0 0 auto; min-height: 31px; }
 .model-api-summary {
   min-height: 18px; padding: 4px 7px; border-left: 2px solid var(--accent);
   color: var(--text-muted); font-size: 11px; background: var(--bg2);

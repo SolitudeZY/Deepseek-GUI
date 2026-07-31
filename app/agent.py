@@ -9,7 +9,7 @@ from app.advanced_tools import (
 )
 from app.team import TEAM, WORKTREES, BUS
 from app.skills import skill_list, skill_list_str, skill_read, memory_read, memory_write, memory_list
-from app.config import normalize_model_config
+from app.config import DEFAULT_SYSTEM_PROMPT, normalize_model_config
 from app.model_protocol import create_model_adapter, model_config_fingerprint
 
 
@@ -57,7 +57,7 @@ class Agent:
         api_key: str,
         base_url: str,
         model: str,
-        system_prompt: str = "You are a helpful assistant.",
+        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         search_config: dict = None,
         command_safety: str = "confirm",
         command_timeout: int = 30,

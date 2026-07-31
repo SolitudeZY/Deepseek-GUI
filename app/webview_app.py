@@ -9,15 +9,16 @@ from typing import Optional
 from app.config import (
     load_config, save_config, get_active_model_config, normalize_config,
     load_allowed_commands, save_allowed_commands, is_command_allowed, add_allowed_command,
-    APP_VERSION, GITHUB_REPO, IS_WIN,
+    APP_VERSION, GITHUB_REPO, IS_WIN, DEFAULT_SYSTEM_PROMPT,
 )
 from app.conversation import (
     new_conversation, save_conversation, load_conversation,
-    delete_conversation, rename_conversation, list_conversations,
+    delete_conversation, delete_conversations, rename_conversation, list_conversations,
     update_sort_orders, auto_title_from_message, export_conversation_md,
     import_conversation_from_file, set_conversation_project,
     search_conversations as search_conversation_data,
-    set_conversation_archived, set_project_archived,
+    set_conversation_archived, set_conversations_archived, set_project_archived,
+    project_path_key,
 )
 from app.sync import (
     upload_conversation, upload_all_conversations,
@@ -219,6 +220,7 @@ class API:
         self._window_visible = True  # tracks page visibility from JS
         self._active_model_name = ""
         self._active_model_config_name = ""
+        self._temporary_conversations: dict[str, dict] = {}
         try:
             self._config["mcp_servers"] = normalize_server_configs(self._config.get("mcp_servers", []))
             self._mcp = MCPManager(self._config["mcp_servers"])
@@ -242,6 +244,21 @@ class API:
 
     def set_window(self, window: webview.Window):
         self._window = window
+
+    def _load_conversation(self, conv_id: str) -> Optional[dict]:
+        temporary = getattr(self, '_temporary_conversations', {}).get(conv_id)
+        return temporary if temporary is not None else load_conversation(conv_id)
+
+    def _save_conversation(self, conv: dict) -> None:
+        if conv.get("temporary"):
+            if not hasattr(self, '_temporary_conversations'):
+                self._temporary_conversations = {}
+            self._temporary_conversations[conv["id"]] = conv
+        else:
+            save_conversation(conv)
+
+    def _discard_temporary_conversations(self) -> None:
+        getattr(self, '_temporary_conversations', {}).clear()
 
     def _js(self, code: str):
         """Thread-safe evaluate_js."""
@@ -346,6 +363,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         return import_external_model_configs(candidate_ids, project_path)
 
     def shutdown(self) -> None:
+        self._discard_temporary_conversations()
         self._mcp.shutdown()
 
     # ── Conversations ─────────────────────────────────────────────
@@ -353,6 +371,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         return list_conversations()
 
     def new_conversation(self, project_path: str = '') -> dict:
+        self._discard_temporary_conversations()
         mc = get_active_model_config(self._config)
         conv = new_conversation(mc['name'] if mc else '', project_path=project_path or '')
         save_conversation(conv)
@@ -360,8 +379,32 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             self._add_recent_project(project_path)
         return {'id': conv['id'], 'title': conv['title'], 'project_path': conv.get('project_path', '')}
 
+    def new_temporary_conversation(self) -> dict:
+        self._discard_temporary_conversations()
+        mc = get_active_model_config(self._config)
+        conv = new_conversation(mc['name'] if mc else '')
+        conv['title'] = '临时对话'
+        conv['temporary'] = True
+        self._temporary_conversations[conv['id']] = conv
+        return {
+            'id': conv['id'],
+            'title': conv['title'],
+            'project_path': '',
+            'temporary': True,
+        }
+
+    def discard_temporary_conversation(self, conv_id: str = '') -> dict:
+        if self._running and conv_id == getattr(self, '_current_conv_id', None):
+            return {'ok': False, 'error': '请先停止当前生成'}
+        if conv_id:
+            removed = self._temporary_conversations.pop(conv_id, None) is not None
+        else:
+            removed = bool(self._temporary_conversations)
+            self._discard_temporary_conversations()
+        return {'ok': True, 'discarded': removed}
+
     def open_conversation(self, conv_id: str) -> Optional[dict]:
-        conv = load_conversation(conv_id)
+        conv = self._load_conversation(conv_id)
         if not conv:
             return None
         pp = conv.get('project_path', '') or ''
@@ -372,10 +415,28 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             'file_ops': conv.get('file_ops', []),
             'project_path': pp,
             'project_exists': (Path(pp).expanduser().is_dir() if pp else True),
+            'temporary': conv.get('temporary') is True,
         }
 
     def delete_conversation(self, conv_id: str) -> None:
+        if self._temporary_conversations.pop(conv_id, None) is not None:
+            return
         delete_conversation(conv_id)
+
+    def bulk_delete_conversations(self, conv_ids: list) -> dict:
+        ids = [item for item in (conv_ids or []) if isinstance(item, str)]
+        if self._running and getattr(self, '_current_conv_id', None) in ids:
+            return {'ok': False, 'error': '当前正在生成的会话不能删除', 'deleted': 0}
+        return {'ok': True, 'deleted': delete_conversations(ids)}
+
+    def bulk_archive_conversations(self, conv_ids: list, archived: bool = True) -> dict:
+        ids = [item for item in (conv_ids or []) if isinstance(item, str)]
+        if self._running and getattr(self, '_current_conv_id', None) in ids:
+            return {'ok': False, 'error': '当前正在生成的会话不能归档', 'updated': 0}
+        return {
+            'ok': True,
+            'updated': set_conversations_archived(ids, bool(archived)),
+        }
 
     def rename_conversation(self, conv_id: str, title: str) -> None:
         rename_conversation(conv_id, title)
@@ -420,9 +481,20 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         return {"ok": set_conversation_archived(conv_id, bool(archived))}
 
     def set_project_archived(self, project_path: str, archived: bool = True) -> dict:
+        target_key = project_path_key(project_path)
+        if getattr(self, '_running', False) and target_key:
+            current = self._load_conversation(getattr(self, '_current_conv_id', ''))
+            if current and project_path_key(current.get('project_path', '')) == target_key:
+                return {
+                    "ok": False,
+                    "updated": 0,
+                    "error": "当前正在生成的项目会话不能归档，请先停止生成",
+                }
+        updated = set_project_archived(project_path, bool(archived))
         return {
-            "ok": True,
-            "updated": set_project_archived(project_path, bool(archived)),
+            "ok": updated > 0,
+            "updated": updated,
+            "error": "未找到属于该项目的会话" if updated == 0 else "",
         }
 
     def set_thinking(self, level: str) -> None:
@@ -488,7 +560,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         返回 {ok, path, added, removed, lines:[{type, text, oldNo, newNo}]}；
         type ∈ hunk/ctx/add/del。无 baseline（旧会话或大文件未存快照）或文件已删除时返回 {ok:False, reason}。"""
         import difflib
-        conv = load_conversation(self._current_conv_id) if getattr(self, '_current_conv_id', None) else None
+        conv = self._load_conversation(self._current_conv_id) if getattr(self, '_current_conv_id', None) else None
         if not conv:
             return {'ok': False, 'reason': '当前没有打开的会话'}
         baselines = conv.get('file_baselines', {})
@@ -613,7 +685,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         return idx.get("worktrees", [])
 
     def export_conversation(self, conv_id: str) -> None:
-        conv = load_conversation(conv_id)
+        conv = self._load_conversation(conv_id)
         if not conv:
             return
         md = export_conversation_md(conv)
@@ -655,7 +727,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def get_context_usage(self, conv_id: str) -> dict:
         """计算指定对话的上下文 token 使用量。"""
-        conv = load_conversation(conv_id)
+        conv = self._load_conversation(conv_id)
         if not conv:
             return {"used": 0, "total": 600000}
         messages = conv.get("messages", [])
@@ -773,14 +845,14 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         if self._running:
             return
         self._current_conv_id = conv_id
-        conv = load_conversation(conv_id)
+        conv = self._load_conversation(conv_id)
         if not conv:
             return
 
         # /compact slash command — inject as tool call trigger
         if text == '__slash_compact__':
             conv['messages'].append({'role': 'user', 'content': '请立即压缩上下文（调用 compact 工具）。'})
-            save_conversation(conv)
+            self._save_conversation(conv)
             self._start_agent(conv)
             return
 
@@ -843,7 +915,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             api_key=mc.get('api_key', ''),
             base_url=mc.get('base_url', ''),
             model=mc.get('model', ''),
-            system_prompt=mc.get('system_prompt', 'You are a helpful assistant.'),
+            system_prompt=mc.get('system_prompt', DEFAULT_SYSTEM_PROMPT),
             search_config=self._build_search_config(),
             command_safety=self._config.get('command_safety', 'confirm'),
             command_timeout=self._config.get('command_timeout', 30),
@@ -897,7 +969,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             api_key=mc.get('api_key', ''),
             base_url=mc.get('base_url', ''),
             model=mc.get('model', ''),
-            system_prompt=mc.get('system_prompt', 'You are a helpful assistant.'),
+            system_prompt=mc.get('system_prompt', DEFAULT_SYSTEM_PROMPT),
             search_config=self._build_search_config(),
             command_safety=self._config.get('command_safety', 'confirm'),
             command_timeout=self._config.get('command_timeout', 30),
@@ -951,7 +1023,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             self._agent.stop()
             import time
             time.sleep(0.3)
-        conv = load_conversation(conv_id)
+        conv = self._load_conversation(conv_id)
         if not conv or not conv.get('messages'):
             return None
         messages = conv['messages']
@@ -962,16 +1034,16 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         # Now remove the last user message and return its content
         if messages and messages[-1]['role'] == 'user':
             user_msg = messages.pop()
-            save_conversation(conv)
+            self._save_conversation(conv)
             self._running = False
             return user_msg.get('content', '')
-        save_conversation(conv)
+        self._save_conversation(conv)
         self._running = False
         return None
 
     def debate_review(self, conv_id: str, selected_indices: list, model_config_name: str, user_prompt: str = '') -> None:
         """Send selected messages to another model for objective review."""
-        conv = load_conversation(conv_id)
+        conv = self._load_conversation(conv_id)
         if not conv:
             return
         messages = conv.get('messages', [])
@@ -1033,7 +1105,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                 debate_label = f"[模型辩论 - 评审模型: {mc.get('name', model_config_name)}]\n\n"
                 conv['messages'].append({'role': 'assistant', 'content': debate_label + full_response})
                 conv.pop('provider_state', None)
-                save_conversation(conv)
+                self._save_conversation(conv)
                 self._js('Chat.finishMessage()')
             except Exception as e:
                 self._js(f'Chat.showError({json.dumps(f"评审请求失败: {str(e)}")})')
@@ -1093,7 +1165,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         ops = get_file_op_log()
         if not ops:
             return
-        conv = load_conversation(self._current_conv_id) if getattr(self, '_current_conv_id', None) else None
+        conv = self._load_conversation(self._current_conv_id) if getattr(self, '_current_conv_id', None) else None
         if not conv:
             return
         conv.setdefault('file_ops', [])
@@ -1125,7 +1197,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
                     'added': added, 'removed': removed,
                 })
         conv['file_ops'] = conv['file_ops'][-50:]
-        save_conversation(conv)
+        self._save_conversation(conv)
         self._js(f'Chat.updateFileOps({json.dumps(conv["file_ops"])})')
 
     def _on_confirm(self, tool_name: str, args: dict) -> bool:
@@ -1381,13 +1453,13 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         conv['messages'] = updated_messages
         self._merge_agent_provider_state(conv)
         self._merge_disk_file_tracking(conv)
-        save_conversation(conv)
+        self._save_conversation(conv)
         self._running = False
         self._js('Chat.finishMessage()')
         # Notify user if window is in background
         self._notify_system("AI 回答完成", "模型已完成回复，点击查看")
         # Auto-upload to sync folder
-        if self._config.get("sync_auto_upload") and get_sync_dir():
+        if not conv.get('temporary') and self._config.get("sync_auto_upload") and get_sync_dir():
             upload_conversation(conv["id"])
         # Only auto-title if still a placeholder
         title = conv.get('title', '新对话')
@@ -1421,7 +1493,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             title = (generated or '').strip().strip('"\'')
             if title:
                 conv['title'] = title
-                save_conversation(conv)
+                self._save_conversation(conv)
                 self._js(f'Chat.updateConvTitle({json.dumps(conv["id"])}, {json.dumps(title)})')
         except Exception:
             pass
@@ -1434,7 +1506,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         _on_error 直接 save_conversation(这个旧引用)，会用不含这些字段的旧内存覆盖磁盘，
         导致点开 diff 报「没有改动记录」（同 config-import stale-memory 通病）。这里在保存前
         从磁盘回读这两个字段补回内存对象。"""
-        latest = load_conversation(conv.get('id', '')) if conv.get('id') else None
+        latest = self._load_conversation(conv.get('id', '')) if conv.get('id') else None
         if latest:
             if latest.get('file_ops'):
                 conv['file_ops'] = latest['file_ops']
@@ -1462,7 +1534,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         conv['messages'] = messages
         self._merge_agent_provider_state(conv)
         self._merge_disk_file_tracking(conv)
-        save_conversation(conv)
+        self._save_conversation(conv)
         self._running = False
         self._js(f'Chat.showError({json.dumps(error)})')
 
@@ -1475,6 +1547,8 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def sync_upload_current(self, conv_id: str) -> bool:
         """上传当前对话到同步文件夹。"""
+        if conv_id in self._temporary_conversations:
+            return False
         return upload_conversation(conv_id)
 
     def sync_detect_new(self) -> list:
@@ -1522,8 +1596,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         if not path:
             return
         name = name or Path(path).name or path
+        key = project_path_key(path)
         recents = [p for p in self._config.get('recent_projects', [])
-                   if isinstance(p, dict) and p.get('path') != path]
+                   if isinstance(p, dict) and project_path_key(p.get('path', '')) != key]
         recents.insert(0, {'path': path, 'name': name, 'last_used': _t.time()})
         self._config['recent_projects'] = recents[:12]
         save_config(self._config)
@@ -1539,8 +1614,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         project_conversations = {}
         for conversation in all_conversations:
             project_path = (conversation.get('project_path', '') or '').strip()
-            if project_path:
-                project_conversations.setdefault(project_path, []).append(conversation)
+            key = project_path_key(project_path)
+            if key:
+                project_conversations.setdefault(key, []).append(conversation)
 
         out = []
         seen = set()
@@ -1548,12 +1624,13 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
             if not isinstance(p, dict):
                 continue
             path = p.get('path', '')
-            if not path or path in seen:
+            key = project_path_key(path)
+            if not key or key in seen:
                 continue
-            seen.add(path)
+            seen.add(key)
             item = dict(p)
             item['exists'] = Path(path).expanduser().is_dir()
-            conversations = project_conversations.get(path, [])
+            conversations = project_conversations.get(key, [])
             item['archived'] = bool(conversations) and all(
                 conversation.get('archived') for conversation in conversations
             )
@@ -1561,17 +1638,19 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         # 补上会话里有、但 recent_projects 没记录的项目
         for c in all_conversations:
             path = (c.get('project_path', '') or '').strip()
-            if not path or path in seen:
+            key = project_path_key(path)
+            if not key or key in seen:
                 continue
-            seen.add(path)
+            seen.add(key)
+            conversations = project_conversations.get(key, [])
             out.append({
                 'path': path,
                 'name': Path(path).name or path,
                 'last_used': 0,
                 'exists': Path(path).expanduser().is_dir(),
-                'archived': bool(project_conversations.get(path)) and all(
+                'archived': bool(conversations) and all(
                     conversation.get('archived')
-                    for conversation in project_conversations[path]
+                    for conversation in conversations
                 ),
             })
         return out
@@ -1588,9 +1667,9 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
 
     def get_project_conversations(self, project_path: str) -> list:
         """返回指定项目下的会话摘要（project_path 为空时返回未分类会话）。"""
-        target = (project_path or '').strip()
+        target = project_path_key(project_path)
         return [c for c in list_conversations()
-                if (c.get('project_path', '') or '') == target
+                if project_path_key(c.get('project_path', '')) == target
                 and not c.get('archived')]
 
     def remove_recent_project(self, path: str) -> dict:
@@ -1599,17 +1678,18 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         实际上会话仍带旧 project_path，故一并把这些会话置为未分类，避免 list_recent_projects
         又从会话里把它补回来。"""
         target = (path or '').strip()
+        target_key = project_path_key(target)
         if not target:
             return {'ok': False, 'error': '路径为空'}
         # 从 recent_projects 移除
         recents = [p for p in self._config.get('recent_projects', [])
-                   if isinstance(p, dict) and p.get('path') != target]
+                   if isinstance(p, dict) and project_path_key(p.get('path', '')) != target_key]
         self._config['recent_projects'] = recents
         save_config(self._config)
         # 该项目下会话置为未分类，否则 list_recent_projects 会从会话 project_path 把它补回
         moved = 0
         for c in list_conversations():
-            if (c.get('project_path', '') or '') == target:
+            if project_path_key(c.get('project_path', '')) == target_key:
                 set_conversation_project(c['id'], '')
                 moved += 1
         return {'ok': True, 'unclassified': moved}
@@ -1619,6 +1699,7 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         recent_projects 条目。new_path 为空则弹文件夹对话框选择（复用失效重设的交互）。
         返回 {ok, path, name, exists, updated} 或 {cancelled: True}。"""
         old = (old_path or '').strip()
+        old_key = project_path_key(old)
         new = (new_path or '').strip()
         if not old:
             return {'ok': False, 'error': 'old_path 为空'}
@@ -1630,14 +1711,16 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         # 改该项目下所有会话
         updated = 0
         for c in list_conversations():
-            if (c.get('project_path', '') or '') == old:
+            if project_path_key(c.get('project_path', '')) == old_key:
                 set_conversation_project(c['id'], new)
                 updated += 1
         # 更新 recent_projects：移除旧条目、加入新条目（保留原名或用新目录名）
         import time as _t
         name = Path(new).name or new
+        new_key = project_path_key(new)
         recents = [p for p in self._config.get('recent_projects', [])
-                   if isinstance(p, dict) and p.get('path') not in (old, new)]
+                   if isinstance(p, dict)
+                   and project_path_key(p.get('path', '')) not in (old_key, new_key)]
         recents.insert(0, {'path': new, 'name': name, 'last_used': _t.time()})
         self._config['recent_projects'] = recents[:12]
         save_config(self._config)

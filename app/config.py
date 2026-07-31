@@ -48,6 +48,13 @@ MODEL_CONFIG_DEFAULTS = {
     "responses_server_state": False,
 }
 
+DEFAULT_SYSTEM_PROMPT = (
+    "You are a precise, pragmatic AI assistant. Understand the user's goal before acting, "
+    "ask only when missing information materially blocks progress, use available tools when "
+    "they improve reliability, distinguish verified facts from assumptions, and return concise, "
+    "actionable results. Preserve user data and avoid unrelated changes."
+)
+
 
 def infer_provider_profile(model_config: dict) -> str:
     """Conservatively classify legacy Chat-compatible provider configs once."""
@@ -110,6 +117,12 @@ def normalize_model_config(model_config: dict) -> dict:
         normalized.get("responses_server_state") is True
         and protocol == "openai_responses"
     )
+    system_prompt = str(normalized.get("system_prompt", "") or "").strip()
+    normalized["system_prompt"] = (
+        DEFAULT_SYSTEM_PROMPT
+        if not system_prompt or system_prompt == "You are a helpful assistant."
+        else system_prompt
+    )
     normalized.pop("use_full_url", None)
     return normalized
 
@@ -151,7 +164,7 @@ DEFAULT_MODEL_CONFIGS = [
         "api_key": "",
         "base_url": "https://api.deepseek.com/v1",
         "model": "deepseek-v4-pro",
-        "system_prompt": "You are a helpful assistant.",
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
         "context_length": 1000000,
         "compact_threshold": 600000,
         "api_type": "deepseek",
@@ -161,7 +174,7 @@ DEFAULT_MODEL_CONFIGS = [
         "api_key": "",
         "base_url": "https://api.deepseek.com/v1",
         "model": "deepseek-v4-flash",
-        "system_prompt": "You are a helpful assistant.",
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
         "context_length": 1000000,
         "compact_threshold": 600000,
         "api_type": "deepseek",
@@ -171,7 +184,7 @@ DEFAULT_MODEL_CONFIGS = [
         "api_key": "",
         "base_url": "https://api.deepseek.com/v1",
         "model": "deepseek-chat",
-        "system_prompt": "You are a helpful assistant.",
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
         "context_length": 128000,
         "compact_threshold": 80000,
         "api_type": "deepseek",
@@ -181,7 +194,7 @@ DEFAULT_MODEL_CONFIGS = [
         "api_key": "",
         "base_url": "https://api.openai.com/v1",
         "model": "gpt-4o",
-        "system_prompt": "You are a helpful assistant.",
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
         "context_length": 128000,
         "compact_threshold": 80000,
         "api_type": "openai_chat",
@@ -191,7 +204,7 @@ DEFAULT_MODEL_CONFIGS = [
         "api_key": "ollama",
         "base_url": "https://ollama.api.com/v1",
         "model": "llama3",
-        "system_prompt": "You are a helpful assistant.",
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
         "context_length": 128000,
         "compact_threshold": 80000,
         "api_type": "openai_chat",

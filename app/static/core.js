@@ -16,6 +16,10 @@ let state = {
   expandedConversationGroups: {},
   showArchived: false,
   searchSerial: 0,
+  conversationManageMode: false,
+  selectedConversationIds: new Set(),
+  visibleConversationIds: [],
+  temporaryConversation: false,
 };
 
 // ── DOM refs ──────────────────────────────────────────────────────

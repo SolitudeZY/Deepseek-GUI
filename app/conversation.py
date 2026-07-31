@@ -1,6 +1,8 @@
 import json
 import re
 import uuid
+import ntpath
+import posixpath
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -47,6 +49,17 @@ def delete_conversation(conv_id: str) -> None:
         p.unlink()
 
 
+def delete_conversations(conv_ids: list[str]) -> int:
+    """Delete existing conversations once each and return the deleted count."""
+    deleted = 0
+    for conv_id in dict.fromkeys(conv_ids or []):
+        if not isinstance(conv_id, str) or not load_conversation(conv_id):
+            continue
+        delete_conversation(conv_id)
+        deleted += 1
+    return deleted
+
+
 def rename_conversation(conv_id: str, new_title: str) -> None:
     conv = load_conversation(conv_id)
     if conv:
@@ -74,14 +87,33 @@ def set_conversation_archived(conv_id: str, archived: bool = True) -> bool:
     return True
 
 
+def set_conversations_archived(conv_ids: list[str], archived: bool = True) -> int:
+    """Archive or restore existing conversations once each."""
+    return sum(
+        1 for conv_id in dict.fromkeys(conv_ids or [])
+        if isinstance(conv_id, str) and set_conversation_archived(conv_id, archived)
+    )
+
+
+def project_path_key(project_path: str) -> str:
+    """Normalize a project path for comparison without requiring it to exist."""
+    raw = str(project_path or "").strip()
+    if not raw:
+        return ""
+    is_windows_path = bool(re.match(r"^[A-Za-z]:[\\/]", raw)) or raw.startswith(("\\\\", "//"))
+    if is_windows_path or "\\" in raw:
+        return ntpath.normcase(ntpath.normpath(raw.replace("/", "\\")))
+    return posixpath.normpath(raw)
+
+
 def set_project_archived(project_path: str, archived: bool = True) -> int:
     """Archive or restore every conversation bound to one exact project path."""
-    target = (project_path or "").strip()
+    target = project_path_key(project_path)
     if not target:
         return 0
     matched = [
         item for item in list_conversations()
-        if (item.get("project_path", "") or "").strip() == target
+        if project_path_key(item.get("project_path", "")) == target
     ]
     for item in matched:
         set_conversation_archived(item["id"], archived)

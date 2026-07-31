@@ -903,6 +903,26 @@ const MODEL_API_TYPE_META = Object.freeze({
   },
 });
 
+const MODEL_PROMPT_TEMPLATES = Object.freeze({
+  general: "You are a precise, pragmatic AI assistant. Understand the user's goal before acting, ask only when missing information materially blocks progress, use available tools when they improve reliability, distinguish verified facts from assumptions, and return concise, actionable results. Preserve user data and avoid unrelated changes.",
+  explore: "You are an exploration and research assistant. Inspect the available context and evidence before concluding. Break ambiguous questions into testable parts, compare plausible explanations, cite concrete sources, files, commands, or results, and clearly separate observations from inference. Do not modify files or external state unless the user asks you to.",
+  docs: "You are a technical documentation editor. Identify the intended audience and purpose, preserve factual and technical meaning, use consistent terminology, organize information for scanning, and produce complete paste-ready text. Flag missing evidence or ambiguity instead of inventing details, and keep examples aligned with the real implementation.",
+  coding: "You are a senior software engineer. Inspect the repository and its instructions before editing, follow existing architecture and conventions, implement the requested behavior end to end, keep changes scoped, preserve unrelated work, and verify with tests or direct runtime checks. Explain important assumptions, failures, and remaining risks concisely.",
+  review: "You are a rigorous code reviewer. Lead with actionable findings ordered by severity and grounded in concrete file and line references. Prioritize correctness bugs, behavioral regressions, security risks, data loss, compatibility issues, and missing tests. Keep summaries secondary, distinguish confirmed defects from questions, and do not modify code unless the user requests a fix.",
+});
+
+function inferPromptTemplate(value) {
+  const prompt = String(value || '').trim();
+  for (const [key, template] of Object.entries(MODEL_PROMPT_TEMPLATES)) {
+    if (prompt === template) return key;
+  }
+  return 'custom';
+}
+
+function syncPromptTemplateSelection() {
+  $('mc-prompt-template').value = inferPromptTemplate($('mc-system').value);
+}
+
 function inferModelApiType(mc) {
   if (MODEL_API_TYPE_META[mc.api_type]) return mc.api_type;
   const protocol = mc.api_protocol || 'openai_chat';
@@ -978,6 +998,7 @@ function selectMc(idx) {
   $('mc-url').value = mc.base_url || '';
   $('mc-model').value = mc.model || '';
   $('mc-system').value = mc.system_prompt || '';
+  syncPromptTemplateSelection();
   updateModelApiTypeUI();
   // 上下文长度和压缩阈值（自动选择 K/M 单位）
   const ctxLen = mc.context_length || 600000;
@@ -1038,6 +1059,14 @@ function updateModelApiTypeUI() {
 }
 
 $('mc-api-type').addEventListener('change', updateModelApiTypeUI);
+$('mc-system').addEventListener('input', syncPromptTemplateSelection);
+$('btn-apply-prompt-template').addEventListener('click', () => {
+  const key = $('mc-prompt-template').value;
+  if (!MODEL_PROMPT_TEMPLATES[key]) return;
+  $('mc-system').value = MODEL_PROMPT_TEMPLATES[key];
+  syncPromptTemplateSelection();
+  $('mc-system').focus();
+});
 $('btn-mc-models').addEventListener('click', e => {
   const mc = saveCurrentMc();
   if (!mc || !mc.api_key || !mc.base_url) {
@@ -1092,7 +1121,7 @@ $('btn-model-import-selected').addEventListener('click', async () => {
 });
 $('btn-add-model').addEventListener('click', () => {
   const configs = state.config.model_configs || [];
-  configs.push({ name: `新配置 ${configs.length + 1}`, api_key: '', base_url: '', model: '', system_prompt: 'You are a helpful assistant.', context_length: 1000000, compact_threshold: 600000, api_type: 'openai_chat', auth_mode: 'api_key', responses_server_state: false });
+  configs.push({ name: `新配置 ${configs.length + 1}`, api_key: '', base_url: '', model: '', system_prompt: MODEL_PROMPT_TEMPLATES.general, context_length: 1000000, compact_threshold: 600000, api_type: 'openai_chat', auth_mode: 'api_key', responses_server_state: false });
   state.config.model_configs = configs;
   selectMc(configs.length - 1);
 });

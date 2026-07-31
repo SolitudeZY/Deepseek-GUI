@@ -121,9 +121,14 @@ const Starfield = (() => {
     if (!lastTs) lastTs = ts;
     const dt = Math.min(40, ts - lastTs);
     lastTs = ts;
-    ctx.fillStyle = 'rgba(7, 8, 17, 0.062)';
+
+    // A translucent dark overlay only hides old pixels; it never clears their
+    // alpha, so orbit marks accumulate until a canvas resize resets the buffer.
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.062)';
     ctx.fillRect(0, 0, w, h);
-    drawGlow();
+    ctx.restore();
 
     const cx = w * 0.58;
     const cy = h * 0.42;
