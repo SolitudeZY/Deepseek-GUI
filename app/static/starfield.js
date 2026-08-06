@@ -13,7 +13,6 @@ const Starfield = (() => {
   let trailStars = [];
   let startedAt = 0;
   let lastTs = 0;
-  let angle = 0;
 
   function resize() {
     if (!canvas || !ctx) return;
@@ -55,17 +54,24 @@ const Starfield = (() => {
       glow: Math.random() > 0.45,
     }));
 
-    const cx = w * 0.58;
-    const cy = h * 0.42;
-    const maxR = Math.hypot(Math.max(cx, w - cx), Math.max(cy, h - cy));
-    const trailCount = Math.max(140, Math.min(380, Math.round(area / 5200)));
+    // Keep the orbit centre outside the bottom-right corner. Only the enlarged
+    // upper-left quarter of each orbit crosses the viewport, avoiding the
+    // hypnotic full-circle pattern of the previous design.
+    const cx = w * 1.1;
+    const cy = h * 1.14;
+    const nearR = Math.hypot(cx - w, cy - h) * 0.78;
+    const farR = Math.hypot(cx, cy);
+    const trailCount = Math.max(280, Math.min(720, Math.round(area / 2600)));
     trailStars = Array.from({ length: trailCount }, () => {
-      const radius = Math.pow(Math.random(), 0.72) * maxR;
+      const radius = nearR + Math.pow(Math.random(), 0.82) * (farR - nearR);
       return {
         radius,
         theta: rand(0, Math.PI * 2),
         r: rand(0.45, 1.45),
         alpha: rand(0.34, 0.88),
+        angularSpeed: rand(0.000012, 0.000058),
+        pulsePhase: rand(0, Math.PI * 2),
+        pulseSpeed: rand(0.00035, 0.0011),
         color: colors[Math.floor(Math.random() * colors.length)],
       };
     });
@@ -130,18 +136,18 @@ const Starfield = (() => {
     ctx.fillRect(0, 0, w, h);
     ctx.restore();
 
-    const cx = w * 0.58;
-    const cy = h * 0.42;
-    angle += dt * 0.000045;
+    const cx = w * 1.1;
+    const cy = h * 1.14;
     for (const s of trailStars) {
-      const t = s.theta + angle * (1 + s.radius / Math.max(w, h));
-      const x = cx + Math.cos(t) * s.radius;
-      const y = cy + Math.sin(t) * s.radius;
+      s.theta = (s.theta + dt * s.angularSpeed) % (Math.PI * 2);
+      const x = cx + Math.cos(s.theta) * s.radius;
+      const y = cy + Math.sin(s.theta) * s.radius;
       if (x < -20 || x > w + 20 || y < -20 || y > h + 20) continue;
       const [r, g, b] = s.color;
+      const pulse = 0.72 + Math.sin(ts * s.pulseSpeed + s.pulsePhase) * 0.28;
       ctx.beginPath();
-      ctx.fillStyle = `rgba(${r},${g},${b},${s.alpha})`;
-      ctx.arc(x, y, s.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${r},${g},${b},${s.alpha * pulse})`;
+      ctx.arc(x, y, s.r * (0.82 + pulse * 0.22), 0, Math.PI * 2);
       ctx.fill();
     }
   }

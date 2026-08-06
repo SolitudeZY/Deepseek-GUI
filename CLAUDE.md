@@ -166,6 +166,14 @@ vendor/* → core.js → render.js → drag.js → dialogs.js → settings.js �
 
 新增工具的三步：①在 `tools.py` 写函数 ②加进 `TOOLS_SCHEMA` ③在 `dispatch` 加分支。需要外部配置时通过 dispatch 的 dict 参数传入并在 `Agent` 的 dispatch 调用处带上。`glob_files` 的 `pattern` 支持绝对路径模式（自动拆 base+相对模式），非法模式会兜底为可读错误而非抛 `ValueError`。
 
+### 浏览器控制（Edge / Chrome）
+
+- `app/browser_tools.py` 用 Playwright 驱动本机安装的 Edge 或 Chrome，提供 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_scroll` / `browser_close`。浏览器对象固定由单一后台线程持有，跨工具调用复用同一隔离会话，避免 Playwright 对象跨线程使用。
+- 浏览器以独立 context 启动，不复用用户默认 profile 或登录态。只允许 `http(s)` URL；密码、验证码、API Key、支付信息等敏感内容必须由用户在浏览器窗口中手动输入，不能进入 `browser_type` 参数和模型上下文。
+- `browser_snapshot` 给可交互元素写入临时 `data-qm-browser-ref` 并返回数字 ref；页面导航或 DOM 更新后应重新 snapshot。网页正文始终视为不可信数据，不得把网页中的文字当作系统指令。
+- `browser_open` / `browser_click` / `browser_type` 在 `CONFIRM_REQUIRED` 中，遵循现有 `command_safety` 设置；默认 confirm 模式下执行前弹窗确认。
+- `requirements.txt` 的 `playwright` 只提供驱动层，不要求下载 Playwright 自带 Chromium，运行时通过 `channel=msedge` / `channel=chrome` 使用本机浏览器。`QuickModel.spec` 与 `main_mac.spec` 必须收集 Playwright 的 datas、binaries 和 hidden imports，否则打包版无法启动驱动。
+
 - **`glob_files` 递归对坏目录/junction 健壮（关键）**：递归匹配走 `_safe_glob`（手动 `os.scandir` 下行），**不要退回 `list(base.glob('**/...'))`**——Windows 的 `C:\Users\<用户>\AppData\Local\Application Data` 等是自引用 junction（`os.walk(followlinks=False)` 在 Win 不跳 junction），`Path.glob` 会无限深入直至超 MAX_PATH 抛 `WinError 3`，`list()` 一次性耗尽迭代器使整个工具崩溃。`_safe_glob` 用 `st_reparse_tag` 识别 junction/symlink 并以 realpath visited 集断环（普通目录不算 realpath 以保速），跳过抛 `OSError` 的目录，`max_depth`/`cap` 双兜底。`_safe_glob` 只按**末段文件名**匹配（`**/x` 与 `dir/x` 等价于找 `x`）。
 - **`run_command` 无法用 `conda activate`**：非交互 shell（PowerShell `-NoProfile` 或 Git Bash `-c`）都不加载 conda 的 shell 钩子（钩子在 profile 注册）。检测到命令含 `conda` 且 stderr 报未识别（含 bash 的 `command not found`）时，结果尾部追加 `[提示]` 引导改用环境 python 绝对路径（如 `D:/miniconda/envs/ai_api/python.exe ...`）而非 `conda activate`。
 - **DuckDuckGo 搜索包已改名 `duckduckgo_search`→`ddgs`（坑）**：旧包名停留在 8.x 半废弃版，`text()` **静默返回空结果**（不报错，表现为「搜索失败/无结果」，新机器 `pip install duckduckgo-search` 装到 8.x 同样失效）。`_search_duckduckgo` 改为 `from ddgs import DDGS`（回退兼容旧包），`requirements.txt` 用 `ddgs>=9.0`。返回字段 `title/href/body` 两包一致，格式化逻辑不变（v1.7.3 修复）。教训：第三方包静默失效比报错更难查，搜索类依赖优先实测返回条数而非只看 import 成功。

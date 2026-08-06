@@ -3,7 +3,7 @@
 
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
 
 block_cipher = None
 
@@ -15,6 +15,8 @@ if os.path.isdir('app/skills'):
 datas += collect_data_files('rapidocr_onnxruntime')
 datas += copy_metadata('mcp')
 datas += copy_metadata('anthropic')
+_playwright_datas, _playwright_binaries, _playwright_hiddenimports = collect_all('playwright')
+datas += _playwright_datas
 _mcp_hiddenimports = [
     'mcp.types',
     'mcp.client.session',
@@ -25,11 +27,12 @@ _mcp_hiddenimports = [
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
+    binaries=_playwright_binaries,
     datas=datas,
     hiddenimports=[
         'app.agent',
         'app.tools',
+        'app.browser_tools',
         'app.advanced_tools',
         'app.skills',
         'app.team',
@@ -44,7 +47,7 @@ a = Analysis(
         'anthropic._client',
         'anthropic.resources.messages',
         'anthropic.types',
-    ] + _mcp_hiddenimports,
+    ] + _mcp_hiddenimports + _playwright_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

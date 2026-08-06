@@ -3,13 +3,14 @@
 import os
 import sys
 
-from PyInstaller.utils.hooks import collect_data_files, copy_metadata
+from PyInstaller.utils.hooks import collect_all, collect_data_files, copy_metadata
 
 # rapidocr_onnxruntime 的 config.yaml 和 models/*.onnx 必须随包，
 # 否则运行时报 "No such file or directory: .../rapidocr_onnxruntime/config.yaml"
 _rapidocr_datas = collect_data_files('rapidocr_onnxruntime')
 _mcp_datas = copy_metadata('mcp')
 _anthropic_datas = copy_metadata('anthropic')
+_playwright_datas, _playwright_binaries, _playwright_hiddenimports = collect_all('playwright')
 _mcp_hiddenimports = [
     'mcp.types',
     'mcp.client.session',
@@ -26,11 +27,12 @@ if os.name == 'nt':
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=_openssl_binaries,
-    datas=[('app/static', 'app/static'), ('icon.ico', '.')] + _rapidocr_datas + _mcp_datas + _anthropic_datas,
+    binaries=_openssl_binaries + _playwright_binaries,
+    datas=[('app/static', 'app/static'), ('icon.ico', '.')] + _rapidocr_datas + _mcp_datas + _anthropic_datas + _playwright_datas,
     hiddenimports=[
         'app.agent',
         'app.tools',
+        'app.browser_tools',
         'app.advanced_tools',
         'app.skills',
         'app.team',
@@ -45,7 +47,7 @@ a = Analysis(
         'anthropic._client',
         'anthropic.resources.messages',
         'anthropic.types',
-    ] + _mcp_hiddenimports,
+    ] + _mcp_hiddenimports + _playwright_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
