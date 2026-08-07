@@ -71,7 +71,7 @@ body {
   transition: opacity 0.55s ease;
 }
 #starfield-canvas.is-active { opacity: 1; }
-[data-theme="light"] #starfield-canvas { display: none; }
+[data-theme="light"][data-starfield="off"] #starfield-canvas { display: none; }
 #sidebar,
 #main {
   position: relative;
@@ -97,10 +97,25 @@ pre, code,
   flex-direction: column;
   overflow: hidden;
 }
-#sidebar-top { padding: 10px 8px 6px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 5px; }
-#sidebar-top #btn-new-conv { min-width: 0; }
-#btn-temp-conv, #btn-manage-convs { min-width: 40px; padding-inline: 6px; }
-#btn-archive-view { min-width: 46px; padding-inline: 6px; }
+#sidebar-top {
+  padding: 10px 8px 6px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+#sidebar-top > button { min-width: 0; width: 100%; }
+#sidebar-top #btn-new-conv {
+  grid-column: 1 / -1;
+  white-space: normal;
+  min-height: 34px;
+  line-height: 1.25;
+}
+#btn-temp-conv, #btn-manage-convs, #btn-archive-view {
+  min-width: 0;
+  padding-inline: 4px;
+  white-space: normal;
+  line-height: 1.25;
+}
 #btn-archive-view.active { color: var(--accent); background: var(--glow-accent); border-color: var(--accent); }
 #btn-manage-convs.active { color: var(--accent); background: var(--glow-accent); border-color: var(--accent); }
 #batch-conversation-bar {
@@ -326,6 +341,21 @@ mark.search-highlight { background: rgba(250, 204, 21, 0.35); color: inherit; bo
 }
 [data-theme="dark"][data-starfield="on"] #chat-area {
   background: rgba(9, 11, 22, 0.14);
+}
+[data-theme="light"][data-starfield="on"] body {
+  background: #edf4fb;
+}
+[data-theme="light"][data-starfield="on"] #main {
+  background: rgba(248, 251, 255, 0.62);
+}
+[data-theme="light"][data-starfield="on"] #sidebar,
+[data-theme="light"][data-starfield="on"] #toolbar,
+[data-theme="light"][data-starfield="on"] #input-area {
+  background: rgba(245, 249, 254, 0.80);
+  backdrop-filter: blur(8px);
+}
+[data-theme="light"][data-starfield="on"] #chat-area {
+  background: rgba(245, 249, 254, 0.18);
 }
 
 /* ── Toolbar ── */

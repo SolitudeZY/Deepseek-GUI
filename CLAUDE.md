@@ -70,7 +70,7 @@ vendor/* → core.js → render.js → drag.js → dialogs.js → settings.js �
 - `drag.js`：侧边栏会话手动拖拽引擎（`_drag` 状态机、`_handleConvDrop`/`_handleHeaderDrop` 等）。
 - `dialogs.js`：重命名/命令确认/ask_user_question/计划批准/图片灯箱/文件 diff 模态框，及各自顶层按钮绑定。
 - `settings.js`：设置面板/命令白名单/更新检查/云同步/模型配置，及顶层按钮绑定。
-- `starfield.js`：深色主题星空背景 canvas（闪烁淡入淡出 / 星轨二选一），暴露 `applyStarfieldSettings(config)` 给 `app.js`/`settings.js` 调用。
+- `starfield.js`：背景动态 canvas；深色主题支持闪烁淡入淡出 / 四分之一星轨，浅色主题支持云层、风粒子和轻雨丝天气微动。暴露 `applyStarfieldSettings(config)` 给 `app.js`/`settings.js` 调用。
 - `app.js`：其余主逻辑——会话列表渲染、消息气泡、流式、send、slash 菜单、侧边面板、工具栏按钮、`Chat` 对象（后端 `evaluate_js('Chat.xxx()')` 的回调入口）、init。
 
 **改动铁律（避免 ReferenceError / 重复声明崩溃）**：

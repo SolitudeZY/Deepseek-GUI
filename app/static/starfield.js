@@ -11,6 +11,8 @@ const Starfield = (() => {
   let h = 0;
   let stars = [];
   let trailStars = [];
+  let weatherClouds = [];
+  let weatherParticles = [];
   let startedAt = 0;
   let lastTs = 0;
 
@@ -75,6 +77,27 @@ const Starfield = (() => {
         color: colors[Math.floor(Math.random() * colors.length)],
       };
     });
+
+    const cloudCount = Math.max(5, Math.min(9, Math.round(w / 180)));
+    weatherClouds = Array.from({ length: cloudCount }, (_, index) => ({
+      x: rand(-w * 0.35, w),
+      y: rand(h * 0.08, h * 0.78),
+      width: rand(170, 340),
+      height: rand(34, 62),
+      speed: rand(0.012, 0.038),
+      alpha: rand(0.26, 0.46),
+      phase: index * 1.7 + rand(0, Math.PI),
+      rain: Math.random() > 0.58,
+    }));
+    weatherParticles = Array.from({ length: Math.max(52, Math.min(120, Math.round(area / 7800))) }, () => ({
+      x: Math.random() * w,
+      y: Math.random() * h,
+      length: rand(8, 24),
+      speed: rand(0.018, 0.052),
+      sway: rand(0.3, 1.2),
+      phase: rand(0, Math.PI * 2),
+      alpha: rand(0.20, 0.42),
+    }));
   }
 
   function clear() {
@@ -152,17 +175,88 @@ const Starfield = (() => {
     }
   }
 
+  function drawWeather(ts) {
+    if (!lastTs) lastTs = ts;
+    const dt = Math.min(40, ts - lastTs);
+    lastTs = ts;
+    clear();
+
+    const sky = ctx.createLinearGradient(0, 0, 0, h);
+    sky.addColorStop(0, 'rgba(176, 211, 240, 0.26)');
+    sky.addColorStop(0.58, 'rgba(224, 238, 249, 0.13)');
+    sky.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, w, h);
+
+    for (const cloud of weatherClouds) {
+      cloud.x += cloud.speed * dt;
+      if (cloud.x > w + cloud.width) cloud.x = -cloud.width - rand(20, 120);
+      const bob = Math.sin(ts * 0.00018 + cloud.phase) * 3;
+      const x = cloud.x;
+      const y = cloud.y + bob;
+      const cloudFill = ctx.createLinearGradient(x, y, x, y + cloud.height * 2.5);
+      cloudFill.addColorStop(0, `rgba(126,164,199,${cloud.alpha * 0.64})`);
+      cloudFill.addColorStop(0.42, `rgba(255,255,255,${cloud.alpha})`);
+      cloudFill.addColorStop(1, 'rgba(151,187,218,0)');
+      ctx.beginPath();
+      ctx.moveTo(x, y + cloud.height);
+      ctx.bezierCurveTo(x + cloud.width * 0.16, y - cloud.height * 0.15,
+        x + cloud.width * 0.25, y + cloud.height * 0.18,
+        x + cloud.width * 0.36, y + cloud.height * 0.08);
+      ctx.bezierCurveTo(x + cloud.width * 0.48, y - cloud.height * 0.38,
+        x + cloud.width * 0.66, y - cloud.height * 0.12,
+        x + cloud.width * 0.7, y + cloud.height * 0.14);
+      ctx.bezierCurveTo(x + cloud.width * 0.86, y - cloud.height * 0.02,
+        x + cloud.width, y + cloud.height * 0.18,
+        x + cloud.width, y + cloud.height);
+      ctx.closePath();
+      ctx.fillStyle = cloudFill;
+      ctx.fill();
+      ctx.strokeStyle = `rgba(104,148,187,${cloud.alpha * 0.34})`;
+      ctx.lineWidth = 0.75;
+      ctx.stroke();
+
+      if (cloud.rain) {
+        ctx.strokeStyle = 'rgba(88, 142, 188, 0.28)';
+        ctx.lineWidth = 0.8;
+        for (let i = 0; i < 4; i += 1) {
+          const rx = x + cloud.width * (0.35 + i * 0.12);
+          ctx.beginPath();
+          ctx.moveTo(rx, y + cloud.height * 1.05);
+          ctx.lineTo(rx - 2, y + cloud.height * 1.45);
+          ctx.stroke();
+        }
+      }
+    }
+
+    ctx.lineWidth = 0.7;
+    for (const particle of weatherParticles) {
+      particle.x += particle.speed * dt;
+      particle.y += Math.sin(ts * 0.00025 + particle.phase) * particle.sway * 0.02;
+      if (particle.x > w + particle.length) particle.x = -particle.length;
+      const alpha = particle.alpha * (0.78 + Math.sin(ts * 0.0005 + particle.phase) * 0.22);
+      ctx.strokeStyle = `rgba(84, 143, 190, ${alpha})`;
+      ctx.beginPath();
+      ctx.moveTo(particle.x, particle.y);
+      ctx.lineTo(particle.x + particle.length, particle.y - particle.length * 0.18);
+      ctx.stroke();
+    }
+  }
+
   function frame(ts) {
     if (!running) return;
     if (!startedAt) startedAt = ts;
     if (mode === 'trails') drawTrails(ts);
+    else if (mode === 'weather') drawWeather(ts);
     else drawTwinkle(ts);
     raf = requestAnimationFrame(frame);
   }
 
   function shouldRun(config) {
     const theme = document.documentElement.dataset.theme || 'dark';
-    return !!(config && config.starfield_enabled && theme === 'dark' && canvas && ctx);
+    const isWeather = mode === 'weather';
+    const themeMatches = isWeather ? theme === 'light' : theme === 'dark';
+    return !!(config && config.starfield_enabled && themeMatches && canvas && ctx);
   }
 
   function stop() {
@@ -178,7 +272,10 @@ const Starfield = (() => {
 
   function apply(config) {
     if (!canvas || !ctx) return;
-    mode = config && config.starfield_mode === 'trails' ? 'trails' : 'twinkle';
+    const requestedMode = config && config.starfield_mode;
+    const theme = document.documentElement.dataset.theme || 'dark';
+    mode = requestedMode === 'weather' && theme === 'light' ? 'weather'
+      : requestedMode === 'trails' && theme === 'dark' ? 'trails' : 'twinkle';
     if (!shouldRun(config)) {
       stop();
       return;
@@ -194,7 +291,7 @@ const Starfield = (() => {
   window.addEventListener('resize', () => {
     if (!running) return;
     resize();
-    if (mode === 'trails') clear();
+    if (mode === 'trails' || mode === 'weather') clear();
   });
 
   return { apply, stop };
