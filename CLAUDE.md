@@ -70,7 +70,7 @@ vendor/* → core.js → render.js → drag.js → dialogs.js → settings.js �
 - `drag.js`：侧边栏会话手动拖拽引擎（`_drag` 状态机、`_handleConvDrop`/`_handleHeaderDrop` 等）。
 - `dialogs.js`：重命名/命令确认/ask_user_question/计划批准/图片灯箱/文件 diff 模态框，及各自顶层按钮绑定。
 - `settings.js`：设置面板/命令白名单/更新检查/云同步/模型配置，及顶层按钮绑定。
-- `starfield.js`：背景动态 canvas；深色主题支持闪烁淡入淡出 / 四分之一星轨，浅色主题支持云层、风粒子和轻雨丝天气微动。暴露 `applyStarfieldSettings(config)` 给 `app.js`/`settings.js` 调用。
+- `starfield.js`：分层背景引擎；双 Canvas 预渲染白天/黄昏/夜晚程序化城市，天气 Canvas 绘制云、雪、雾、光尘与星轨，雨/雷暴使用本地 MIT `raindrop-fx` WebGL2 折射层并带 Canvas 降级。暴露 `applyStarfieldSettings(config)` 给 `app.js`/`settings.js` 调用。
 - `app.js`：其余主逻辑——会话列表渲染、消息气泡、流式、send、slash 菜单、侧边面板、工具栏按钮、`Chat` 对象（后端 `evaluate_js('Chat.xxx()')` 的回调入口）、init。
 
 **改动铁律（避免 ReferenceError / 重复声明崩溃）**：
@@ -246,6 +246,8 @@ vendor/* → core.js → render.js → drag.js → dialogs.js → settings.js �
 ## subagent 主动派发引导
 
 `_build_system_prompt` 注入 `<subagent_policy>`：引导模型遇到独立、需多步工具调用的子任务**主动**派 `subagent`（不必等用户显式要求），只读分析用 `Explore`、改文件用 `General`。**subagent 是同步阻塞的**（等子代理跑完返回摘要）；若只需并行跑耗时 shell 命令，引导用 `background_run`（立即返回 + `background_check` 查）而非 subagent。异步 subagent 暂未做（结果回传/错误处理复杂，现有 background_run 覆盖多数并行需求）。
+
+子代理完成时调用终止工具 `complete_task(summary)`，`run_subagent` 收到后立即返回；完全相同的工具调用只执行一次，连续三轮只有重复调用时提前强制总结。同步子代理有独立预算（最多 10 个模型轮次或 90 秒），达到任一预算立即基于已有信息强制总结，不再阻塞主模型直到全局 `max_rounds=50`。子代理继承当前会话 `project_path`；强制总结使用“原任务 + 累计工具证据”的干净无工具请求，不重放带 `tool_calls` 的历史，模型仍返回空文本时直接返回结构化证据。同一次 `Agent.run` 内重复派发完全相同的 `agent_type + prompt` 时复用首次结果，不重复启动子代理。
 
 ## Token 用量热力图为 0 修复（2026-07-08）
 

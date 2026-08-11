@@ -107,6 +107,7 @@ class Agent:
         self._tasks = task_manager or TaskManager()
         self._bg = bg_manager or BackgroundManager()
         self._rounds_without_todo = 0
+        self._subagent_results: dict[tuple[str, str], str] = {}
 
         # Build stable system prompt with skill index (appended once, never changes
         # per-round, so the prefix stays cache-friendly).
@@ -270,10 +271,7 @@ class Agent:
             "task_list": lambda a: self._tasks.list_all(),
             "background_run": lambda a: self._bg.run(a.get("command", ""), int(a.get("timeout", 120))),
             "background_check": lambda a: self._bg.check(a.get("task_id")),
-            "subagent": lambda a: run_subagent(
-                prompt=a.get("prompt", ""),
-                model_config=self.model_config,
-                agent_type=a.get("agent_type", "Explore")),
+            "subagent": self._handle_subagent,
             "rlm_query": self._handle_rlm_query,
             "team_spawn": self._handle_team_spawn,
             "team_list": lambda a: TEAM.list_all(),
@@ -312,6 +310,22 @@ class Agent:
             model_config=rlm_config,
             system_prompt=args.get("system_prompt", ""),
         )
+
+    def _handle_subagent(self, args: dict) -> str:
+        prompt = str(args.get("prompt", "") or "").strip()
+        agent_type = str(args.get("agent_type", "Explore") or "Explore")
+        key = (agent_type, prompt)
+        cached = self._subagent_results.get(key)
+        if cached is not None:
+            return f"[已复用本次请求中相同子任务的结果]\n\n{cached}"
+        result = run_subagent(
+            prompt=prompt,
+            model_config=self.model_config,
+            agent_type=agent_type,
+            cwd=getattr(self, "project_path", ""),
+        )
+        self._subagent_results[key] = result
+        return result
 
     def _handle_team_spawn(self, args: dict) -> str:
         mc_name = args.get("model_config", "")
@@ -369,6 +383,7 @@ class Agent:
         """在调用线程中同步运行（应在后台线程调用）。"""
         self._stop_flag.clear()
         self._rounds_without_todo = 0
+        self._subagent_results.clear()
         all_messages = [{"role": "system", "content": self.system_prompt}] + messages
 
         cb = _Callbacks(

@@ -9,6 +9,31 @@ from app import config as config_module
 
 
 class ModelConfigTests(unittest.TestCase):
+    def test_theme_and_weather_defaults_are_normalized(self):
+        normalized = config_module.normalize_config({
+            "theme_mode": "invalid",
+            "weather_refresh_minutes": 5,
+            "weather_preview": "hurricane",
+        })
+        self.assertEqual(normalized["theme_mode"], "auto")
+        self.assertEqual(normalized["weather_location_mode"], "ip")
+        self.assertEqual(normalized["weather_refresh_minutes"], 15)
+        self.assertEqual(normalized["weather_preview"], "auto")
+        self.assertTrue(normalized["weather_enabled"])
+
+    def test_device_location_migrates_to_ip_once_but_remains_selectable(self):
+        migrated = config_module.normalize_config({"weather_location_mode": "device"})
+        explicit = config_module.normalize_config({
+            "weather_location_mode": "device",
+            "weather_location_mode_version": 1,
+        })
+        self.assertEqual(migrated["weather_location_mode"], "ip")
+        self.assertEqual(explicit["weather_location_mode"], "device")
+
+    def test_legacy_theme_maps_to_manual_period(self):
+        normalized = config_module.normalize_config({"theme": "light"})
+        self.assertEqual(normalized["theme_mode"], "day")
+
     def test_legacy_default_prompt_upgrades_without_overwriting_custom_prompt(self):
         legacy = config_module.normalize_model_config({
             "system_prompt": "You are a helpful assistant.",

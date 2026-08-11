@@ -14,6 +14,10 @@ from typing import Optional
 from app.config import get_app_data_dir
 
 
+SUBAGENT_MAX_ROUNDS = 10
+SUBAGENT_MAX_SECONDS = 90
+
+
 def _tasks_dir() -> Path:
     d = get_app_data_dir() / "tasks"
     d.mkdir(exist_ok=True)
@@ -355,7 +359,7 @@ def run_rlm(prompts: list[str], model_config: dict, system_prompt: str = "") -> 
 
 # ── Subagent (s04) ───────────────────────────────────────────────────
 def run_subagent(prompt: str, model_config: dict,
-                 agent_type: str = "Explore") -> str:
+                 agent_type: str = "Explore", cwd: str = "") -> str:
     """Spawn a focused sub-agent with its own tool loop. Returns a summary."""
     from app.model_protocol import create_model_adapter
     from app.tools import read_file, list_directory, run_command, write_file
@@ -393,18 +397,84 @@ def run_subagent(prompt: str, model_config: dict,
                 }, "required": ["path", "content"]},
             }},
         ]
+    sub_tools.append({
+        "type": "function",
+        "function": {
+            "name": "complete_task",
+            "description": "子任务已经完成时调用一次，立即把最终结果返回给主代理。不要在调用后继续使用其他工具。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "完整、可直接交给主代理的结果摘要，包含结论、证据和未完成项",
+                    },
+                },
+                "required": ["summary"],
+            },
+        },
+    })
 
     def dispatch(name, args):
-        if name == "read_file":    return read_file(args.get("path", ""))
-        if name == "list_directory": return list_directory(args.get("path", ""))
-        if name == "run_command":  return run_command(args.get("command", ""), args.get("timeout", 30))
-        if name == "write_file":   return write_file(args.get("path", ""), args.get("content", ""))
+        if name == "read_file":    return read_file(args.get("path", ""), cwd=cwd)
+        if name == "list_directory": return list_directory(args.get("path", ""), cwd=cwd)
+        if name == "run_command":  return run_command(args.get("command", ""), args.get("timeout", 30), cwd=cwd)
+        if name == "write_file":   return write_file(args.get("path", ""), args.get("content", ""), cwd=cwd)
         return f"未知工具：{name}"
 
     messages = [{"role": "user", "content": prompt}]
-    system = "你是一个专注的子代理，负责完成指定的子任务并返回详细结果摘要。"
-    MAX_ROUNDS = 50
-    for _ in range(MAX_ROUNDS):
+    system = (
+        "你是一个专注的子代理，负责完成指定的子任务。使用工具获取足够信息后，"
+        "必须调用 complete_task 并在 summary 中返回详细结果；不要重复执行完全相同的工具调用，"
+        "也不要为了继续探索而探索。如果无需工具，直接回答即可。"
+        + (f"当前项目目录是：{cwd}。所有相对路径和命令都以此目录为基准。" if cwd else "")
+    )
+    MAX_STALLED_ROUNDS = 3
+    executed_calls: set[str] = set()
+    stalled_rounds = 0
+    started_at = time.monotonic()
+    evidence: list[dict] = []
+    assistant_notes: list[str] = []
+
+    def evidence_fallback(reason: str) -> str:
+        parts = [f"[子代理总结降级：{reason}]", "", "已获取的工具证据："]
+        if assistant_notes:
+            parts.extend(["", "子代理过程说明：", *assistant_notes[-3:]])
+        if evidence:
+            for index, item in enumerate(evidence[-12:], 1):
+                parts.append(
+                    f"\n### 证据 {index}: {item['tool']}\n"
+                    f"参数：{item['args']}\n"
+                    f"结果：\n{item['result']}"
+                )
+        else:
+            parts.append("\n没有成功获取工具结果。")
+        return "\n".join(parts)
+
+    def force_summary(reason: str) -> str:
+        evidence_text = evidence_fallback(reason)
+        compact_prompt = (
+            f"原始子任务：\n{prompt}\n\n"
+            f"终止原因：{reason}\n\n"
+            f"以下是执行过程中已经获取的可靠材料：\n{evidence_text[-60000:]}\n\n"
+            "请仅基于这些材料给出完整、结构化、可直接交给主代理的最终答案。"
+            "保留版本号、路径、分支、标签、提交哈希等具体信息；材料不足时明确指出。"
+        )
+        try:
+            send_messages = [
+                {"role": "system", "content": "你是结果整理器。不得调用工具，只输出最终答案。"},
+                {"role": "user", "content": compact_prompt},
+            ]
+            final = adapter.complete_text(send_messages)
+            if final and final.strip():
+                return final.strip()
+        except Exception as e:
+            return evidence_fallback(f"{reason}；模型总结失败：{e}")
+        return evidence_fallback(f"{reason}；模型总结返回空文本")
+
+    for _ in range(SUBAGENT_MAX_ROUNDS):
+        if time.monotonic() - started_at >= SUBAGENT_MAX_SECONDS:
+            return force_summary(f"子代理已达到 {SUBAGENT_MAX_SECONDS} 秒同步执行预算")
         send_messages = [{"role": "system", "content": system}] + messages
 
         try:
@@ -412,38 +482,55 @@ def run_subagent(prompt: str, model_config: dict,
         except Exception as e:
             return f"子代理调用失败：{e}"
 
+        round_content = str(round_result.assistant_message.get("content") or "").strip()
+        if round_content:
+            assistant_notes.append(round_content[:12000])
         if not round_result.tool_calls:
-            return round_result.assistant_message.get("content") or "(子代理无返回)"
+            return round_content or force_summary("子代理结束工具循环但没有返回文本")
+
+        for tc in round_result.tool_calls:
+            if tc.get("function", {}).get("name") != "complete_task":
+                continue
+            try:
+                args = json.loads(tc.get("function", {}).get("arguments") or "{}")
+            except json.JSONDecodeError:
+                args = {}
+            summary = str(args.get("summary", "")).strip()
+            return summary or round_content or force_summary("complete_task 未提供摘要")
 
         messages.append(round_result.assistant_message)
         # Execute tools and append results
+        new_work_this_round = False
         for tc in round_result.tool_calls:
             try:
                 args = json.loads(tc["function"]["arguments"] or "{}")
             except json.JSONDecodeError:
                 args = {}
-            result = dispatch(tc["function"]["name"], args)
+            tool_name = tc["function"]["name"]
+            signature = json.dumps([tool_name, args], ensure_ascii=False, sort_keys=True, default=str)
+            if signature in executed_calls:
+                result = "相同工具调用已经执行过，已跳过。请使用已有结果并调用 complete_task 返回结论。"
+            else:
+                executed_calls.add(signature)
+                new_work_this_round = True
+                result = dispatch(tool_name, args)
+                evidence.append({
+                    "tool": tool_name,
+                    "args": json.dumps(args, ensure_ascii=False, sort_keys=True, default=str)[:4000],
+                    "result": str(result)[:16000],
+                })
             messages.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],
                 "content": str(result)[:50000],
             })
 
-    # 撞轮次上限：不要丢弃已查到的信息，强制让子代理基于已有上下文做一次总结
-    # （不带 tools，避免它继续调工具又超限）。否则前 N 轮的勘察成果全部浪费。
-    try:
-        send_messages = [{"role": "system", "content": system}] + messages
-        send_messages.append({
-            "role": "user",
-            "content": "已达到工具调用轮次上限。请立即停止调用工具，基于你目前已经获取到的所有信息，"
-                       "给出尽可能完整、结构化的结果摘要（包括已查到的内容，以及还有哪些未完成）。",
-        })
-        final = adapter.complete_text(send_messages)
-        if final:
-            return f"[子代理达到轮次上限({MAX_ROUNDS})，以下为已获取信息的总结]\n\n{final}"
-    except Exception as e:
-        return f"(子代理达到最大轮次，强制总结失败：{e})"
-    return "(子代理达到最大轮次，未返回摘要)"
+        stalled_rounds = 0 if new_work_this_round else stalled_rounds + 1
+        if stalled_rounds >= MAX_STALLED_ROUNDS:
+            return force_summary(f"检测到连续 {stalled_rounds} 轮重复工具调用，子任务没有产生新进展")
+
+    final = force_summary(f"已达到子代理独立轮次预算 {SUBAGENT_MAX_ROUNDS}")
+    return f"[子代理达到轮次预算({SUBAGENT_MAX_ROUNDS})，以下为已获取信息的总结]\n\n{final}"
 
 
 # ── Tool schemas for new tools ────────────────────────────────────────

@@ -11,7 +11,16 @@
 <link rel="stylesheet" href="usage_heatmap.css">
 </head>
 <body>
-<canvas id="starfield-canvas" aria-hidden="true"></canvas>
+<div id="background-scene" aria-hidden="true">
+  <canvas class="background-base is-visible" id="background-base-a"></canvas>
+  <canvas class="background-base" id="background-base-b"></canvas>
+  <canvas id="background-rain"></canvas>
+  <canvas id="starfield-canvas"></canvas>
+  <div id="background-lightning"></div>
+  <div class="background-reflection background-reflection-a"></div>
+  <div class="background-reflection background-reflection-b"></div>
+  <div class="background-vignette"></div>
+</div>
 <!-- ── 侧边栏 ── -->
 <aside id="sidebar">
   <div id="sidebar-top">
@@ -207,7 +216,7 @@
       <button class="tab-btn" data-tab="memory">记忆</button>
       <button class="tab-btn" data-tab="sync">云同步</button>
       <button class="tab-btn" data-tab="update">检查更新</button>
-      <button class="tab-btn" data-tab="ui">界面设置</button>
+      <button class="tab-btn" data-tab="background">外观与天气</button>
     </div>
     <div class="modal-body">
       <!-- 模型配置 -->
@@ -532,12 +541,14 @@
         </label>
         <p class="hint">无 Token 时每小时限 60 次请求。获取 Token：<a href="#" onclick="pywebview.api.open_url('https://github.com/settings/tokens');return false">github.com/settings/tokens</a>（无需勾选任何权限）</p>
       </div>
-      <!-- 界面设置 -->
-      <div class="tab-panel" id="tab-ui">
+      <!-- 外观与天气 -->
+      <div class="tab-panel" id="tab-background">
         <label>主题
           <select id="ui-theme">
-            <option value="dark">深色</option>
-            <option value="light">浅色</option>
+            <option value="auto">跟随系统时间</option>
+            <option value="day">白天</option>
+            <option value="dusk">黄昏</option>
+            <option value="night">夜晚</option>
           </select>
         </label>
         <label>字体大小
@@ -554,10 +565,46 @@
           <select id="starfield-mode">
             <option value="twinkle">星星闪烁淡入淡出</option>
             <option value="trails">四分之一星轨</option>
-            <option value="weather">浅色天气微动</option>
           </select>
         </label>
-        <p class="hint">深色主题显示星星或四分之一星轨；浅色主题可选择云层、风粒子和轻雨丝的天气微动。</p>
+        <label>渲染质量
+          <select id="background-quality">
+            <option value="eco">省电</option>
+            <option value="balanced">均衡</option>
+            <option value="high">精细</option>
+          </select>
+        </label>
+        <label class="checkbox-label"><input type="checkbox" id="weather-enabled"> 根据当前天气调整背景</label>
+        <label>天气显示
+          <select id="weather-preview">
+            <option value="auto">自动获取当前天气</option>
+            <option value="clear">晴天</option>
+            <option value="cloudy">多云</option>
+            <option value="rain">雨</option>
+            <option value="snow">雪</option>
+            <option value="fog">雾</option>
+            <option value="thunder">雷暴</option>
+          </select>
+        </label>
+        <label>天气定位
+          <select id="weather-location-mode">
+            <option value="ip">IP 大致定位（静默）</option>
+            <option value="device">设备精确定位（需要授权）</option>
+            <option value="manual">手动城市</option>
+          </select>
+        </label>
+        <label id="weather-city-wrap">城市<input type="text" id="weather-city" placeholder="例如：上海"></label>
+        <label>天气强度 <output id="weather-intensity-value">70%</output>
+          <input type="range" id="weather-intensity" min="20" max="100" value="70" step="1">
+        </label>
+        <label>玻璃雾气 <output id="weather-mist-value">32%</output>
+          <input type="range" id="weather-mist" min="0" max="100" value="32" step="1">
+        </label>
+        <label>雨滴折射与反光 <output id="weather-refraction-value">65%</output>
+          <input type="range" id="weather-refraction" min="20" max="100" value="65" step="1">
+        </label>
+        <p class="hint" id="weather-status"></p>
+        <p class="hint">夜间遇到云、雨、雪、雾或雷暴时，天气效果会自动优先，星轨暂时暂停；晴天才显示星轨。</p>
       </div>
     </div>
     <div class="modal-footer">
@@ -732,6 +779,7 @@
 <script src="drag.js"></script>
 <script src="dialogs.js"></script>
 <script src="settings.js"></script>
+<script src="vendor/raindrop-fx.min.js"></script>
 <script src="starfield.js"></script>
 <script src="app.js"></script>
 </body>

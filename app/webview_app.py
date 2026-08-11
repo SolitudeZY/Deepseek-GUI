@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 import webbrowser
 import webview
 from pathlib import Path
@@ -221,6 +222,8 @@ class API:
         self._active_model_name = ""
         self._active_model_config_name = ""
         self._temporary_conversations: dict[str, dict] = {}
+        self._weather_cache: dict[tuple, dict] = {}
+        self._weather_location_cache: dict[str, dict] = {}
         try:
             self._config["mcp_servers"] = normalize_server_configs(self._config.get("mcp_servers", []))
             self._mcp = MCPManager(self._config["mcp_servers"])
@@ -340,6 +343,167 @@ $appId = '{{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}}\\WindowsPowerShell\\v1.0\\pow
         self._config = config
         save_config(config)
         return {"ok": True}
+
+    def get_weather(
+        self,
+        latitude: object = None,
+        longitude: object = None,
+        city: str = "",
+        use_ip: bool = False,
+    ) -> dict:
+        """Fetch current weather from Open-Meteo with a short in-memory cache.
+
+        Coordinates are preferred because they avoid an extra geocoding request. Silent
+        IP geolocation and a manual city are supported when device permission is unwanted.
+        Network failures intentionally degrade to clear weather so the background never
+        blocks application startup.
+        """
+        import requests
+
+        def fallback(reason: str, location: dict | None = None) -> dict:
+            result = {
+                "ok": True,
+                "fallback": True,
+                "condition": "clear",
+                "weather_code": 0,
+                "cloud_cover": 0,
+                "wind_speed": 0,
+                "precipitation": 0,
+                "snowfall": 0,
+                "location": location or {},
+                "reason": reason[:160],
+            }
+            return result
+
+        def finite_number(value: object) -> float | None:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                return None
+            return number if number == number and abs(number) != float("inf") else None
+
+        lat = finite_number(latitude)
+        lon = finite_number(longitude)
+        location = {}
+        if lat is not None or lon is not None:
+            if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                return fallback("定位坐标无效")
+            location = {"latitude": round(lat, 4), "longitude": round(lon, 4)}
+        else:
+            query = str(city or "").strip()
+            location_error = ""
+            if use_ip:
+                cached_location = self._weather_location_cache.get("__ip__")
+                if cached_location and time.time() - cached_location.get("fetched_at", 0) < 86400:
+                    location = cached_location
+                else:
+                    try:
+                        response = requests.get("https://ipwho.is/", timeout=6)
+                        response.raise_for_status()
+                        item = response.json()
+                        if item.get("success") is False:
+                            raise ValueError(item.get("message") or "IP 定位无结果")
+                        ip_lat = finite_number(item.get("latitude"))
+                        ip_lon = finite_number(item.get("longitude"))
+                        if ip_lat is None or ip_lon is None:
+                            raise ValueError("IP 定位坐标无效")
+                        location = {
+                            "latitude": ip_lat,
+                            "longitude": ip_lon,
+                            "name": item.get("city") or "当前位置",
+                            "country": item.get("country", ""),
+                            "source": "ip",
+                            "fetched_at": time.time(),
+                        }
+                        self._weather_location_cache["__ip__"] = location
+                    except Exception as exc:
+                        location_error = f"IP 定位失败：{exc}"
+
+            if not location and query:
+                cached_location = self._weather_location_cache.get(f"city:{query.lower()}")
+                if cached_location and time.time() - cached_location.get("fetched_at", 0) < 86400:
+                    location = cached_location
+                else:
+                    try:
+                        response = requests.get(
+                            "https://geocoding-api.open-meteo.com/v1/search",
+                            params={"name": query, "count": 1, "language": "zh", "format": "json"},
+                            timeout=6,
+                        )
+                        response.raise_for_status()
+                        item = (response.json().get("results") or [None])[0]
+                        if not item:
+                            return fallback("找不到城市")
+                        location = {
+                            "latitude": float(item["latitude"]),
+                            "longitude": float(item["longitude"]),
+                            "name": item.get("name") or query,
+                            "country": item.get("country", ""),
+                            "source": "manual",
+                            "fetched_at": time.time(),
+                        }
+                        self._weather_location_cache[f"city:{query.lower()}"] = location
+                    except Exception as exc:
+                        return fallback(f"城市定位失败：{exc}")
+
+            if not location:
+                return fallback(location_error or "未提供定位")
+
+        cache_key = (round(location["latitude"], 2), round(location["longitude"], 2))
+        cached = self._weather_cache.get(cache_key)
+        age = time.time() - cached.get("fetched_at", 0) if cached else None
+        if cached and age is not None and age < 1800:
+            result = dict(cached["result"])
+            result["cached"] = True
+            return result
+        try:
+            response = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": location["latitude"],
+                    "longitude": location["longitude"],
+                    "current": "weather_code,cloud_cover,wind_speed_10m,precipitation,rain,showers,snowfall",
+                    "timezone": "auto",
+                },
+                timeout=6,
+            )
+            response.raise_for_status()
+            current = response.json().get("current") or {}
+            code = int(current.get("weather_code", 0))
+            if code in {95, 96, 99}:
+                condition = "thunder"
+            elif code in {71, 73, 75, 77, 85, 86}:
+                condition = "snow"
+            elif code in {51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82}:
+                condition = "rain"
+            elif code in {45, 48}:
+                condition = "fog"
+            elif code in {1, 2, 3}:
+                condition = "cloudy"
+            else:
+                condition = "clear"
+            result = {
+                "ok": True,
+                "fallback": False,
+                "cached": False,
+                "condition": condition,
+                "weather_code": code,
+                "cloud_cover": float(current.get("cloud_cover", 0) or 0),
+                "wind_speed": float(current.get("wind_speed_10m", 0) or 0),
+                "precipitation": float(current.get("precipitation", 0) or 0),
+                "snowfall": float(current.get("snowfall", 0) or 0),
+                "location": location,
+                "fetched_at": time.time(),
+            }
+            self._weather_cache[cache_key] = {"fetched_at": time.time(), "result": result}
+            return result
+        except Exception as exc:
+            if cached and age is not None and age < 7200:
+                result = dict(cached["result"])
+                result["cached"] = True
+                result["stale"] = True
+                return result
+            return fallback(f"天气请求失败：{exc}", location)
 
     def test_mcp_server(self, config: dict) -> dict:
         return self._mcp.test_server(config)

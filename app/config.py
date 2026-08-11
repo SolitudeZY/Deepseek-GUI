@@ -130,9 +130,36 @@ def normalize_model_config(model_config: dict) -> dict:
 def normalize_config(config: dict) -> dict:
     """Normalize persisted config fields at the storage boundary."""
     normalized = copy.deepcopy(config) if isinstance(config, dict) else {}
+    had_theme_mode = "theme_mode" in normalized
+    had_location_mode_version = normalized.get("weather_location_mode_version") == 1
+    legacy_theme = str(normalized.get("theme", "") or "").strip().lower()
     for key, value in DEFAULT_CONFIG.items():
         if key not in normalized:
             normalized[key] = copy.deepcopy(value)
+    theme_mode = str(normalized.get("theme_mode", "") or "").strip().lower()
+    if not had_theme_mode and legacy_theme in {"dark", "light"}:
+        theme_mode = {"dark": "night", "light": "day"}.get(legacy_theme, "auto")
+    elif theme_mode not in {"auto", "day", "dusk", "night"}:
+        theme_mode = "auto"
+    normalized["theme_mode"] = theme_mode
+    location_mode = str(normalized.get("weather_location_mode", "ip") or "").strip().lower()
+    if not had_location_mode_version and location_mode == "device":
+        location_mode = "ip"
+    normalized["weather_location_mode"] = location_mode if location_mode in {"ip", "device", "manual"} else "ip"
+    normalized["weather_location_mode_version"] = 1
+    normalized["weather_city"] = str(normalized.get("weather_city", "") or "").strip()[:120]
+    weather_preview = str(normalized.get("weather_preview", "auto") or "").strip().lower()
+    normalized["weather_preview"] = (
+        weather_preview
+        if weather_preview in {"auto", "clear", "cloudy", "rain", "snow", "fog", "thunder"}
+        else "auto"
+    )
+    try:
+        refresh_minutes = int(normalized.get("weather_refresh_minutes", 30))
+    except (TypeError, ValueError):
+        refresh_minutes = 30
+    normalized["weather_refresh_minutes"] = max(15, min(refresh_minutes, 180))
+    normalized["weather_enabled"] = normalized.get("weather_enabled") is not False
     configs = normalized.get("model_configs")
     if not isinstance(configs, list):
         configs = []
@@ -226,10 +253,21 @@ DEFAULT_CONFIG = {
     "command_safety": "confirm",   # confirm | auto | disabled
     "command_timeout": 30,
     "max_rounds": 50,
-    "theme": "dark",               # dark | light | system
+    "theme": "dark",               # legacy color preference; theme_mode is authoritative
+    "theme_mode": "auto",          # auto | day | dusk | night
     "font_size": 13,
     "starfield_enabled": False,    # 背景动态效果开关
     "starfield_mode": "twinkle",   # twinkle | trails | weather
+    "background_quality": "balanced",  # eco | balanced | high
+    "weather_enabled": True,        # 根据天气调整动态背景
+    "weather_location_mode": "ip",  # ip | device | manual
+    "weather_location_mode_version": 1,
+    "weather_city": "",            # 手动定位城市（可选）
+    "weather_preview": "auto",    # auto | clear | cloudy | rain | snow | fog | thunder
+    "weather_intensity": 70,
+    "weather_mist": 32,
+    "weather_refraction": 65,
+    "weather_refresh_minutes": 30,
     "sidebar_width": 220,
     "vision_api_key": "",
     "vision_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",

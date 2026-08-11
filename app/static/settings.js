@@ -712,14 +712,58 @@ function fillSettingsFields(cfg) {
   $('imagegen-model').value = cfg.imagegen_model || '';
   $('imagegen-format').value = cfg.imagegen_format || 'openai';
   $('imagegen-use-full-url').checked = cfg.imagegen_use_full_url || false;
-  $('ui-theme').value = cfg.theme || 'dark';
+  const themeMode = ['auto', 'day', 'dusk', 'night'].includes(cfg.theme_mode)
+    ? cfg.theme_mode : (cfg.theme === 'light' ? 'day' : cfg.theme === 'dark' ? 'night' : 'auto');
+  $('ui-theme').value = themeMode;
   $('ui-fontsize').value = String(cfg.font_size || 14);
   $('starfield-enabled').checked = cfg.starfield_enabled === true;
   $('starfield-mode').value = cfg.starfield_mode || 'twinkle';
+  $('background-quality').value = ['eco', 'balanced', 'high'].includes(cfg.background_quality)
+    ? cfg.background_quality : 'balanced';
+  const explicitWeather = ['cloudy', 'rain', 'snow', 'fog', 'thunder'].includes(cfg.weather_preview);
+  $('weather-enabled').checked = cfg.weather_enabled !== false || explicitWeather;
+  $('weather-preview').value = cfg.weather_preview || 'auto';
+  $('weather-location-mode').value = cfg.weather_location_mode || 'ip';
+  $('weather-city').value = cfg.weather_city || '';
+  $('weather-intensity').value = String(cfg.weather_intensity ?? 70);
+  $('weather-mist').value = String(cfg.weather_mist ?? 32);
+  $('weather-refraction').value = String(cfg.weather_refraction ?? 65);
+  syncWeatherRangeOutputs();
+  syncWeatherLocationField();
   $('sync-folder').value = cfg.sync_folder || '';
   $('sync-auto-upload').checked = cfg.sync_auto_upload !== false;
   $('github-token').value = cfg.github_token || '';
 }
+
+function syncWeatherLocationField() {
+  const automatic = $('weather-preview').value === 'auto';
+  const manual = automatic && $('weather-location-mode').value === 'manual';
+  const explicitWeather = ['cloudy', 'rain', 'snow', 'fog', 'thunder'].includes($('weather-preview').value);
+  if (explicitWeather) $('weather-enabled').checked = true;
+  $('weather-location-mode').disabled = !automatic;
+  $('weather-city-wrap').style.opacity = manual ? '1' : '0.55';
+  $('weather-city').disabled = !manual;
+  $('starfield-mode').disabled = explicitWeather && $('weather-enabled').checked;
+}
+
+function syncWeatherRangeOutputs() {
+  $('weather-intensity-value').textContent = `${$('weather-intensity').value}%`;
+  $('weather-mist-value').textContent = `${$('weather-mist').value}%`;
+  $('weather-refraction-value').textContent = `${$('weather-refraction').value}%`;
+}
+
+$('weather-location-mode').addEventListener('change', syncWeatherLocationField);
+$('weather-preview').addEventListener('change', syncWeatherLocationField);
+$('weather-enabled').addEventListener('change', () => {
+  if (!$('weather-enabled').checked
+      && ['cloudy', 'rain', 'snow', 'fog', 'thunder'].includes($('weather-preview').value)) {
+    $('weather-preview').value = 'clear';
+  }
+  syncWeatherLocationField();
+});
+['weather-intensity', 'weather-mist', 'weather-refraction'].forEach(id => {
+  $(id).addEventListener('input', syncWeatherRangeOutputs);
+});
 
 async function saveSettings() {
   saveCurrentMc();
@@ -743,15 +787,26 @@ async function saveSettings() {
   state.config.imagegen_model = $('imagegen-model').value.trim();
   state.config.imagegen_format = $('imagegen-format').value;
   state.config.imagegen_use_full_url = $('imagegen-use-full-url').checked;
-  state.config.theme = $('ui-theme').value;
+  state.config.theme_mode = $('ui-theme').value;
+  state.config.theme = state.config.theme_mode === 'night' ? 'dark' : 'light';
   state.config.font_size = parseInt($('ui-fontsize').value) || 14;
   state.config.starfield_enabled = $('starfield-enabled').checked;
   state.config.starfield_mode = $('starfield-mode').value;
+  state.config.background_quality = $('background-quality').value;
+  state.config.weather_enabled = $('weather-enabled').checked;
+  state.config.weather_preview = $('weather-preview').value;
+  state.config.weather_location_mode = $('weather-location-mode').value;
+  state.config.weather_location_mode_version = 1;
+  state.config.weather_city = $('weather-city').value.trim();
+  state.config.weather_intensity = parseInt($('weather-intensity').value) || 70;
+  state.config.weather_mist = parseInt($('weather-mist').value) || 0;
+  state.config.weather_refraction = parseInt($('weather-refraction').value) || 65;
   state.config.sync_auto_upload = $('sync-auto-upload').checked;
   state.config.github_token = $('github-token').value.trim();
-  applyTheme(state.config.theme);
+  applyTheme(state.config.theme_mode);
   applyFontSize(state.config.font_size);
   if (typeof applyStarfieldSettings === 'function') applyStarfieldSettings(state.config);
+  if (typeof startWeatherBackground === 'function') startWeatherBackground();
   const previousMcpServers = state.config.mcp_servers || [];
   state.config.mcp_servers = JSON.parse(JSON.stringify(_mcpServersDraft));
   const saved = await window.pywebview.api.save_config(state.config);
@@ -855,8 +910,9 @@ $('btn-sync-import-all').addEventListener('click', async () => {
     state.config = await window.pywebview.api.get_config();
     populateModelSelect();
     fillSettingsFields(state.config);  // 即时刷新设置面板输入框（vision/imagegen/github 等）
-    applyTheme(state.config.theme);
+    applyTheme(state.config.theme_mode || state.config.theme);
     applyFontSize(state.config.font_size);
+    if (typeof startWeatherBackground === 'function') startWeatherBackground();
   }
 });
 

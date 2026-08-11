@@ -9,9 +9,10 @@
 
 window.addEventListener('pywebviewready', async () => {
   state.config = await window.pywebview.api.get_config();
-  applyTheme(state.config.theme || 'dark');
+  applyTheme(state.config.theme_mode || state.config.theme || 'auto');
   applyFontSize(state.config.font_size || 14);
   if (typeof applyStarfieldSettings === 'function') applyStarfieldSettings(state.config);
+  startWeatherBackground();
   populateModelSelect();
   // Restore persistent toggle states
   const uiState = await window.pywebview.api.get_ui_state();
@@ -42,10 +43,222 @@ window.addEventListener('pywebviewready', async () => {
 });
 
 // ── Theme / font ──────────────────────────────────────────────────
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  if (typeof applyStarfieldSettings === 'function') applyStarfieldSettings(state.config);
+let _themeTimer = 0;
+let _weatherTimer = 0;
+let _weatherInFlight = false;
+let _themeAnimation = 0;
+let _activeThemePalette = null;
+let _weatherRequestSeq = 0;
+let _lastWeatherResult = null;
+let _lastWeatherGoodAt = 0;
+let _lastWeatherKey = '';
+
+const _WEATHER_PREVIEWS = {
+  clear: { weather_code: 0, condition: 'clear', label: '晴天', cloud_cover: 0, wind_speed: 3 },
+  cloudy: { weather_code: 3, condition: 'cloudy', label: '多云', cloud_cover: 88, wind_speed: 8 },
+  rain: { weather_code: 63, condition: 'rain', label: '雨', cloud_cover: 92, wind_speed: 14, precipitation: 2 },
+  snow: { weather_code: 73, condition: 'snow', label: '雪', cloud_cover: 90, wind_speed: 8, snowfall: 2 },
+  fog: { weather_code: 45, condition: 'fog', label: '雾', cloud_cover: 100, wind_speed: 2 },
+  thunder: { weather_code: 95, condition: 'thunder', label: '雷暴', cloud_cover: 100, wind_speed: 22, precipitation: 4 },
+};
+
+function _weatherEffectsEnabled(cfg) {
+  if (!cfg) return false;
+  const preview = cfg.weather_preview || 'auto';
+  const explicitWeather = ['cloudy', 'rain', 'snow', 'fog', 'thunder'].includes(preview);
+  return cfg.weather_enabled !== false || explicitWeather;
 }
+
+const _THEME_PALETTES = {
+  night: {
+    '--bg': '#1a1b26', '--bg2': '#16161e', '--bg3': '#292e42', '--surface': '#24283b',
+    '--border': '#3b4261', '--text': '#c0caf5', '--text-muted': '#565f89', '--text-dim': '#9aa5ce',
+    '--accent': '#7aa2f7', '--accent-hover': '#89b4fa', '--user-bubble': '#1a2744',
+    '--asst-bubble': '#24283b', '--tool-bubble': '#1a2a1e', '--error-bubble': '#321621',
+    '--code-bg': '#16161e', '--code-fg': '#c0caf5', '--danger': '#f7768e', '--danger-hover': '#ff9e9e',
+    '--hover': 'rgba(255,255,255,0.05)', '--glow-accent': 'rgba(122,162,247,0.20)',
+    '--main-overlay': 'rgba(12,14,27,0.62)', '--panel-overlay': 'rgba(18,20,34,0.78)', '--chat-overlay': 'rgba(9,11,22,0.14)',
+  },
+  day: {
+    '--bg': '#f3f5f6', '--bg2': '#eaedef', '--bg3': '#dde3e5', '--surface': '#ffffff',
+    '--border': '#c8d0d3', '--text': '#1f2930', '--text-muted': '#69767d', '--text-dim': '#4b5a62',
+    '--accent': '#2e6f95', '--accent-hover': '#245b79', '--user-bubble': '#e5f0f4',
+    '--asst-bubble': '#ffffff', '--tool-bubble': '#e4f5e8', '--error-bubble': '#fde8ec',
+    '--code-bg': '#e9edef', '--code-fg': '#1f2930', '--danger': '#c0392b', '--danger-hover': '#e74c3c',
+    '--hover': 'rgba(0,0,0,0.04)', '--glow-accent': 'rgba(46,111,149,0.12)',
+    '--main-overlay': 'rgba(248,251,255,0.62)', '--panel-overlay': 'rgba(255,255,255,0.84)', '--chat-overlay': 'rgba(255,255,255,0.22)',
+  },
+  dusk: {
+    '--bg': '#f4ebe7', '--bg2': '#eee1dc', '--bg3': '#e3d2ca', '--surface': '#fffaf7',
+    '--border': '#d8c0b6', '--text': '#392b29', '--text-muted': '#876e67', '--text-dim': '#654e49',
+    '--accent': '#b35f4d', '--accent-hover': '#944c3d', '--user-bubble': '#fae6dc',
+    '--asst-bubble': '#fffaf7', '--tool-bubble': '#edf0dd', '--error-bubble': '#fce5e0',
+    '--code-bg': '#eee1db', '--code-fg': '#392b29', '--danger': '#b84436', '--danger-hover': '#96382d',
+    '--hover': 'rgba(106,64,49,0.06)', '--glow-accent': 'rgba(179,95,77,0.14)',
+    '--main-overlay': 'rgba(255,247,242,0.64)', '--panel-overlay': 'rgba(255,250,247,0.86)', '--chat-overlay': 'rgba(255,247,242,0.24)',
+  },
+};
+
+function _parseCssColor(value) {
+  const raw = String(value || '').trim();
+  if (raw.startsWith('#')) {
+    const hex = raw.slice(1);
+    if (hex.length === 6) return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16), 1];
+  }
+  const match = raw.match(/^rgba?\(([^)]+)\)$/i);
+  if (!match) return null;
+  const parts = match[1].split(',').map(item => Number(item.trim()));
+  return parts.length >= 3 ? [parts[0], parts[1], parts[2], parts.length > 3 ? parts[3] : 1] : null;
+}
+
+function _formatCssColor(color) {
+  const [r, g, b, a] = color.map((value, index) => index < 3 ? Math.round(value) : value);
+  return a >= 0.999 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+}
+
+function _setThemePalette(palette) {
+  Object.entries(palette).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
+  _activeThemePalette = palette;
+}
+
+function _animateThemePalette(from, to, duration) {
+  if (_themeAnimation) cancelAnimationFrame(_themeAnimation);
+  if (!duration || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+    _setThemePalette(to);
+    return;
+  }
+  const started = performance.now();
+  const keys = Object.keys(to);
+  const source = from || to;
+  const frames = keys.map(key => [_parseCssColor(source[key]), _parseCssColor(to[key])]);
+  const tick = now => {
+    const progress = Math.min(1, (now - started) / duration);
+    const eased = progress * (2 - progress);
+    const palette = {};
+    keys.forEach((key, index) => {
+      const [a, b] = frames[index];
+      palette[key] = a && b ? _formatCssColor(a.map((value, channel) => value + (b[channel] - value) * eased)) : to[key];
+    });
+    _setThemePalette(palette);
+    if (progress < 1) _themeAnimation = requestAnimationFrame(tick);
+    else _themeAnimation = 0;
+  };
+  _themeAnimation = requestAnimationFrame(tick);
+}
+
+function _themeModeValue(value) {
+  const mode = String(value || '').toLowerCase();
+  if (mode === 'light') return 'day';
+  if (mode === 'dark') return 'night';
+  return ['auto', 'day', 'dusk', 'night'].includes(mode) ? mode : 'auto';
+}
+
+function applyTheme(themeMode, force = false) {
+  const mode = _themeModeValue(themeMode);
+  const period = resolveThemePeriod(mode);
+  const periodChanged = document.documentElement.dataset.period !== period;
+  const targetPalette = _THEME_PALETTES[period] || _THEME_PALETTES.night;
+  const previousPalette = _activeThemePalette || _THEME_PALETTES[document.documentElement.dataset.period] || _THEME_PALETTES.night;
+  document.documentElement.dataset.theme = period === 'night' ? 'dark' : 'light';
+  document.documentElement.dataset.period = period;
+  document.documentElement.style.colorScheme = period === 'night' ? 'dark' : 'light';
+  if (state.config) state.config.resolved_period = period;
+  _animateThemePalette(previousPalette, targetPalette, periodChanged ? 1400 : 0);
+  if (force || periodChanged || !document.documentElement.dataset.starfield) {
+    if (typeof applyStarfieldSettings === 'function') applyStarfieldSettings(state.config);
+  }
+  if (_themeTimer) clearInterval(_themeTimer);
+  _themeTimer = mode === 'auto' ? setInterval(() => applyTheme(mode), 60000) : 0;
+}
+
+function _getDeviceLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error('当前 WebView 不支持定位')); return; }
+    navigator.geolocation.getCurrentPosition(
+      position => resolve(position.coords),
+      error => reject(new Error(error && error.message ? error.message : '定位未授权')),
+      { enableHighAccuracy: false, maximumAge: 3600000, timeout: 5000 },
+    );
+  });
+}
+
+async function refreshWeatherBackground() {
+  if (!state.config || !_weatherEffectsEnabled(state.config) || state.config.starfield_enabled !== true || !window.pywebview) return;
+  const preview = state.config.weather_preview || 'auto';
+  if (preview !== 'auto' && _WEATHER_PREVIEWS[preview]) {
+    _weatherRequestSeq += 1;
+    const previewWeather = {
+      ok: true,
+      fallback: false,
+      ..._WEATHER_PREVIEWS[preview],
+      location: { name: '手动预览', source: 'preview' },
+    };
+    setStarfieldWeather(previewWeather);
+    const previewStatus = $('weather-status');
+    if (previewStatus) previewStatus.textContent = `天气预览：${_WEATHER_PREVIEWS[preview].label}`;
+    return;
+  }
+  if (_weatherInFlight) return;
+  _weatherInFlight = true;
+  const requestId = ++_weatherRequestSeq;
+  try {
+    const locationMode = state.config.weather_location_mode || 'ip';
+    const requestKey = `${locationMode}:${state.config.weather_city || ''}`;
+    let result;
+    if (locationMode === 'ip') {
+      result = await window.pywebview.api.get_weather(null, null, state.config.weather_city || '', true);
+    } else if (locationMode === 'manual') {
+      result = await window.pywebview.api.get_weather(null, null, state.config.weather_city || '');
+    } else {
+      try {
+        const coords = await _getDeviceLocation();
+        result = await window.pywebview.api.get_weather(coords.latitude, coords.longitude, '');
+      } catch (error) {
+        result = await window.pywebview.api.get_weather(null, null, state.config.weather_city || '');
+      }
+    }
+    if (requestId !== _weatherRequestSeq) return;
+    if (result && !result.fallback) {
+      _lastWeatherResult = result;
+      _lastWeatherGoodAt = Date.now();
+      _lastWeatherKey = requestKey;
+    } else if (_lastWeatherResult && _lastWeatherKey === requestKey && Date.now() - _lastWeatherGoodAt < 7200000) {
+      result = { ..._lastWeatherResult, cached: true, stale: true };
+    }
+    const safeResult = result || { ok: true, fallback: true, weather_code: 0 };
+    setStarfieldWeather(safeResult);
+    const status = $('weather-status');
+    if (status) {
+      const source = safeResult.location && safeResult.location.source;
+      const sourceLabel = source === 'ip' ? '（IP 大致定位）' : source === 'manual' ? '（手动城市）' : '';
+      status.textContent = safeResult.fallback
+        ? '天气：晴天（未获取到定位或天气数据）'
+        : `天气：${safeResult.location && safeResult.location.name ? safeResult.location.name : '已更新'}${sourceLabel}`;
+    }
+  } catch (error) {
+    if (requestId === _weatherRequestSeq) setStarfieldWeather({ ok: true, fallback: true, weather_code: 0 });
+  } finally {
+    _weatherInFlight = false;
+  }
+}
+
+function startWeatherBackground() {
+  if (_weatherTimer) clearInterval(_weatherTimer);
+  _weatherTimer = 0;
+  _weatherRequestSeq += 1;
+  if (!state.config || !_weatherEffectsEnabled(state.config) || state.config.starfield_enabled !== true) {
+    setStarfieldWeather({ ok: true, fallback: true, weather_code: 0 });
+    return;
+  }
+  refreshWeatherBackground();
+  if ((state.config.weather_preview || 'auto') !== 'auto') return;
+  const minutes = Math.max(15, Math.min(Number(state.config.weather_refresh_minutes) || 30, 180));
+  _weatherTimer = setInterval(refreshWeatherBackground, minutes * 60000);
+}
+
+window.addEventListener('focus', () => {
+  if (_weatherEffectsEnabled(state.config)) refreshWeatherBackground();
+});
 function applyFontSize(size) {
   document.documentElement.style.setProperty('--font-size', size + 'px');
 }
