@@ -27,7 +27,7 @@ SEMVER_RE = re.compile(r'^\d+\.\d+\.\d+$')
 def read_version() -> str:
     m = VER_RE.search(CONFIG.read_text(encoding="utf-8"))
     if not m:
-        sys.exit(f"❌ 在 {CONFIG} 找不到 APP_VERSION")
+        sys.exit(f"ERROR: 在 {CONFIG} 找不到 APP_VERSION")
     return m.group(2)
 
 
@@ -49,14 +49,14 @@ def collect_notes(args, tag: str) -> str:
     elif args.file:
         p = Path(args.file)
         if not p.exists():
-            sys.exit(f"❌ 说明文件不存在：{p}")
+            sys.exit(f"ERROR: 说明文件不存在：{p}")
         body = p.read_text(encoding="utf-8").strip()
     else:
         print(f"请输入 {tag} 的更新说明（支持 markdown，多行；"
               f"输入完成后按 {'Ctrl+Z 回车' if sys.platform == 'win32' else 'Ctrl+D'} 结束）：")
         body = sys.stdin.read().strip()
     if not body:
-        sys.exit("❌ 更新说明为空，已取消发版")
+        sys.exit("ERROR: 更新说明为空，已取消发版")
     # tag 消息 = 用户更新说明全文（不加 "Release vX.Y.Z" 标题，
     # 否则 git 会把它当 tag subject，CI 用 %(contents) 提取时易吞掉正文首行）。
     return body
@@ -79,18 +79,18 @@ def main() -> None:
 
     new = args.version.lstrip("v")
     if not SEMVER_RE.match(new):
-        sys.exit(f"❌ 版本号格式应为 X.Y.Z（收到 {new!r}）")
+        sys.exit(f"ERROR: 版本号格式应为 X.Y.Z（收到 {new!r}）")
 
     old = read_version()
     if new == old:
-        sys.exit(f"❌ 新版本 {new} 与当前版本相同")
+        sys.exit(f"ERROR: 新版本 {new} 与当前版本相同")
 
     tag = f"v{new}"
     # 防止 tag 重名
     existing = subprocess.run(["git", "tag", "-l", tag], cwd=ROOT,
                               capture_output=True, text=True).stdout.strip()
     if existing:
-        sys.exit(f"❌ tag {tag} 已存在，请换一个版本号")
+        sys.exit(f"ERROR: tag {tag} 已存在，请换一个版本号")
 
     print(f"版本号 {old} → {new}，将打 tag {tag}")
     tag_msg = collect_notes(args, tag)
@@ -109,12 +109,12 @@ def main() -> None:
     finally:
         Path(msg_file).unlink(missing_ok=True)
     if args.no_push:
-        print(f"✅ 已改版本号并打 tag {tag}（未 push）。确认后执行：")
+        print(f"OK: 已改版本号并打 tag {tag}（未 push）。确认后执行：")
         print(f"   git push && git push origin {tag}")
     else:
         run("git", "push")
         run("git", "push", "origin", tag)
-        print(f"✅ 已发版 {tag} 并推送，GitHub Actions 将自动编译并发 Release。")
+        print(f"OK: 已发版 {tag} 并推送，GitHub Actions 将自动编译并发 Release。")
 
 
 if __name__ == "__main__":
