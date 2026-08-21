@@ -222,7 +222,8 @@ def estimate_tokens(messages: list) -> int:
     return len(json.dumps(messages, default=str)) // 4
 
 
-def _summarize_text(model_config: dict, text: str) -> str:
+def _summarize_text(model_config: dict, text: str, timeout_seconds: float = 120,
+                    stop_event: threading.Event = None) -> str:
     """调模型对一段对话文本做结构化摘要。失败抛异常由调用方处理。"""
     prompt = (
         "你在为一个『AI 编程助手』压缩历史对话，供它之后无缝继续工作。"
@@ -237,11 +238,45 @@ def _summarize_text(model_config: dict, text: str) -> str:
         f"对话片段：\n{text}"
     )
     from app.model_protocol import complete_text
-    return complete_text(model_config, [{"role": "user", "content": prompt}]) or "(无摘要)"
+
+    result_queue = Queue(maxsize=1)
+    request_stop = threading.Event()
+
+    def run_summary():
+        try:
+            result = complete_text(
+                model_config,
+                [{"role": "user", "content": prompt}],
+                stop_event=request_stop,
+            ) or "(无摘要)"
+            result_queue.put((True, result))
+        except BaseException as exc:
+            result_queue.put((False, exc))
+
+    threading.Thread(target=run_summary, name="QuickModel-Compact", daemon=True).start()
+    timeout_seconds = max(0.01, float(timeout_seconds))
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        if stop_event is not None and stop_event.is_set():
+            request_stop.set()
+            raise InterruptedError("用户已停止上下文压缩")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            request_stop.set()
+            raise TimeoutError(f"上下文摘要超过 {timeout_seconds:g} 秒")
+        try:
+            ok, value = result_queue.get(timeout=min(0.1, remaining))
+        except Empty:
+            continue
+        if ok:
+            return value
+        raise value
 
 
 def auto_compact(messages: list, model_config: dict,
-                 summary_model_config: dict = None) -> list:
+                 summary_model_config: dict = None, target_tokens: int = 0,
+                 timeout_seconds: float = 120, stop_event: threading.Event = None,
+                 on_status=None) -> list:
     """Summarize conversation when context is too large.
 
     Preserves: system message (head) + recent tail (RECENT_KEEP messages).
@@ -254,34 +289,64 @@ def auto_compact(messages: list, model_config: dict,
     - 摘要失败则保留原始消息（不压缩），绝不用错误串替换整个中段；
     - RECENT_KEEP 提高；可用更便宜的模型（summary_client/summary_model）做摘要。
     """
-    RECENT_KEEP = 15   # keep last N messages verbatim
+    RECENT_KEEP = 15   # keep at most the last N messages verbatim
     CHUNK_CHARS = 60000  # 每块喂给摘要模型的字符上限
+
+    def report(state: str, detail: str = ""):
+        if on_status:
+            try:
+                on_status(state, detail)
+            except Exception:
+                pass
 
     # 摘要模型：优先用传入的便宜模型配置，回退主模型配置。
     summary_config = summary_model_config or model_config
-
-    # Archive full transcript for traceability
-    transcripts_dir = get_app_data_dir() / "transcripts"
-    transcripts_dir.mkdir(exist_ok=True)
-    path = transcripts_dir / f"transcript_{int(time.time())}.jsonl"
-    with open(path, "w", encoding="utf-8") as f:
-        for msg in messages:
-            f.write(json.dumps(msg, default=str, ensure_ascii=False) + "\n")
 
     # Separate system messages (prefix) from conversation
     system_msgs = [m for m in messages if m.get("role") == "system"]
     conv_msgs = [m for m in messages if m.get("role") != "system"]
 
-    # Keep recent tail verbatim; align backward off tool messages so we don't
-    # start the tail with an orphan tool result
-    tail = conv_msgs[-RECENT_KEEP:] if len(conv_msgs) > RECENT_KEEP else conv_msgs
+    # Keep a recent suffix, bounded by both message count and token budget. A
+    # fixed 15-message tail can itself exceed the threshold when it contains
+    # large tool results, leaving nothing compressible.
+    candidates = conv_msgs[-RECENT_KEEP:]
+    if target_tokens > 0 and candidates:
+        tail_budget = max(1000, int(target_tokens * 0.35))
+        selected, selected_tokens = [], 0
+        for message in reversed(candidates):
+            message_tokens = estimate_tokens([message])
+            if selected and selected_tokens + message_tokens > tail_budget:
+                break
+            selected.append(message)
+            selected_tokens += message_tokens
+        tail = list(reversed(selected))
+    else:
+        tail = candidates
+
+    # Align forward off tool messages so the tail does not start with an orphan.
     while tail and tail[0].get("role") == "tool":
         tail = tail[1:]
 
     # Summarize the middle (everything except the tail)
     middle = conv_msgs[:-len(tail)] if tail else conv_msgs
     if not middle:
+        report("skipped", "没有可压缩的较早消息")
         return messages  # nothing to compact
+
+    report("started")
+
+    # Archive full transcript for traceability. Failure to archive should not
+    # prevent context recovery, so the summary simply omits the archive path.
+    path = None
+    try:
+        transcripts_dir = get_app_data_dir() / "transcripts"
+        transcripts_dir.mkdir(exist_ok=True)
+        path = transcripts_dir / f"transcript_{time.time_ns()}.jsonl"
+        with open(path, "w", encoding="utf-8") as f:
+            for msg in messages:
+                f.write(json.dumps(msg, default=str, ensure_ascii=False) + "\n")
+    except OSError:
+        path = None
 
     # 分块：按消息累积到 CHUNK_CHARS 一块，逐块摘要，避免硬截断丢弃早期内容
     chunks, cur, cur_len = [], [], 0
@@ -296,29 +361,45 @@ def auto_compact(messages: list, model_config: dict,
         chunks.append(cur)
 
     try:
+        deadline = time.monotonic() + max(0.01, float(timeout_seconds))
         part_summaries = []
         for i, ch in enumerate(chunks):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"上下文摘要超过 {timeout_seconds:g} 秒")
             ch_text = json.dumps(ch, default=str, ensure_ascii=False)
-            part_summaries.append(_summarize_text(summary_config, ch_text))
+            part_summaries.append(_summarize_text(
+                summary_config, ch_text, timeout_seconds=remaining,
+                stop_event=stop_event,
+            ))
         if len(part_summaries) == 1:
             summary = part_summaries[0]
         else:
             # 多块：合并各块摘要为一份总摘要
             merged = "\n\n".join(f"[片段{i+1}]\n{s}" for i, s in enumerate(part_summaries))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"上下文摘要超过 {timeout_seconds:g} 秒")
             summary = _summarize_text(
                 summary_config,
-                f"以下是同一段对话按时间顺序分块得到的多份摘要，请合并为一份连贯、不丢信息的结构化摘要：\n{merged}")
+                f"以下是同一段对话按时间顺序分块得到的多份摘要，请合并为一份连贯、不丢信息的结构化摘要：\n{merged}",
+                timeout_seconds=remaining,
+                stop_event=stop_event,
+            )
     except Exception as e:
         # 关键：摘要失败不丢中段，退化为不压缩，避免灾难性失忆
+        report("failed", str(e)[:300])
         return messages
 
     # Reassemble: system (unchanged prefix) + summary + recent tail
     compacted = list(system_msgs)
+    archive_note = f"完整原始记录已存档：{path}" if path else "完整原始记录存档失败"
     compacted.append({"role": "user", "content":
-        f"<context_summary>\n以下是之前对话的结构化摘要（完整原始记录已存档：{path}）。"
+        f"<context_summary>\n以下是之前对话的结构化摘要（{archive_note}）。"
         f"请把它当作你已经掌握的上下文，无缝继续后续工作：\n{summary}\n</context_summary>"})
     compacted.append({"role": "assistant", "content": "已完整了解之前的对话上下文，继续。"})
     compacted.extend(tail)
+    report("completed", f"{estimate_tokens(messages)} -> {estimate_tokens(compacted)}")
     return compacted
 
 

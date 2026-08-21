@@ -285,10 +285,10 @@ class _FakeMCP:
 
 
 class AgentRoutingTests(unittest.TestCase):
-    def _agent(self, trusted):
+    def _agent(self, trusted, command_safety="confirm"):
         agent = object.__new__(Agent)
         agent.mcp_manager = _FakeMCP(trusted)
-        agent.command_safety = "confirm"
+        agent.command_safety = command_safety
         agent._stop_flag = threading.Event()
         agent._tool_handlers = {}
         agent.search_config = {}
@@ -323,6 +323,21 @@ class AgentRoutingTests(unittest.TestCase):
             on_tool_start=lambda *_: None,
             on_tool_result=lambda *_: None,
             on_confirm=lambda *_: self.fail("trusted MCP should not confirm"),
+            on_todo_update=None,
+        )
+        messages = []
+        agent._execute_tools([{
+            "id": "1", "function": {"name": "mcp__demo__write", "arguments": '{}'},
+        }], messages, callback, 0, 5, None)
+        self.assertEqual(len(agent.mcp_manager.calls), 1)
+        self.assertEqual(messages[-1]["content"], "called")
+
+    def test_auto_mode_mcp_bypasses_confirmation(self):
+        agent = self._agent(False, command_safety="auto")
+        callback = SimpleNamespace(
+            on_tool_start=lambda *_: None,
+            on_tool_result=lambda *_: None,
+            on_confirm=lambda *_: self.fail("auto mode MCP should not confirm"),
             on_todo_update=None,
         )
         messages = []

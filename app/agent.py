@@ -108,6 +108,7 @@ class Agent:
         self._bg = bg_manager or BackgroundManager()
         self._rounds_without_todo = 0
         self._subagent_results: dict[tuple[str, str], str] = {}
+        self._auto_compact_attempted = False
 
         # Build stable system prompt with skill index (appended once, never changes
         # per-round, so the prefix stays cache-friendly).
@@ -384,6 +385,7 @@ class Agent:
         self._stop_flag.clear()
         self._rounds_without_todo = 0
         self._subagent_results.clear()
+        self._auto_compact_attempted = False
         all_messages = [{"role": "system", "content": self.system_prompt}] + messages
 
         cb = _Callbacks(
@@ -475,12 +477,31 @@ class Agent:
         prefix cache，工具调用越多命中率越低。已移除：大上下文由 auto_compact（低频、
         一次性折叠中段、保持 system 前缀稳定）兜底，缓存命中更高。
         """
-        if estimate_tokens(all_messages) > threshold:
-            all_messages = auto_compact(
+        before_tokens = estimate_tokens(all_messages)
+        if before_tokens > threshold and not self._auto_compact_attempted:
+            self._auto_compact_attempted = True
+
+            def on_compact_status(state: str, detail: str = ""):
+                if not cb.on_notice:
+                    return
+                if state == "started":
+                    cb.on_notice("上下文已达到自动压缩阈值，正在压缩，请稍候…")
+                elif state == "completed":
+                    cb.on_notice("上下文自动压缩完成，正在继续生成。")
+                elif state == "failed":
+                    cb.on_notice(f"上下文自动压缩失败，已保留原始内容：{detail}")
+                elif state == "skipped":
+                    cb.on_notice(f"上下文暂时无法自动压缩：{detail}")
+
+            compacted = auto_compact(
                 all_messages,
                 self.model_config,
                 summary_model_config=self._summary_model_config(),
+                target_tokens=threshold,
+                stop_event=self._stop_flag,
+                on_status=on_compact_status,
             )
+            all_messages = compacted
         if cb.on_context_update:
             cb.on_context_update(estimate_tokens(all_messages), threshold)
         return all_messages
@@ -585,18 +606,38 @@ class Agent:
 
             # Manual compact
             if tool_name == "compact":
-                all_messages.append({
+                compact_tool_message = {
                     "role": "tool", "tool_call_id": tc["id"],
                     "content": "正在压缩上下文…",
-                })
+                }
+                all_messages.append(compact_tool_message)
+                compact_status = {"state": ""}
+
+                def on_manual_compact_status(state: str, detail: str = ""):
+                    compact_status["state"] = state
+                    compact_status["detail"] = detail
+                    if cb.on_notice and state == "started":
+                        cb.on_notice("正在手动压缩上下文，请稍候…")
+
                 compact_result = auto_compact(
                     all_messages,
                     self.model_config,
                     summary_model_config=self._summary_model_config(),
+                    target_tokens=self.compact_threshold,
+                    stop_event=self._stop_flag,
+                    on_status=on_manual_compact_status,
                 )
-                all_messages.clear()
-                all_messages.extend(compact_result)
-                cb.on_tool_result(tool_name, "上下文已压缩")
+                state = compact_status.get("state")
+                if state == "completed":
+                    all_messages.clear()
+                    all_messages.extend(compact_result)
+                    result = "上下文已压缩"
+                elif state == "failed":
+                    result = f"上下文压缩失败，已保留原始内容：{compact_status.get('detail', '')}"
+                else:
+                    result = f"上下文未压缩：{compact_status.get('detail', '没有可压缩的较早消息')}"
+                cb.on_tool_result(tool_name, result)
+                compact_tool_message["content"] = result
                 continue
 
             # ask_user_question
@@ -631,7 +672,7 @@ class Agent:
                 info = self.mcp_manager.get_call_info(tool_name)
                 if not info:
                     result = f"MCP 工具不可用或工具列表已刷新：{tool_name}"
-                elif info.get("trusted"):
+                elif info.get("trusted") or self.command_safety == "auto":
                     result = self.mcp_manager.call_tool(tool_name, args)
                 elif self.command_safety == "disabled":
                     result = f"命令执行已禁用（disabled 模式），拒绝执行 MCP 工具：{info['server']}/{info['tool']}"

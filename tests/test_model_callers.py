@@ -1,4 +1,6 @@
 import unittest
+import time
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -25,6 +27,57 @@ class ModelCallerTests(unittest.TestCase):
             result = advanced_tools._summarize_text(MODEL_CONFIG, "source")
         self.assertEqual(result, "summary")
         self.assertEqual(complete.call_args.args[0], MODEL_CONFIG)
+
+    def test_summarizer_has_hard_timeout(self):
+        def slow_complete(*args, **kwargs):
+            time.sleep(0.2)
+            return "late"
+
+        started = time.monotonic()
+        with patch("app.model_protocol.complete_text", side_effect=slow_complete):
+            with self.assertRaises(TimeoutError):
+                advanced_tools._summarize_text(
+                    MODEL_CONFIG, "source", timeout_seconds=0.03,
+                )
+        self.assertLess(time.monotonic() - started, 0.15)
+
+    def test_auto_compact_shrinks_large_recent_tail_and_reports_success(self):
+        messages = [{"role": "system", "content": "system"}]
+        messages.extend(
+            {"role": "user" if i % 2 == 0 else "assistant", "content": "x" * 4000}
+            for i in range(8)
+        )
+        statuses = []
+        with TemporaryDirectory() as temp_dir:
+            with patch("app.advanced_tools.get_app_data_dir", return_value=Path(temp_dir)):
+                with patch("app.advanced_tools._summarize_text", return_value="summary"):
+                    compacted = advanced_tools.auto_compact(
+                        messages,
+                        MODEL_CONFIG,
+                        target_tokens=1000,
+                        on_status=lambda state, detail="": statuses.append((state, detail)),
+                    )
+        self.assertIsNot(compacted, messages)
+        self.assertLess(len(compacted), len(messages))
+        self.assertEqual(statuses[-1][0], "completed")
+
+    def test_auto_compact_reports_failure_and_preserves_messages(self):
+        messages = [{"role": "system", "content": "system"}] + [
+            {"role": "user", "content": "x" * 4000},
+            {"role": "assistant", "content": "latest"},
+        ]
+        statuses = []
+        with TemporaryDirectory() as temp_dir:
+            with patch("app.advanced_tools.get_app_data_dir", return_value=Path(temp_dir)):
+                with patch("app.advanced_tools._summarize_text", side_effect=TimeoutError("slow")):
+                    compacted = advanced_tools.auto_compact(
+                        messages,
+                        MODEL_CONFIG,
+                        target_tokens=100,
+                        on_status=lambda state, detail="": statuses.append((state, detail)),
+                    )
+        self.assertIs(compacted, messages)
+        self.assertEqual(statuses[-1], ("failed", "slow"))
 
     def test_rlm_and_subagent_use_adapter_factory(self):
         adapter = SimpleNamespace(

@@ -1,5 +1,6 @@
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from app.agent import Agent
@@ -119,6 +120,57 @@ class AgentProtocolTests(unittest.TestCase):
         self.assertEqual(second_kwargs["previous_response_id"], "resp_tool")
         self.assertEqual(len(second_kwargs["incremental_messages"]), 1)
         self.assertEqual(second_kwargs["incremental_messages"][0]["role"], "tool")
+
+    def test_failed_manual_compact_preserves_all_messages(self):
+        agent = object.__new__(Agent)
+        agent.model_config = model_config("openai_chat")
+        agent._model_configs = []
+        agent.compact_threshold = 100
+        agent._stop_flag = threading.Event()
+        agent._rounds_without_todo = 0
+        agent._todo = SimpleNamespace(has_open_items=lambda: False)
+        callback = SimpleNamespace(
+            on_tool_start=lambda *_: None,
+            on_tool_result=lambda *_: None,
+            on_notice=lambda *_: None,
+            on_todo_update=None,
+        )
+        messages = [{"role": "user", "content": "important history"}]
+
+        def failed_compact(original, *args, **kwargs):
+            kwargs["on_status"]("failed", "timeout")
+            return original
+
+        with patch("app.agent.auto_compact", side_effect=failed_compact):
+            agent._execute_tools([{
+                "id": "compact-1",
+                "function": {"name": "compact", "arguments": "{}"},
+            }], messages, callback, 0, 5, None)
+
+        self.assertEqual(messages[0]["content"], "important history")
+        self.assertEqual(len(messages), 2)
+
+    def test_failed_auto_compact_is_not_retried_in_same_run(self):
+        agent = object.__new__(Agent)
+        agent.model_config = model_config("openai_chat")
+        agent._model_configs = []
+        agent._stop_flag = threading.Event()
+        agent._auto_compact_attempted = False
+        callback = SimpleNamespace(
+            on_notice=lambda *_: None,
+            on_context_update=lambda *_: None,
+        )
+        messages = [{"role": "user", "content": "x" * 1000}]
+
+        def failed_compact(original, *args, **kwargs):
+            kwargs["on_status"]("failed", "timeout")
+            return original
+
+        with patch("app.agent.auto_compact", side_effect=failed_compact) as compact:
+            agent._manage_context(messages, 10, callback)
+            agent._manage_context(messages, 10, callback)
+
+        compact.assert_called_once()
 
 
 if __name__ == "__main__":
